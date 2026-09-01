@@ -162,8 +162,8 @@ Most of this is invisible, so it gets measured rather than eyeballed.
 |---|---|
 | `verify-terrain` | `height()` deterministic, bounded, continuous across all twelve cube-face seams |
 | `verify-chunk` | every skirt quad hangs from a real surface edge and carries its owner's normal and colour |
-| `verify-lod` | no cracks between adjacent levels; chunk count bounded through a scripted orbit-to-ground descent |
-| `verify-flight` | replay an input tape, assert a landed state, assert no NaN anywhere in the physics |
+| `verify-lod` | scripted orbit-to-deck descent in the browser: chunk count bounded, level 0 in orbit, level 6 on the deck, tree stable at rest |
+| `verify-flight` | drives the physics in Node, no browser: rests, lifts, crashes, terminal velocity, a bang-bang autopilot lands, the same run is bit-identical, tilt-to-move works, control pulses decay |
 | `verify-loop` | launch → orbit → transfer → descend → land → scoop → return → sell |
 
 ## 7. Build order

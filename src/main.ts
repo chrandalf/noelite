@@ -71,6 +71,9 @@ const hud = document.getElementById('hud')!
 const dir = new THREE.Vector3()
 const viewPos = new THREE.Vector3(), viewQuat = new THREE.Quaternion()
 let last = performance.now(), frames = 0, fps = 0, fpsAt = last, updates = 0, elapsed = 0
+// Stamped by place(): ready() must see an LOD update newer than the last camera move,
+// otherwise a harness can read the queue in the gap before the move is noticed.
+let placedAt = -1
 let crashedAt: number | null = null
 addEventListener('keydown', (e) => { if (e.code === 'KeyR' && mode === 'fly') respawn() })
 function respawn() { craft.spawnOn(pad, new THREE.Vector3(1, 0, 0)); crashedAt = null }
@@ -124,10 +127,10 @@ renderer.setAnimationLoop((now) => {
 // For the harnesses.
 ;(window as unknown as { __noelite: unknown }).__noelite = {
   mode, planet, craft, input, free,
-  /** True only once the LOD has run at least once and its queue is empty. */
-  ready: () => updates > 0 && planet.pendingCount === 0,
+  /** True only once the LOD has updated since the last place() and its queue is empty. */
+  ready: () => updates > placedAt + 1 && planet.pendingCount === 0,
   /** Free mode: put the camera at p looking at a. */
-  place: (px: number, py: number, pz: number, ax: number, ay: number, az: number) => { free.pos.set(px, py, pz); free.lookAt(new THREE.Vector3(ax, ay, az)) },
+  place: (px: number, py: number, pz: number, ax: number, ay: number, az: number) => { free.pos.set(px, py, pz); free.lookAt(new THREE.Vector3(ax, ay, az)); placedAt = updates },
   altitude: () => mode === 'fly' ? craft.altitude() : free.pos.length() - PLANET_RADIUS - height(free.pos.clone().normalize(), MASTER_SEED),
   respawn,
 }
