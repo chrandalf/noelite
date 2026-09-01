@@ -92,14 +92,61 @@ One rigid body. Gravity and atmospheric drag are functions of altitude.
 Same code. The craft flies differently in different places because the air is different,
 which is both correct and free.
 
-### Scarcity
+### Scarcity and rarity
 
 What a world holds falls out of its seed, so "the third one out from that red dwarf is
 lousy with iridium" is a real, stable, learnable fact. Knowledge is the progression.
 
-**Easter eggs are hand-placed.** Not seeded, not generated, authored, and rare. If the
-universe is arithmetic and nine things in it were put there on purpose, those nine things
-are the only things anyone will tell a story about.
+**The unit of search is the site.** A site is a discrete derived point of interest on a
+surface: a deposit, a wreck, a ruin, a signal source. Each planet has some number of them,
+derived from its seed. Working numbers, all of them config:
+
+    ~2,000 systems × ~3 planets × ~50 sites ≈ 300,000 sites in the universe
+
+**Rarity is a count, not a dice roll.** Each site hashes to a tier. In a fixed universe
+"1 in N" means "this many exist," and they are always in the same place:
+
+| Tier | Odds | ≈ in universe | What it is |
+|---|---|---|---|
+| common | 1 in 100 | 3,000 | ordinary deposits, the bread and butter |
+| uncommon | 1 in 1,000 | 300 | worth a detour, worth remembering |
+| rare | 1 in 10,000 | 30 | worth a story |
+| legendary | 1 in 100,000 | 3 | the reason people play for a year |
+
+Per-scan probability is explicitly rejected. If every scan is a lottery ticket then
+nothing is anywhere and the map stops meaning anything.
+
+**Tough means a trail, not a grind.** Nobody lands on 300,000 sites. The game's job is
+to narrow the search: a rumour at a station, an orbital signal that gives you a
+hemisphere, a mineral that only forms on a certain slope, a wreck that only ever fell
+near a pole. Each tier up, the trail gets longer and fainter. The funnel is the game;
+the last hundred metres are the hard bit.
+
+**Easter eggs are hand-placed on top of all this.** Not seeded, not generated, authored
+in a checked-in table keyed by (system, planet, lat, lon). The universe is a fixed
+function of one master seed, so a coordinate means the same thing forever, and the seed
+gets a version number and never moves once authoring has started against it.
+`height()` grows an override term (`base + overrides`) so authored spots can flatten a
+pad or dig a crater without fighting the noise. If nine things in the galaxy were put
+there on purpose, those nine things are the only things anyone will tell a story about.
+
+### Missions
+
+Missions are how the funnel reaches the player, and they are **data, not code.** A
+mission is a list of steps over a small verb set:
+
+    go_to · land_at · scan · collect · deliver · return
+
+Same shape as night-shift's mission chain, same verify harness pattern.
+
+Two layers, again:
+
+- **Derived.** Every station has a board, generated from its seed and the economy:
+  fetch N of X, carry this from A to B, survey that planet. Infinite, cheap, the
+  ordinary texture of making a living.
+- **Authored.** Hand-written missions that *are* the trail to rare and legendary sites.
+  A derived mission tells you where iridium is. An authored one tells you someone heard
+  a signal near the south pole of a planet nobody lands on.
 
 ## 6. Instruments, before the game
 
@@ -121,9 +168,14 @@ Every step is playable. That's the point of the ordering.
 3. **Take off and keep going.** Watch it become a ball. Seamless proven.
 4. **Scoop.** One seed-derived resource, one hold.
 5. **Second world.** Transfer, land, sell. The full loop, as slice five rather than slice one.
+6. **Sites and tiers.** Derived points of interest, hashed to rarity. A scanner that funnels.
+7. **Mission board.** Derived fetch / deliver / survey from station seeds.
+8. **Authored missions and eggs.** The trails to the thirty rares and the three legendaries.
 
 ## 8. Deferred
 
 - How interplanetary travel compresses (jump? time accel? both?)
 - Combat, or whether there is any
 - Whether the radius dial ever gets turned past 20 km
+- Exact universe size. 2,000 systems is Elite's 8 × 256 and a sensible default; it sets
+  the rarity counts, so it gets fixed before authoring starts.
