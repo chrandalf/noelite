@@ -37,3 +37,12 @@ export const LAND_MAX_TILT = 15
 export const LAND_MAX_SLOPE = 15
 /** Physics runs at this fixed step so an input tape replays bit for bit. */
 export const FIXED_DT = 1 / 120
+
+// ---- Landing feel and boost (from the first flight, 2026-09-01). ----
+
+/** Shift. Thrust multiplier; drag caps it low down, nothing caps it high up. */
+export const BOOST_MULT = 2.6
+/** Ground effect: the last few metres push back, and harder the faster you fall into them. */
+export const GROUND_EFFECT_HEIGHT = 6
+export const GROUND_EFFECT_ACCEL = 2.5
+export const GROUND_EFFECT_DAMP = 1.2

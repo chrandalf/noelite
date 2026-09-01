@@ -46,10 +46,10 @@ export function buildCraftMesh(material: THREE.Material): { root: THREE.Group; f
   const root = new THREE.Group()
   root.add(new THREE.Mesh(buildCraftGeometry(), material))
   const flame = new THREE.Mesh(
-    new THREE.ConeGeometry(0.7, 2.6, 6),
+    new THREE.ConeGeometry(0.7, 3.4, 6),
     new THREE.MeshBasicMaterial({ color: 0xffa040 }),
   )
-  flame.position.set(0, -1.9, 0.9)
+  flame.position.set(0, -2.3, 0.9)
   flame.rotation.x = Math.PI
   flame.visible = false
   root.add(flame)

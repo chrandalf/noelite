@@ -21,6 +21,14 @@ await page.setViewport({ width: 960, height: 600 })
 page.on('pageerror', (e) => console.error('PAGE ERROR:', e.message))
 page.on('console', (m) => { if (m.type() === 'error') console.error('CONSOLE:', m.text()) })
 await page.goto(url, { waitUntil: 'domcontentloaded' })
+// A Vite error overlay means the app never ran. Say so, loudly, instead of photographing it.
+await new Promise((r) => setTimeout(r, 600))
+if (await page.$('vite-error-overlay')) {
+  const msg = await page.evaluate(() => document.querySelector('vite-error-overlay')?.shadowRoot?.querySelector('.message')?.textContent ?? '')
+  console.error('VITE ERROR OVERLAY:', msg.trim().slice(0, 300))
+  await browser.close()
+  process.exit(2)
+}
 // Let the LOD queue drain so the picture is of the finished planet, not the build.
 await page.waitForFunction(() => globalThis.__noelite?.ready?.() === true, { timeout: 90000, polling: 250 }).catch(() => console.error('WARN: LOD queue did not drain in 90s'))
 await new Promise((r) => setTimeout(r, 400))

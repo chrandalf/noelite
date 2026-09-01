@@ -1,8 +1,8 @@
 // Keyboard to Controls. W/S or up/down pitch, A/D or left/right roll, Q/E yaw,
-// space thrusts. Nothing analogue yet; that is the honest Zarch version.
+// space thrusts, shift boosts. Nothing analogue yet; that is the honest Zarch version.
 import type { Controls } from './Craft.ts'
 
-const CODES = ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyQ', 'KeyE', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']
+const CODES = ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyQ', 'KeyE', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ShiftLeft', 'ShiftRight']
 
 export class KeyInput {
   private readonly down = new Set<string>()
@@ -24,6 +24,7 @@ export class KeyInput {
       roll: on('KeyD', 'ArrowRight') - on('KeyA', 'ArrowLeft'),
       yaw: on('KeyE') - on('KeyQ'),
       thrust: on('Space'),
+      boost: on('ShiftLeft', 'ShiftRight'),
     }
   }
 }

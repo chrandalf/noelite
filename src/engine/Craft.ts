@@ -12,11 +12,12 @@ import { groundRadius, surfaceNormal, slopeDeg } from '../world/terrain.ts'
 import {
   PLANET_RADIUS, GRAVITY, ATMOSPHERE_HEIGHT, DRAG, THRUST_ACCEL, ANG_ACCEL, ANG_DAMP,
   HULL_CLEARANCE, LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE, FIXED_DT,
+  BOOST_MULT, GROUND_EFFECT_HEIGHT, GROUND_EFFECT_ACCEL, GROUND_EFFECT_DAMP,
 } from '../world/config.ts'
 
 /** pitch: nose down positive. roll: right wing down positive. yaw: nose right positive. All -1..1. thrust 0..1. */
-export type Controls = { pitch: number; roll: number; yaw: number; thrust: number }
-export const IDLE: Readonly<Controls> = Object.freeze({ pitch: 0, roll: 0, yaw: 0, thrust: 0 })
+export type Controls = { pitch: number; roll: number; yaw: number; thrust: number; boost: number }
+export const IDLE: Readonly<Controls> = Object.freeze({ pitch: 0, roll: 0, yaw: 0, thrust: 0, boost: 0 })
 
 export type CraftState = 'landed' | 'flying' | 'crashed'
 
@@ -114,7 +115,17 @@ export class Craft {
     this.acc.copy(this.up).multiplyScalar(-g)
     if (c.thrust > 0) {
       this.bodyUp.copy(BODY_UP).applyQuaternion(this.quat)
-      this.acc.addScaledVector(this.bodyUp, THRUST_ACCEL * c.thrust)
+      this.acc.addScaledVector(this.bodyUp, THRUST_ACCEL * c.thrust * (1 + c.boost * (BOOST_MULT - 1)))
+    }
+    // Ground effect. A cushion in the last few metres, plus damping against
+    // descent, both fading to nothing at GROUND_EFFECT_HEIGHT. It is the ground
+    // answering back, and it is what makes the last part of a landing readable.
+    const feet = alt - HULL_CLEARANCE
+    if (feet < GROUND_EFFECT_HEIGHT) {
+      const k = 1 - Math.max(0, feet) / GROUND_EFFECT_HEIGHT
+      this.acc.addScaledVector(this.up, GROUND_EFFECT_ACCEL * k)
+      const vUp = this.vel.dot(this.up)
+      if (vUp < 0) this.acc.addScaledVector(this.up, -vUp * GROUND_EFFECT_DAMP * k)
     }
     const x = 1 - Math.min(1, Math.max(0, alt / ATMOSPHERE_HEIGHT))
     const rho = x * x * (3 - 2 * x) // smoothstep to zero at the top of the atmosphere

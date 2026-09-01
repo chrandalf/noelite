@@ -5,12 +5,12 @@
 import * as THREE from 'three'
 import { Craft, IDLE } from '../src/engine/Craft.ts'
 import { findLandable } from '../src/world/terrain.ts'
-import { FIXED_DT, GRAVITY, DRAG, LAND_MAX_VSPEED, MASTER_SEED } from '../src/world/config.ts'
+import { FIXED_DT, GRAVITY, DRAG, LAND_MAX_VSPEED, MASTER_SEED, GROUND_EFFECT_HEIGHT } from '../src/world/config.ts'
 
 let pass = 0, fail = 0
 const check = (name, cond, detail = '') => { if (cond) { pass++; console.log(`  ok   ${name}${detail ? '  (' + detail + ')' : ''}`) } else { fail++; console.log(`  FAIL ${name}  ${detail}`) } }
 const finite = (v) => Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z)
-const T = (thrust, pitch = 0, roll = 0, yaw = 0) => ({ pitch, roll, yaw, thrust })
+const T = (thrust, pitch = 0, roll = 0, yaw = 0, boost = 0) => ({ pitch, roll, yaw, thrust, boost })
 
 const pad = findLandable(new THREE.Vector3(0, 0, 1), MASTER_SEED)
 // Level spawn: thrust is then exactly radial, so a no-steer autopilot comes back
@@ -87,6 +87,24 @@ const L1 = land()
   const spinning = c.angVel.length()
   until(c, () => false, 2, () => T(1))
   check('angular velocity decays after a pulse', spinning > 0.5 && c.angVel.length() < 0.05, `${spinning.toFixed(2)} → ${c.angVel.length().toFixed(3)} rad/s`)
+}
+// 9. Boost lifts harder.
+{
+  const a = fresh(), b = fresh()
+  until(a, () => false, 3, () => T(1))
+  until(b, () => false, 3, () => T(1, 0, 0, 0, 1))
+  check('shift boost climbs faster than plain thrust', b.altitude() > 1.8 * a.altitude(), `${a.altitude().toFixed(1)} m vs ${b.altitude().toFixed(1)} m in 3 s`)
+}
+// 10. The ground answers back: a drop from just above the cushion arrives slower than free fall.
+{
+  const c = fresh()
+  const h = GROUND_EFFECT_HEIGHT + 4
+  until(c, (c) => c.altitude() > h, 10, () => T(1))
+  until(c, (c) => c.vUp() <= 0, 10, () => IDLE) // let it top out
+  const top = c.altitude()
+  until(c, (c) => c.state !== 'flying', 20, () => IDLE)
+  const freeFall = Math.sqrt(2 * GRAVITY * top)
+  check('ground effect softens a dead drop', c.lastContact.vUp > -freeFall * 0.9, `from ${top.toFixed(1)} m: touched at ${c.lastContact.vUp.toFixed(1)} m/s, free fall would be ${(-freeFall).toFixed(1)}`)
 }
 
 console.log(`\n${pass}/${pass + fail} checks`)

@@ -12,10 +12,44 @@
         font: 12px ui-monospace, Menlo, Consolas, monospace;
         color: #9fe3a0; letter-spacing: 0.06em; pointer-events: none; white-space: pre;
       }
+      #altimeter {
+        position: fixed; right: 18px; top: 50%; transform: translateY(-50%);
+        display: flex; gap: 10px; align-items: stretch; pointer-events: none;
+        font: 12px ui-monospace, Menlo, Consolas, monospace; color: #9fe3a0; letter-spacing: 0.06em;
+      }
+      #altimeter .scale { position: relative; width: 14px; height: 280px; border: 1px solid #9fe3a0aa; background: #0008; }
+      #altimeter .fill { position: absolute; left: 0; right: 0; bottom: 0; background: #5fbf5a; opacity: 0.55; }
+      #altimeter .marker { position: absolute; left: -6px; right: -6px; height: 3px; background: #fff; box-shadow: 0 0 6px #fff; }
+      #altimeter .ticks { position: absolute; left: 20px; top: 0; bottom: 0; width: 40px; }
+      #altimeter .ticks span { position: absolute; left: 0; transform: translateY(50%); opacity: 0.6; }
+      #altimeter .panel { display: flex; flex-direction: column; justify-content: space-between; margin-left: 44px; }
+      #altimeter .readout { font-size: 26px; text-align: right; }
+      #altimeter .readout small { font-size: 12px; opacity: 0.7; }
+      #altimeter .lights { display: grid; gap: 4px; }
+      #altimeter .lights span { padding: 2px 6px; border: 1px solid #9fe3a066; border-radius: 3px; text-align: right; opacity: 0.55; }
+      #altimeter .lights span.ok { background: #5fbf5a44; opacity: 1; }
+      #altimeter .lights span.bad { border-color: #e06a5a; color: #ffb0a0; opacity: 1; }
+      #altimeter .state { font-size: 15px; text-align: right; min-height: 20px; }
+      #altimeter.low .fill { background: #e6b33a; }
+      #altimeter.critical .fill { background: #e06a5a; }
+      #altimeter.critical .marker { background: #ff8; }
+      #altimeter[hidden] { display: none; }
     </style>
   </head>
   <body>
     <div id="hud"></div>
+    <div id="altimeter" hidden>
+      <div class="scale"><div class="fill"></div><div class="marker"></div>
+        <div class="ticks"><span style="bottom:0">0</span><span style="bottom:12.5%">15</span><span style="bottom:41.6%">50</span><span style="bottom:83.3%">100</span></div>
+      </div>
+      <div class="panel">
+        <div class="readout"><span id="alt-num">0.0</span> <small>m</small></div>
+        <div class="lights">
+          <span id="l-v">V↑ 0.0</span><span id="l-d">DRIFT 0.0</span><span id="l-t">TILT 0°</span><span id="l-s">SLOPE 0°</span>
+        </div>
+        <div class="state" id="alt-state"></div>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
