@@ -19,7 +19,8 @@ function chrome() {
   for (const b of readdirSync(dir).sort().reverse()) { const p = join(dir, b, 'chrome-linux64', 'chrome'); if (existsSync(p)) return p }
 }
 
-const url = process.argv[2] ?? 'http://localhost:5175/'
+const base = process.argv[2] ?? 'http://localhost:5175/'
+const url = base + (base.includes('?') ? '&' : '?') + 'mode=free'
 const MAX_CHUNKS = 400
 const R = PLANET_RADIUS
 let pass = 0, fail = 0

@@ -14,3 +14,26 @@ export const TERRAIN_AMPLITUDE = 140
  */
 export const MASTER_SEED = 0x4e4f454c // "NOEL"
 export const SEED_VERSION = 1
+
+// ---- Flight. Gameplay numbers, not physics. Tune by flying, then by harness. ----
+
+/** m/s² at the surface. Falls off with (R/r)² so orbit is weightless. */
+export const GRAVITY = 7.0
+/** Metres. Drag fades to nothing here; above it the craft coasts. */
+export const ATMOSPHERE_HEIGHT = 700
+/** Quadratic drag per metre at sea level. Terminal velocity ≈ √(g/DRAG) ≈ 24 m/s. */
+export const DRAG = 0.012
+/** m/s² along the craft's own up-axis. Thrust-to-weight ≈ 1.85. */
+export const THRUST_ACCEL = 13
+/** rad/s² from full stick, and the 1/s damping that stops it when you let go. */
+export const ANG_ACCEL = 6
+export const ANG_DAMP = 4
+/** Metres from the craft's centre to its feet. */
+export const HULL_CLEARANCE = 1.6
+/** What counts as a landing rather than an arrival. */
+export const LAND_MAX_VSPEED = 4
+export const LAND_MAX_HSPEED = 3
+export const LAND_MAX_TILT = 15
+export const LAND_MAX_SLOPE = 15
+/** Physics runs at this fixed step so an input tape replays bit for bit. */
+export const FIXED_DT = 1 / 120
