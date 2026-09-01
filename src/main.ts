@@ -6,7 +6,8 @@
 //
 //   default        fly the craft (space thrusts, shift boosts, W/S A/D tilt, Q/E yaw, R respawn, M mute)
 //                  drag orbits the camera, wheel zooms, C snaps it back
-//                  X points thrust against velocity, Z points it at the planet
+//                  X points against velocity, Z at the planet, T at the target; Tab cycles the target
+//                  in air the ship hovers (thrust up, tilt to move); in vacuum it cruises (thrust forward, / brakes)
 //                  , . side thrusters, / top thruster (pushes down), ' rear thruster (pushes forward)
 //   ?mode=free     step-1 fly camera, for the LOD harness and screenshots
 //   ?cam=&at=      free-mode camera placement
@@ -190,12 +191,17 @@ let last = performance.now(), frames = 0, fps = 0, fpsAt = last, updates = 0, el
 // otherwise a harness can read the queue in the gap before the move is noticed.
 let placedAt = -1
 let crashedAt: number | null = null
+// Targeting: Tab cycles through every body but home.
+const targets = views.filter((v) => v.body !== home)
+let targetIndex = 0
+const toTarget = new THREE.Vector3()
 addEventListener('keydown', (e) => {
   beeper.arm()
   if (mode !== 'fly') return
   if (e.code === 'KeyR') respawn()
   if (e.code === 'KeyM') beeper.muted = !beeper.muted
   if (e.code === 'KeyC') chase.reset()
+  if (e.code === 'Tab') { e.preventDefault(); targetIndex = (targetIndex + 1) % targets.length }
 })
 function respawn() { craft.spawnOn(pad, new THREE.Vector3(1, 0, 0)); crashedAt = null }
 
@@ -242,12 +248,20 @@ renderer.setAnimationLoop((now) => {
     let c: Controls = input.read()
     if (burn > 0 && elapsed < burn) c = { ...c, thrust: 1 }
     const assist = input.assist()
+    const tgt = targets[targetIndex]
+    toTarget.copy(tgt.rel).sub(craft.pos)
     if (assist && craft.state === 'flying') {
       dir.copy(craft.pos).normalize()
-      const target = assist === 'nadir' ? dir.clone().negate() : craft.speed() > 0.5 ? craft.vel.clone().normalize().negate() : dir.clone()
+      const target = assist === 'nadir' ? dir.clone().negate()
+        : assist === 'target' ? toTarget.clone().normalize()
+        : craft.speed() > 0.5 ? craft.vel.clone().normalize().negate() : dir.clone()
       const a = craft.aimControls(target)
-      c = { ...c, pitch: a.pitch, roll: a.roll }
+      c = { ...c, pitch: a.pitch, roll: a.roll, yaw: a.yaw }
     }
+    // Cruise wants to know how close the nearest thing is, whichever body that is.
+    let nearest = Infinity
+    for (const v of views) nearest = Math.min(nearest, v.rel.distanceTo(craft.pos) - v.body.radius)
+    craft.proximity = nearest
     craft.step(dt, c)
     if (craft.state === 'crashed') { crashedAt ??= now; if (now - crashedAt > 2000) respawn() }
     ship.position.copy(craft.pos)
@@ -291,9 +305,12 @@ renderer.setAnimationLoop((now) => {
     const pro = craft.vel.clone().normalize()
     markers.place('pro', pro, camera, showNav && moving)
     markers.place('retro', pro.clone().negate(), camera, showNav && moving)
+    const tDist = toTarget.length(), tDir = toTarget.clone().divideScalar(tDist)
+    const closing = -craft.vel.dot(tDir)
+    markers.place('target', tDir, camera, showNav, `${tgt.body.name}  ${(tDist / 1000).toFixed(1)} km  ${closing >= 0 ? '↓' : '↑'}${Math.abs(closing).toFixed(0)} m/s`)
     const lc = craft.lastContact
     const vOrb = craft.orbitalSpeed(), vEsc = craft.escapeSpeed(), spd = craft.speed()
-    const spaceLine = rho < 1 ? `orbit ${vOrb.toFixed(0)}   escape ${vEsc.toFixed(0)}   ${spd > vEsc ? '!! ESCAPING !!' : spd > vOrb ? 'above orbital' : ''}   X retro   Z planet\n` : ''
+    const spaceLine = rho < 1 ? `${craft.cruise ? `CRUISE  cap ${craft.cruiseCap(craft.proximity ?? 0).toFixed(0)} m/s  (thrust forward, / brakes)` : 'HOVER'}   orbit ${vOrb.toFixed(0)}   escape ${vEsc.toFixed(0)}   ${craft.cruise ? '' : spd > vEsc ? '!! ESCAPING !!' : spd > vOrb ? 'above orbital' : ''}   target ${tgt.body.name} (Tab)   T aim   X retro   Z planet\n` : ''
     line = `alt ${altitude.toFixed(1).padStart(6)} m   v↑ ${vUp.toFixed(1).padStart(5)} m/s   spd ${spd.toFixed(1).padStart(5)} m/s   tilt ${tilt.toFixed(0).padStart(2)}°   ${craft.state.toUpperCase()}   landings ${craft.landings}  crashes ${craft.crashes}\n` + spaceLine +
       (craft.state === 'crashed' ? `contact: v↑ ${lc.vUp.toFixed(1)}  drift ${lc.vH.toFixed(1)}  tilt ${lc.tilt.toFixed(0)}°  slope ${lc.slope.toFixed(0)}°   (R to respawn)\n` : '') +
       `space thrust   shift boost   W/S tilt   A/D roll   Q/E yaw   , . side   / top   ' rear   X/Z assists   R respawn   M mute   drag orbit   wheel zoom   C reset   ${fps} fps   chunks ${planet.liveCount}`

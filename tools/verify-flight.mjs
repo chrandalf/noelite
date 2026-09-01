@@ -6,7 +6,7 @@ import * as THREE from 'three'
 import { Craft, IDLE } from '../src/engine/Craft.ts'
 import { findLandable } from '../src/world/terrain.ts'
 import { HOME } from '../src/world/height.ts'
-import { FIXED_DT, DRAG, LAND_MAX_VSPEED, GROUND_EFFECT_HEIGHT } from '../src/world/config.ts'
+import { FIXED_DT, DRAG, LAND_MAX_VSPEED, GROUND_EFFECT_HEIGHT, CRUISE_MAX, CRUISE_DECEL } from '../src/world/config.ts'
 const GRAVITY = HOME.g, ATMOSPHERE_HEIGHT = HOME.air
 
 let pass = 0, fail = 0
@@ -112,8 +112,7 @@ const L1 = land()
 {
   const c = fresh()
   until(c, () => false, 15, () => T(1, 0, 0, 0, 1))
-  const escaping = c.altitude() > ATMOSPHERE_HEIGHT && c.speed() > c.escapeSpeed()
-  check('15 s of boost escapes the planet', escaping, `alt ${c.altitude().toFixed(0)} m, ${c.speed().toFixed(0)} m/s vs escape ${c.escapeSpeed().toFixed(0)}`)
+  check('15 s of boost leaves the atmosphere', c.altitude() > ATMOSPHERE_HEIGHT && c.cruise, `alt ${c.altitude().toFixed(0)} m, ${c.speed().toFixed(0)} m/s`)
   const v0 = c.speed()
   let minV = v0, aligned = 0
   const retro = new THREE.Vector3(), bodyUp = new THREE.Vector3()
@@ -145,6 +144,52 @@ const L1 = land()
   const v1 = c.vUp()
   until(c, () => false, 2, () => T(0, 0, 0, 0, 0, 0, -1))
   check('top thruster brakes a climb harder than gravity alone', c.vUp() < v1 - 2 * GRAVITY - 4, `v↑ ${v1.toFixed(1)} → ${c.vUp().toFixed(1)} in 2 s`)
+}
+// 14. Cruise: out of the air the engine fires along the nose and speed follows the nose.
+{
+  const c = fresh()
+  until(c, (c) => c.cruise, 40, () => T(1, 0, 0, 0, 1))
+  check('leaving the atmosphere switches to cruise', c.cruise, `at ${c.altitude().toFixed(0)} m`)
+  // Coast, then thrust: velocity should end up along the nose, not along the old radial.
+  until(c, () => false, 1, () => IDLE)
+  until(c, () => false, 6, () => T(1))
+  const nose = new THREE.Vector3(0, 0, -1).applyQuaternion(c.quat)
+  const along = c.vel.clone().normalize().dot(nose)
+  check('in cruise, thrust builds speed along the nose', along > 0.97, `cos ${along.toFixed(3)}, ${c.speed().toFixed(0)} m/s`)
+  // Turn 60 degrees with the stick; the velocity should come round with the nose.
+  until(c, () => false, 0.45, () => T(0, 0, 0, 1))
+  until(c, () => false, 4, () => T(0))
+  const nose2 = new THREE.Vector3(0, 0, -1).applyQuaternion(c.quat)
+  const turned = Math.acos(Math.min(1, nose.dot(nose2))) * 180 / Math.PI
+  const along2 = c.vel.clone().normalize().dot(nose2)
+  check('turning carries the velocity with the nose', turned > 20 && along2 > 0.97, `turned ${turned.toFixed(0)}°, cos ${along2.toFixed(3)}`)
+  // Boost for a long time: the cap holds, and out here the cap is big.
+  until(c, () => false, 40, () => T(1, 0, 0, 0, 1))
+  const cap = c.cruiseCap(c.altitude())
+  check('the cruise speed cap holds under sustained boost', c.speed() < cap * 1.05 && c.speed() > CRUISE_MAX, `${c.speed().toFixed(0)} m/s vs cap ${cap.toFixed(0)} at ${(c.altitude() / 1000).toFixed(0)} km`)
+  const v0 = c.speed()
+  until(c, () => false, 5, () => T(0, 0, 0, 0, 0, 0, -1))
+  check('/ brakes in cruise', c.speed() < v0 - 30, `${v0.toFixed(0)} → ${c.speed().toFixed(0)} m/s in 5 s`)
+  // Aim the nose at something: T-style assist in cruise.
+  const target = new THREE.Vector3(0.3, 0.9, -0.2).normalize()
+  until(c, () => false, 6, (t, c) => { const a = c.aimControls(target); return T(0, a.pitch, a.roll, a.yaw) })
+  const nose3 = new THREE.Vector3(0, 0, -1).applyQuaternion(c.quat)
+  check('cruise aim points the nose at the target', nose3.dot(target) > 0.98, `cos ${nose3.dot(target).toFixed(3)}`)
+}
+// 15. Diving at the planet at cruise speed: the cap reels you in all the way down.
+{
+  const c = fresh()
+  until(c, (c) => c.altitude() > 60_000, 120, () => T(1, 0, 0, 0, 1))
+  const nadir = new THREE.Vector3()
+  let worst = 0
+  const top = c.altitude()
+  until(c, (c) => c.state !== 'flying' || !c.cruise, 400, (t, c) => {
+    nadir.copy(c.pos).normalize().negate()
+    const a = c.aimControls(nadir)
+    worst = Math.max(worst, c.speed() / c.cruiseCap(c.altitude()))
+    return T(1, a.pitch, a.roll, a.yaw, 1)
+  })
+  check('diving at full boost never exceeds the cap', worst < 1.02 && !c.cruise && c.state === 'flying', `from ${(top / 1000).toFixed(0)} km: worst ${(worst * 100).toFixed(0)}% of cap, handed back to hover at ${c.altitude().toFixed(0)} m doing ${c.speed().toFixed(0)} m/s`)
 }
 
 console.log(`\n${pass}/${pass + fail} checks`)

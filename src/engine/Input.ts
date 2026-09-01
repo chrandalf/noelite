@@ -3,7 +3,7 @@
 // thruster (pushes forward). Nothing analogue yet; that is the honest Zarch version.
 import type { Controls } from './Craft.ts'
 
-const CODES = ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyQ', 'KeyE', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ShiftLeft', 'ShiftRight', 'KeyX', 'KeyZ', 'Comma', 'Period', 'Slash', 'Quote']
+const CODES = ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyQ', 'KeyE', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ShiftLeft', 'ShiftRight', 'KeyX', 'KeyZ', 'KeyT', 'Comma', 'Period', 'Slash', 'Quote']
 
 export class KeyInput {
   private readonly down = new Set<string>()
@@ -16,9 +16,9 @@ export class KeyInput {
     addEventListener('blur', () => this.down.clear())
   }
 
-  /** X: point thrust against velocity. Z: point thrust at the planet. */
-  assist(): 'retro' | 'nadir' | null {
-    return this.down.has('KeyX') ? 'retro' : this.down.has('KeyZ') ? 'nadir' : null
+  /** X: point against velocity. Z: point at the planet. T: point at the target. (Thrust axis in hover, nose in cruise.) */
+  assist(): 'retro' | 'nadir' | 'target' | null {
+    return this.down.has('KeyX') ? 'retro' : this.down.has('KeyZ') ? 'nadir' : this.down.has('KeyT') ? 'target' : null
   }
 
   read(): Controls {

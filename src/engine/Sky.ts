@@ -49,9 +49,10 @@ const FRAG = /* glsl */ `
     // Haze around the sun, in air only. The sun itself is a body in the scene.
     float s = max(dot(d, uSun), 0.0);
     float glow = pow(s, 10.0) * 0.55 * uDensity * (0.3 + 0.7 * uDay);
+    float halo = pow(s, 400.0) * 0.5; // tight corona, so a small far sun still reads as a sun
     float alpha = uDensity * (0.35 + 0.65 * uDay);
-    col += uSunCol * glow;
-    alpha = max(alpha, glow * 0.8);
+    col += uSunCol * (glow + halo);
+    alpha = max(alpha, max(glow * 0.8, halo));
     gl_FragColor = vec4(col, alpha);
   }`
 

@@ -14,6 +14,7 @@ import {
   DRAG, THRUST_ACCEL, ANG_ACCEL, ANG_DAMP,
   HULL_CLEARANCE, LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE, FIXED_DT,
   BOOST_MULT, GROUND_EFFECT_HEIGHT, GROUND_EFFECT_ACCEL, GROUND_EFFECT_DAMP, GRAVITY_FALLOFF, RCS_ACCEL,
+  CRUISE_ENTER, CRUISE_EXIT, CRUISE_ALIGN_TAU, CRUISE_MAX, CRUISE_BRAKE, CRUISE_DECEL, CRUISE_THRUST_GAIN,
 } from '../world/config.ts'
 
 /**
@@ -42,6 +43,14 @@ export class Craft {
   readonly angVel = new THREE.Vector3()
   state: CraftState = 'landed'
   thrusting = false
+  /**
+   * False in air: Zarch, thrust along body-up, tilt to move. True in vacuum: cruise,
+   * thrust along the nose, velocity follows the nose, / brakes. Switches on density
+   * with hysteresis so it never flickers at the edge of the atmosphere.
+   */
+  cruise = false
+  /** Metres to the nearest body's surface, set by whoever knows the system; null means "use my own altitude". */
+  proximity: number | null = null
   landings = 0
   crashes = 0
   /** Set by the last contact, for the HUD and the harness. */
@@ -57,6 +66,7 @@ export class Craft {
   private readonly m = new THREE.Matrix4()
   private readonly n = new THREE.Vector3()
   private readonly rcs = new THREE.Vector3()
+  private readonly nose = new THREE.Vector3()
 
   constructor(terrain: Terrain) {
     this.terrain = terrain
@@ -82,16 +92,25 @@ export class Craft {
    * toward `target` (unit, world). A P-controller on angular velocity whose
    * setpoint is the angle error, so it plays the same keys a pilot would.
    */
-  aimControls(target: THREE.Vector3, k = 3): { pitch: number; roll: number } {
+  aimControls(target: THREE.Vector3, k = 3): { pitch: number; roll: number; yaw: number } {
     this.dq.copy(this.quat).invert()
     this.fwd.copy(target).applyQuaternion(this.dq) // target in body frame
+    const clamp = (x: number) => Math.max(-1, Math.min(1, x))
+    if (this.cruise) {
+      // Aim the nose (-Z). Error axis is fwd × t = (ty, -tx, 0): pitch and yaw, roll free.
+      let tx = this.fwd.x, ty = this.fwd.y
+      if (this.fwd.z > 0.995 && Math.hypot(tx, ty) < 0.05) ty = 1 // dead astern: pitch up and over
+      return { pitch: -clamp(k * ty - this.angVel.x), roll: 0, yaw: -clamp((-k * tx - this.angVel.y) / 0.6) }
+    }
     let tx = this.fwd.x, tz = this.fwd.z
     // Dead astern the cross product vanishes and a P-controller balances on the
     // point forever (boost straight up, press retro: exactly this). Pitch over.
     if (this.fwd.y < -0.995 && Math.hypot(tx, tz) < 0.05) { tx = 0; tz = 1 }
-    const clamp = (x: number) => Math.max(-1, Math.min(1, x))
-    return { pitch: -clamp(k * tz - this.angVel.x), roll: -clamp(-k * tx - this.angVel.z) }
+    return { pitch: -clamp(k * tz - this.angVel.x), roll: -clamp(-k * tx - this.angVel.z), yaw: 0 }
   }
+
+  /** The cruise speed allowed at distance d from the nearest surface: what you could brake from in time. */
+  cruiseCap(d: number): number { return Math.sqrt(CRUISE_MAX * CRUISE_MAX + 2 * CRUISE_DECEL * Math.max(0, d)) }
 
   /** Vertical speed, positive up. */
   vUp(): number { return this.vel.dot(this.up.copy(this.pos).normalize()) }
@@ -149,13 +168,24 @@ export class Craft {
     const alt = r - groundRadius(this.up, this.terrain)
     const g = gravityAt(r, this.terrain)
     this.acc.copy(this.up).multiplyScalar(-g)
-    if (c.thrust > 0) {
+    const rhoNow = atmosphereDensity(alt, this.terrain.air)
+    if (this.cruise ? rhoNow > CRUISE_EXIT : rhoNow < CRUISE_ENTER) this.cruise = !this.cruise
+    const mainThrust = THRUST_ACCEL * c.thrust * (1 + c.boost * (BOOST_MULT - 1))
+    const d = Math.max(0, this.proximity ?? alt - HULL_CLEARANCE)
+    if (this.cruise) {
+      // Cruise: the engine fires along the nose, harder the further you are from anything, and / is a brake.
+      this.nose.copy(BODY_FWD).applyQuaternion(this.quat)
+      const gain = 1 + d * CRUISE_THRUST_GAIN
+      if (c.thrust > 0) this.acc.addScaledVector(this.nose, mainThrust * gain)
+      if (c.vertical < 0) this.acc.addScaledVector(this.nose, -THRUST_ACCEL * CRUISE_BRAKE * gain)
+    } else if (c.thrust > 0) {
       this.bodyUp.copy(BODY_UP).applyQuaternion(this.quat)
-      this.acc.addScaledVector(this.bodyUp, THRUST_ACCEL * c.thrust * (1 + c.boost * (BOOST_MULT - 1)))
+      this.acc.addScaledVector(this.bodyUp, mainThrust)
     }
-    // RCS: small pushes along the body axes. Translation without tilting.
-    if (c.lateral || c.vertical || c.fore) {
-      this.rcs.set(c.lateral, c.vertical, -c.fore).multiplyScalar(RCS_ACCEL).applyQuaternion(this.quat)
+    // RCS: small pushes along the body axes. Translation without tilting. In cruise the
+    // top thruster is the brake instead, handled above.
+    if (c.lateral || (c.vertical && !this.cruise) || c.fore) {
+      this.rcs.set(c.lateral, this.cruise ? 0 : c.vertical, -c.fore).multiplyScalar(RCS_ACCEL).applyQuaternion(this.quat)
       this.acc.add(this.rcs)
     }
     // Ground effect. A cushion in the last few metres, plus damping against
@@ -168,11 +198,22 @@ export class Craft {
       const vUp = this.vel.dot(this.up)
       if (vUp < 0) this.acc.addScaledVector(this.up, -vUp * GROUND_EFFECT_DAMP * k)
     }
-    const rho = atmosphereDensity(alt, this.terrain.air)
+    const rho = rhoNow
     const speed = this.vel.length()
     if (rho > 0 && speed > 0) this.acc.addScaledVector(this.vel, -DRAG * rho * speed)
 
     this.vel.addScaledVector(this.acc, h)
+    if (this.cruise) {
+      // Flight assist: velocity across the nose bleeds away, so where you point is where
+      // you go; and above CRUISE_MAX the assist eases you back. Not physics. Very playable.
+      const vPar = this.vel.dot(this.nose)
+      const bleed = 1 - Math.exp(-h / CRUISE_ALIGN_TAU)
+      this.vel.addScaledVector(this.nose, -vPar).multiplyScalar(1 - bleed).addScaledVector(this.nose, vPar)
+      // The cap is a hard clamp on speed along the nose. Thrust grows with distance and
+      // would otherwise out-muscle any gentle reel-in on a dive.
+      const cap = this.cruiseCap(d)
+      if (vPar > cap) this.vel.addScaledVector(this.nose, cap - vPar)
+    }
     this.pos.addScaledVector(this.vel, h)
 
     // Contact.

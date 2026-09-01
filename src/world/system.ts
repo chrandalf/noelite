@@ -86,20 +86,22 @@ export function buildSystem(seed = MASTER_SEED): Body[] {
     return b
   }
 
-  add({ id: 'sun', name: 'Sol', kind: 'sun', radius: 25_000, g: 6.4, air: 0, spin: 2400, parent: null, a: 0, tilt: 0 })
-  add({ id: 'hot', name: 'Cinder', kind: 'hot', radius: 1_500, g: 6, air: 120, spin: 900, parent: 'sun', a: 55_000 })
-  add({ id: 'home', name: 'Vale', kind: 'terrestrial', radius: 2_000, g: 7, air: 700, spin: 480, parent: 'sun', a: 120_000, tilt: 0.2 })
+  // Orbits are 3x what they were: distance is what cruise is for. The sun keeps GM = 4e9
+  // whatever its radius; at 6 km it is a one-degree disc from home, bright and far.
+  add({ id: 'sun', name: 'Sol', kind: 'sun', radius: 6_000, g: 4e9 / 36e6, air: 0, spin: 2400, parent: null, a: 0, tilt: 0 })
+  add({ id: 'hot', name: 'Cinder', kind: 'hot', radius: 1_500, g: 6, air: 120, spin: 900, parent: 'sun', a: 165_000 })
+  add({ id: 'home', name: 'Vale', kind: 'terrestrial', radius: 2_000, g: 7, air: 700, spin: 480, parent: 'sun', a: 360_000, tilt: 0.2 })
   add({ id: 'home-1', name: 'Vale I', kind: 'moon', radius: 350, g: 1.0, air: 0, spin: 0, parent: 'home', a: 5_000 })
-  add({ id: 'terra-a', name: 'Marram', kind: 'terrestrial', radius: 1_800, g: 6.5, air: 600, spin: 400, parent: 'sun', a: 180_000 })
+  add({ id: 'terra-a', name: 'Marram', kind: 'terrestrial', radius: 1_800, g: 6.5, air: 600, spin: 400, parent: 'sun', a: 540_000 })
   add({ id: 'terra-a-1', name: 'Marram I', kind: 'moon', radius: 300, g: 0.8, air: 0, spin: 0, parent: 'terra-a', a: 6_500 })
-  add({ id: 'terra-b', name: 'Sedge', kind: 'terrestrial', radius: 2_400, g: 8, air: 800, spin: 600, parent: 'sun', a: 260_000 })
+  add({ id: 'terra-b', name: 'Sedge', kind: 'terrestrial', radius: 2_400, g: 8, air: 800, spin: 600, parent: 'sun', a: 780_000 })
   add({ id: 'terra-b-1', name: 'Sedge I', kind: 'moon', radius: 420, g: 1.2, air: 0, spin: 0, parent: 'terra-b', a: 7_000 })
   add({ id: 'terra-b-2', name: 'Sedge II', kind: 'moon', radius: 260, g: 0.7, air: 0, spin: 0, parent: 'terra-b', a: 12_000 })
-  add({ id: 'giant', name: 'Bulwark', kind: 'giant', radius: 10_000, g: 8, air: 3000, spin: 300, parent: 'sun', a: 520_000, tilt: 0.05 })
+  add({ id: 'giant', name: 'Bulwark', kind: 'giant', radius: 10_000, g: 8, air: 3000, spin: 300, parent: 'sun', a: 1_560_000, tilt: 0.05 })
   for (let i = 0; i < 5; i++) {
     add({ id: `giant-${i + 1}`, name: `Bulwark ${['I', 'II', 'III', 'IV', 'V'][i]}`, kind: 'moon', radius: 220 + i * 110, g: 0.5 + i * 0.35, air: 0, spin: 0, parent: 'giant', a: 18_000 + i * 10_500 })
   }
-  add({ id: 'tiny', name: 'Mote', kind: 'tiny', radius: 400, g: 1.2, air: 0, spin: 120, parent: 'sun', a: 800_000 })
+  add({ id: 'tiny', name: 'Mote', kind: 'tiny', radius: 400, g: 1.2, air: 0, spin: 120, parent: 'sun', a: 2_400_000 })
   return bodies
 }
 

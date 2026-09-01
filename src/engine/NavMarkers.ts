@@ -3,8 +3,8 @@
 // "where is the planet" always has an answer even in empty space.
 import * as THREE from 'three'
 
-type Kind = 'planet' | 'pro' | 'retro'
-const LABEL: Record<Kind, string> = { planet: '⊕', pro: '▲', retro: '▽' }
+type Kind = 'planet' | 'pro' | 'retro' | 'target'
+const LABEL: Record<Kind, string> = { planet: '⊕', pro: '▲', retro: '▽', target: '◇' }
 
 export class NavMarkers {
   private readonly els: Record<Kind, HTMLElement>
@@ -13,16 +13,17 @@ export class NavMarkers {
 
   constructor(root: HTMLElement) {
     const make = (k: Kind) => { const e = document.createElement('div'); e.className = `nav ${k}`; e.textContent = LABEL[k]; root.appendChild(e); return e }
-    this.els = { planet: make('planet'), pro: make('pro'), retro: make('retro') }
+    this.els = { planet: make('planet'), pro: make('pro'), retro: make('retro'), target: make('target') }
   }
 
   hide(): void { for (const e of Object.values(this.els)) e.hidden = true }
 
   /** `dir` is a unit direction in scene space (camera at the origin). */
-  place(kind: Kind, dir: THREE.Vector3, camera: THREE.PerspectiveCamera, show: boolean): void {
+  place(kind: Kind, dir: THREE.Vector3, camera: THREE.PerspectiveCamera, show: boolean, label = ''): void {
     const el = this.els[kind]
     el.hidden = !show
     if (!show) return
+    el.textContent = label ? `${LABEL[kind]} ${label}` : LABEL[kind]
     this.qInv.copy(camera.quaternion).invert()
     this.v.copy(dir).applyQuaternion(this.qInv)
     const behind = this.v.z >= -1e-6
