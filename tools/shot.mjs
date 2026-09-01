@@ -21,6 +21,11 @@ await page.setViewport({ width: 960, height: 600 })
 page.on('pageerror', (e) => console.error('PAGE ERROR:', e.message))
 page.on('console', (m) => { if (m.type() === 'error') console.error('CONSOLE:', m.text()) })
 await page.goto(url, { waitUntil: 'domcontentloaded' })
+// Shots fired seconds after a file save can catch Vite mid-rebuild and photograph
+// a half-swapped module graph (it showed up as phantom shader failures). Let it
+// settle, then load the page once more so what we shoot is what is on disk.
+await new Promise((r) => setTimeout(r, 1500))
+await page.reload({ waitUntil: 'domcontentloaded' })
 // A Vite error overlay means the app never ran. Say so, loudly, instead of photographing it.
 await new Promise((r) => setTimeout(r, 600))
 if (await page.$('vite-error-overlay')) {

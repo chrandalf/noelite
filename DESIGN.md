@@ -168,6 +168,52 @@ Two layers, again:
   A derived mission tells you where iridium is. An authored one tells you someone heard
   a signal near the south pole of a planet nobody lands on.
 
+### Space has to have a reference frame
+
+Found on the second flight: with no drag, no stars and a camera built for the horizon,
+leaving the atmosphere meant accelerating into nothing with no way to tell which way was
+back. Escape velocity on a 2 km world is 167 m/s and boost gets you there in five seconds.
+That is correct physics; the game just gave you nothing to do about it. So:
+
+- **Stars, sun, a sky dome** with a horizon gradient keyed on the local up and the sun.
+  Orange toward a low sun, navy at night with the stars out, transparent in vacuum. An
+  8-minute day. All at the scene root, which camera-relative rendering makes free.
+- **Nav markers**: planet, prograde, retrograde, pinned to the screen edge with an arrow
+  when off-screen. "Where is the planet" always has an answer.
+- **Attitude assists**: X points the thrust axis against velocity, Z points it at the
+  planet. They play the same keys a pilot would; the physics does not change. A pure
+  P-controller balances forever if the target is dead astern, which is exactly the state
+  after boosting straight up, so it pitches over from there on purpose.
+- **Readouts** against orbital and escape speed at the current radius, with ESCAPING
+  called before it is too late.
+- **The camera** locks to the ship's frame in vacuum, blending from the horizon follow as
+  the air thins; position smoothing stiffens with speed so the ship cannot outrun it.
+- `GRAVITY_FALLOFF` is a dial (2 is real) if space still feels too easy to lose.
+
+The sun currently goes round a fixed planet. That is a placeholder the solar system
+replaces.
+
+## 5b. The solar system (asked for 2026-09-01, not yet built)
+
+Several planets round one sun, fly between them once out of the atmosphere, and leave
+the system to enter the Elite half. Two positions taken before a line is written:
+
+- **Planets follow analytic Kepler orbits, not N-body integration.** Kepler *is* the
+  physics of two bodies, it is exact, it is a pure function of the seed and time, and
+  it never drifts. Integrating N bodies would break "the universe is a function" within
+  an hour of play. The *craft* feels gravity from every body, summed; that is cheap and
+  it is what makes a transfer real.
+- **Planets spin.** Day and night come from rotation, and each atmosphere co-rotates so
+  hovering still over the ground stays natural (drag is against local air, not against
+  the inertial frame). Landed, the craft rides the planet; lifting off, it inherits the
+  surface velocity.
+
+What that costs: the craft's position becomes heliocentric float64 with planets moving
+under it; height queries transform into each planet's rotating frame; every body gets its
+own seed, radius, atmosphere and LOD; nearest-body logic picks which sky and which
+altimeter you get. Frontier's structure. Scale is gameplay, not astronomy: small planets,
+a sun of tens of km, orbits of hundreds of km, so a transfer is minutes at boost.
+
 ## 6. Instruments, before the game
 
 Most of this is invisible, so it gets measured rather than eyeballed.
@@ -177,7 +223,7 @@ Most of this is invisible, so it gets measured rather than eyeballed.
 | `verify-terrain` | `height()` deterministic, bounded, continuous across all twelve cube-face seams |
 | `verify-chunk` | every skirt quad hangs from a real surface edge and carries its owner's normal and colour |
 | `verify-lod` | scripted orbit-to-deck descent in the browser: chunk count bounded, level 0 in orbit, level 6 on the deck, tree stable at rest |
-| `verify-flight` | drives the physics in Node, no browser: rests, lifts, crashes, terminal velocity, a bang-bang autopilot lands, the same run is bit-identical, tilt-to-move works, control pulses decay |
+| `verify-flight` | drives the physics in Node, no browser: rests, lifts, crashes, terminal velocity, a bang-bang autopilot lands, the same run is bit-identical, tilt-to-move works, control pulses decay, boost and ground effect, escape and the retro/nadir assists |
 | `verify-loop` | launch → orbit → transfer → descend → land → scoop → return → sell |
 
 ## 7. Build order

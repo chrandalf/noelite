@@ -36,6 +36,19 @@
       #altimeter .atmos { text-align: right; opacity: 0.75; }
       #altimeter .atmos.vacuum { color: #ffd56a; opacity: 1; letter-spacing: 0.2em; }
       #altimeter[hidden] { display: none; }
+      .nav {
+        position: fixed; transform: translate(-50%, -50%); pointer-events: none;
+        font: 22px ui-monospace, Menlo, Consolas, monospace; text-shadow: 0 0 6px #000, 0 0 2px #000;
+      }
+      .nav.planet { color: #9fe3a0; }
+      .nav.pro { color: #7fd8ff; }
+      .nav.retro { color: #ffc46a; }
+      .nav.edge::after {
+        content: ''; position: absolute; left: 50%; top: -14px; width: 0; height: 0;
+        border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 10px solid currentColor;
+        transform-origin: 50% 25px; transform: translateX(-50%) rotate(var(--ang));
+      }
+      .nav[hidden] { display: none; }
     </style>
   </head>
   <body>

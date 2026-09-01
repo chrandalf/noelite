@@ -2,7 +2,7 @@
 // space thrusts, shift boosts. Nothing analogue yet; that is the honest Zarch version.
 import type { Controls } from './Craft.ts'
 
-const CODES = ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyQ', 'KeyE', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ShiftLeft', 'ShiftRight']
+const CODES = ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyQ', 'KeyE', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ShiftLeft', 'ShiftRight', 'KeyX', 'KeyZ']
 
 export class KeyInput {
   private readonly down = new Set<string>()
@@ -13,6 +13,11 @@ export class KeyInput {
     addEventListener('keydown', (e) => { if (CODES.includes(e.code)) { this.down.add(e.code); e.preventDefault() } })
     addEventListener('keyup', (e) => this.down.delete(e.code))
     addEventListener('blur', () => this.down.clear())
+  }
+
+  /** X: point thrust against velocity. Z: point thrust at the planet. */
+  assist(): 'retro' | 'nadir' | null {
+    return this.down.has('KeyX') ? 'retro' : this.down.has('KeyZ') ? 'nadir' : null
   }
 
   read(): Controls {

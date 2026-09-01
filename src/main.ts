@@ -1,6 +1,8 @@
 // Step 2 of the build order: the craft and the flight model, on the step-1 planet.
 //   default        fly the craft (space thrusts, shift boosts, W/S A/D tilt, Q/E yaw, R respawn, M mute)
 //                  drag orbits the camera, wheel zooms, C snaps it back
+//                  X points thrust against velocity, Z points it at the planet
+//   ?t=SECONDS     start the clock here (DAY_LENGTH per day), for dawn and dusk shots
 //   ?mode=free     step-1 fly camera, for the LOD harness and screenshots
 //   ?cam=&at=      free-mode camera placement
 //   ?burn=N        full thrust for the first N seconds, for screenshots
@@ -18,6 +20,9 @@ import { Beeper } from './engine/Beeper.ts'
 import { height } from './world/height.ts'
 import { findLandable, slopeDeg } from './world/terrain.ts'
 import { atmosphereDensity, buildAtmosphereShell } from './world/atmosphere.ts'
+import { sunDirection } from './world/sun.ts'
+import { Sky } from './engine/Sky.ts'
+import { NavMarkers } from './engine/NavMarkers.ts'
 import { PLANET_RADIUS, MASTER_SEED, LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE } from './world/config.ts'
 
 const q = new URLSearchParams(location.search)
@@ -29,11 +34,12 @@ renderer.setSize(innerWidth, innerHeight)
 document.body.appendChild(renderer.domElement)
 
 const scene = new THREE.Scene()
-// Lander's sky: flat blue, hard horizon, and it thins to space as you climb.
-const SKY = new THREE.Color(0x5d9be0), SPACE = new THREE.Color(0x06060e)
-const background = new THREE.Color()
-scene.background = background
-// Haze inside the atmosphere, the same colour as the sky, thinning with density.
+scene.background = new THREE.Color(0x000000)
+// Sky dome, stars, sun. Scene root, so camera-centred for free.
+const SKY = new THREE.Color(0x5d9be0)
+const sky = new Sky()
+scene.add(sky.group)
+// Haze inside the atmosphere, the sky's horizon colour, thinning with density.
 const fog = new THREE.FogExp2(SKY.getHex(), 0)
 scene.fog = fog
 
@@ -42,10 +48,13 @@ const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.05, 2
 const world = new THREE.Group()
 scene.add(world)
 
-// One hard sun and a hemisphere fill. That is the entire lighting rig.
+// One hard sun and a hemisphere fill. That is the entire lighting rig. The sun
+// moves: sunDirection(t) drives the light, the shell, the sky and the disc.
 const sun = new THREE.DirectionalLight(0xfff2dc, 2.4)
-sun.position.set(1, 0.55, 0.35).multiplyScalar(1e5)
-scene.add(sun, new THREE.HemisphereLight(0x9ec5ff, 0x3f5f2e, 0.85))
+const hemi = new THREE.HemisphereLight(0x9ec5ff, 0x3f5f2e, 0.85)
+scene.add(sun, hemi)
+const sunDir = sunDirection(0)
+const SUN_WHITE = new THREE.Color(0xfff2dc), SUN_LOW = new THREE.Color(0xffa060)
 
 // flatShading is deliberately OFF. With it on, Three ignores the normal
 // attribute and derives normals from screen-space derivatives, which lit every
@@ -54,15 +63,21 @@ scene.add(sun, new THREE.HemisphereLight(0x9ec5ff, 0x3f5f2e, 0.85))
 const terrainMaterial = q.get('wire') === '1'
   ? new THREE.MeshBasicMaterial({ wireframe: true, color: 0x9fe3a0 })
   : new THREE.MeshLambertMaterial({ vertexColors: true })
+terrainMaterial.name = 'terrain'
 const planet = new PlanetLOD(MASTER_SEED, terrainMaterial, q.get('skirts') === '0' ? false : q.get('skirts') === 'red' ? 'red' : true)
 world.add(planet.group)
-world.add(buildAtmosphereShell(sun.position, SKY))
+const shell = buildAtmosphereShell(sunDir, SKY)
+world.add(shell)
+const shellSun = (shell.material as THREE.ShaderMaterial).uniforms.uSun.value as THREE.Vector3
 
 // The craft, its pad, its camera.
 const craft = new Craft(MASTER_SEED)
 const input = new KeyInput()
 const chase = new ChaseCam(MASTER_SEED)
-const { root: ship, flame } = buildCraftMesh(new THREE.MeshLambertMaterial({ vertexColors: true }))
+const shipMaterial = new THREE.MeshLambertMaterial({ vertexColors: true })
+shipMaterial.name = 'ship'
+const { root: ship, flame } = buildCraftMesh(shipMaterial)
+;(flame.material as THREE.Material).name = 'flame'
 ship.renderOrder = 2
 world.add(ship)
 ship.visible = mode === 'fly'
@@ -86,6 +101,8 @@ const free = new FlyCam(renderer.domElement)
   free.lookAt(vec(q.get('at'), new THREE.Vector3(0, 0, 0)))
 }
 const burn = Number(q.get('burn') ?? 0)
+const clock0 = Number(q.get('t') ?? 0)
+const markers = new NavMarkers(document.body)
 
 const hud = document.getElementById('hud')!
 const altimeter = document.getElementById('altimeter')!
@@ -137,14 +154,21 @@ renderer.setAnimationLoop((now) => {
   if (mode === 'fly') {
     let c: Controls = input.read()
     if (burn > 0 && elapsed < burn) c = { ...c, thrust: 1 }
+    const assist = input.assist()
+    if (assist && craft.state === 'flying') {
+      dir.copy(craft.pos).normalize()
+      const target = assist === 'nadir' ? dir.clone().negate() : craft.speed() > 0.5 ? craft.vel.clone().normalize().negate() : dir.clone()
+      const a = craft.aimControls(target)
+      c = { ...c, pitch: a.pitch, roll: a.roll }
+    }
     craft.step(dt, c)
     if (craft.state === 'crashed') { crashedAt ??= now; if (now - crashedAt > 2000) respawn() }
     ship.position.copy(craft.pos)
     ship.quaternion.copy(craft.quat)
     flame.visible = craft.thrusting && craft.state === 'flying'
-    chase.update(dt, craft)
-    viewPos.copy(chase.pos); viewQuat.copy(chase.quat)
     altitude = craft.altitude()
+    chase.update(dt, craft, atmosphereDensity(altitude))
+    viewPos.copy(chase.pos); viewQuat.copy(chase.quat)
     if (Math.abs(altitude) < 0.05) altitude = 0
     if (!off.has('shadow')) shadow.update(craft)
     if (!off.has('dust')) dust.update(dt, craft.pos, altitude, flame.visible)
@@ -168,10 +192,20 @@ renderer.setAnimationLoop((now) => {
     const rho = craft.atmosphere()
     atmosEl.textContent = rho > 0 ? `ATMOS ${(rho * 100).toFixed(0)}%` : 'VACUUM'
     atmosEl.className = rho > 0 ? '' : 'vacuum'
+    // Nav markers once the ground stops being the obvious reference.
+    const showNav = craft.state === 'flying' && (altitude > 80 || rho < 0.5)
+    dir.copy(craft.pos).normalize()
+    markers.place('planet', dir.clone().negate(), camera, showNav)
+    const moving = craft.speed() > 2
+    const pro = craft.vel.clone().normalize()
+    markers.place('pro', pro, camera, showNav && moving)
+    markers.place('retro', pro.clone().negate(), camera, showNav && moving)
     const lc = craft.lastContact
-    line = `alt ${altitude.toFixed(1).padStart(6)} m   v↑ ${craft.vUp().toFixed(1).padStart(5)} m/s   spd ${craft.vel.length().toFixed(1).padStart(5)} m/s   tilt ${craft.tilt().toFixed(0).padStart(2)}°   ${craft.state.toUpperCase()}   landings ${craft.landings}  crashes ${craft.crashes}\n` +
+    const vOrb = craft.orbitalSpeed(), vEsc = craft.escapeSpeed(), spd = craft.speed()
+    const spaceLine = rho < 1 ? `orbit ${vOrb.toFixed(0)}   escape ${vEsc.toFixed(0)}   ${spd > vEsc ? '!! ESCAPING !!' : spd > vOrb ? 'above orbital' : ''}   X retro   Z planet\n` : ''
+    line = `alt ${altitude.toFixed(1).padStart(6)} m   v↑ ${craft.vUp().toFixed(1).padStart(5)} m/s   spd ${spd.toFixed(1).padStart(5)} m/s   tilt ${craft.tilt().toFixed(0).padStart(2)}°   ${craft.state.toUpperCase()}   landings ${craft.landings}  crashes ${craft.crashes}\n` + spaceLine +
       (craft.state === 'crashed' ? `contact: v↑ ${lc.vUp.toFixed(1)}  drift ${lc.vH.toFixed(1)}  tilt ${lc.tilt.toFixed(0)}°  slope ${lc.slope.toFixed(0)}°   (R to respawn)\n` : '') +
-      `space thrust   shift boost   W/S tilt   A/D roll   Q/E yaw   R respawn   M mute   drag orbit   wheel zoom   C reset cam   ${fps} fps   chunks ${planet.liveCount}`
+      `space thrust   shift boost   W/S tilt   A/D roll   Q/E yaw   X/Z assists   R respawn   M mute   drag orbit   wheel zoom   C reset cam   ${fps} fps   chunks ${planet.liveCount}`
   } else {
     dir.copy(free.pos).normalize()
     altitude = free.pos.length() - PLANET_RADIUS - height(dir, MASTER_SEED)
@@ -181,10 +215,18 @@ renderer.setAnimationLoop((now) => {
     line = `alt ${altitude.toFixed(0)} m   speed ${speed.toFixed(0)} m/s   chunks ${planet.liveCount} (+${planet.pendingCount})   lod ${lo}..${hi}   ${fps} fps\nWASD move  R/F up/down  Q/E roll  drag to look  shift = fast`
   }
 
+  // The sun moves; everything lit by it follows.
+  sunDirection(clock0 + elapsed, sunDir)
+  sun.position.copy(sunDir).multiplyScalar(1e5)
+  shellSun.copy(sunDir)
   const density = atmosphereDensity(altitude)
-  background.lerpColors(SPACE, SKY, density)
-  fog.color.copy(background)
+  dir.copy(viewPos).normalize()
+  const day = sky.update(dir, sunDir, density)
+  hemi.intensity = 0.85 * (0.2 + 0.8 * day)
+  sun.color.lerpColors(SUN_LOW, SUN_WHITE, Math.min(1, Math.max(0, (dir.dot(sunDir) + 0.05) / 0.25)))
+  fog.color.copy(sky.horizon)
   fog.density = 0.00055 * density
+  if (mode === 'free') markers.hide()
   planet.update(viewPos); updates++
   world.position.copy(viewPos).negate()
   camera.quaternion.copy(viewQuat)

@@ -13,7 +13,7 @@ import { atmosphereDensity } from '../world/atmosphere.ts'
 import {
   PLANET_RADIUS, GRAVITY, DRAG, THRUST_ACCEL, ANG_ACCEL, ANG_DAMP,
   HULL_CLEARANCE, LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE, FIXED_DT,
-  BOOST_MULT, GROUND_EFFECT_HEIGHT, GROUND_EFFECT_ACCEL, GROUND_EFFECT_DAMP,
+  BOOST_MULT, GROUND_EFFECT_HEIGHT, GROUND_EFFECT_ACCEL, GROUND_EFFECT_DAMP, GRAVITY_FALLOFF,
 } from '../world/config.ts'
 
 /** pitch: nose down positive. roll: right wing down positive. yaw: nose right positive. All -1..1. thrust 0..1. */
@@ -23,6 +23,11 @@ export const IDLE: Readonly<Controls> = Object.freeze({ pitch: 0, roll: 0, yaw: 
 export type CraftState = 'landed' | 'flying' | 'crashed'
 
 const BODY_UP = new THREE.Vector3(0, 1, 0)
+
+/** m/s² at distance r from the planet centre. */
+export function gravityAt(r: number): number {
+  return GRAVITY * (PLANET_RADIUS / r) ** GRAVITY_FALLOFF
+}
 const BODY_FWD = new THREE.Vector3(0, 0, -1)
 
 export class Craft {
@@ -60,6 +65,28 @@ export class Craft {
 
   /** Atmospheric density where the craft is, 1 on the deck, 0 in vacuum. */
   atmosphere(): number { return atmosphereDensity(this.altitude() + HULL_CLEARANCE) }
+
+  speed(): number { return this.vel.length() }
+  /** Circular orbital speed at the craft's current radius. */
+  orbitalSpeed(): number { const r = this.pos.length(); return Math.sqrt(gravityAt(r) * r) }
+  /** Speed beyond which gravity never brings you back. */
+  escapeSpeed(): number { const r = this.pos.length(); return Math.sqrt(2 * gravityAt(r) * r) }
+
+  /**
+   * Attitude assist. Pitch and roll inputs that swing the thrust axis (body up)
+   * toward `target` (unit, world). A P-controller on angular velocity whose
+   * setpoint is the angle error, so it plays the same keys a pilot would.
+   */
+  aimControls(target: THREE.Vector3, k = 3): { pitch: number; roll: number } {
+    this.dq.copy(this.quat).invert()
+    this.fwd.copy(target).applyQuaternion(this.dq) // target in body frame
+    let tx = this.fwd.x, tz = this.fwd.z
+    // Dead astern the cross product vanishes and a P-controller balances on the
+    // point forever (boost straight up, press retro: exactly this). Pitch over.
+    if (this.fwd.y < -0.995 && Math.hypot(tx, tz) < 0.05) { tx = 0; tz = 1 }
+    const clamp = (x: number) => Math.max(-1, Math.min(1, x))
+    return { pitch: -clamp(k * tz - this.angVel.x), roll: -clamp(-k * tx - this.angVel.z) }
+  }
 
   /** Vertical speed, positive up. */
   vUp(): number { return this.vel.dot(this.up.copy(this.pos).normalize()) }
@@ -115,7 +142,7 @@ export class Craft {
     const r = this.pos.length()
     this.up.copy(this.pos).divideScalar(r)
     const alt = r - groundRadius(this.up, this.seed)
-    const g = GRAVITY * (PLANET_RADIUS / r) ** 2
+    const g = gravityAt(r)
     this.acc.copy(this.up).multiplyScalar(-g)
     if (c.thrust > 0) {
       this.bodyUp.copy(BODY_UP).applyQuaternion(this.quat)

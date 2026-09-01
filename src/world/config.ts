@@ -46,3 +46,10 @@ export const BOOST_MULT = 2.6
 export const GROUND_EFFECT_HEIGHT = 6
 export const GROUND_EFFECT_ACCEL = 2.5
 export const GROUND_EFFECT_DAMP = 1.2
+
+// ---- Sky and space (from the second flight, 2026-09-01). ----
+
+/** Seconds per full day. */
+export const DAY_LENGTH = 480
+/** Gravity falls off as (R/r)^GRAVITY_FALLOFF. 2 is real; lower it if space feels too easy to lose. */
+export const GRAVITY_FALLOFF = 2

@@ -36,6 +36,7 @@ export class GroundShadow {
       color: 0x000000, transparent: true, opacity: 0.5, depthWrite: false,
       polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, side: THREE.DoubleSide,
     })
+    this.mat.name = 'shadow'
     this.mesh = new THREE.Mesh(g, this.mat)
     this.mesh.frustumCulled = false
     this.mesh.renderOrder = 1

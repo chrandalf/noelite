@@ -48,6 +48,7 @@ export function buildAtmosphereShell(sunDir: THREE.Vector3, colour: THREE.Color)
     uniforms: { uColor: { value: colour.clone() }, uSun: { value: sunDir.clone().normalize() } },
     transparent: true, depthWrite: false, side: THREE.FrontSide,
   })
+  mat.name = 'atmosphere'
   const mesh = new THREE.Mesh(new THREE.SphereGeometry(PLANET_RADIUS + ATMOSPHERE_HEIGHT, 48, 32), mat)
   mesh.renderOrder = 4
   return mesh

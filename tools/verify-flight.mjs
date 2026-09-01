@@ -5,7 +5,7 @@
 import * as THREE from 'three'
 import { Craft, IDLE } from '../src/engine/Craft.ts'
 import { findLandable } from '../src/world/terrain.ts'
-import { FIXED_DT, GRAVITY, DRAG, LAND_MAX_VSPEED, MASTER_SEED, GROUND_EFFECT_HEIGHT } from '../src/world/config.ts'
+import { FIXED_DT, GRAVITY, DRAG, LAND_MAX_VSPEED, MASTER_SEED, GROUND_EFFECT_HEIGHT, ATMOSPHERE_HEIGHT } from '../src/world/config.ts'
 
 let pass = 0, fail = 0
 const check = (name, cond, detail = '') => { if (cond) { pass++; console.log(`  ok   ${name}${detail ? '  (' + detail + ')' : ''}`) } else { fail++; console.log(`  FAIL ${name}  ${detail}`) } }
@@ -105,6 +105,31 @@ const L1 = land()
   until(c, (c) => c.state !== 'flying', 20, () => IDLE)
   const freeFall = Math.sqrt(2 * GRAVITY * top)
   check('ground effect softens a dead drop', c.lastContact.vUp > -freeFall * 0.9, `from ${top.toFixed(1)} m: touched at ${c.lastContact.vUp.toFixed(1)} m/s, free fall would be ${(-freeFall).toFixed(1)}`)
+}
+// 11. You can escape, and the retro assist can bring you back from it.
+{
+  const c = fresh()
+  until(c, () => false, 15, () => T(1, 0, 0, 0, 1))
+  const escaping = c.altitude() > ATMOSPHERE_HEIGHT && c.speed() > c.escapeSpeed()
+  check('15 s of boost escapes the planet', escaping, `alt ${c.altitude().toFixed(0)} m, ${c.speed().toFixed(0)} m/s vs escape ${c.escapeSpeed().toFixed(0)}`)
+  const v0 = c.speed()
+  let minV = v0, aligned = 0
+  const retro = new THREE.Vector3(), bodyUp = new THREE.Vector3()
+  const t = until(c, (c) => c.speed() < 10, 60, (t, c) => {
+    retro.copy(c.vel).normalize().negate()
+    bodyUp.set(0, 1, 0).applyQuaternion(c.quat)
+    const a = c.aimControls(retro)
+    const ok = bodyUp.dot(retro) > 0.98
+    if (ok) aligned++
+    minV = Math.min(minV, c.speed())
+    return { ...T(ok ? 1 : 0, a.pitch, a.roll, 0, 1) }
+  })
+  check('retro assist + boost kills escape velocity', c.speed() < 10, `${v0.toFixed(0)} → ${c.speed().toFixed(1)} m/s in ${t.toFixed(1)} s, aligned ${(aligned * FIXED_DT).toFixed(1)} s of it`)
+  // 12. Nadir assist points the thrust axis at the planet.
+  const nadir = new THREE.Vector3()
+  until(c, () => false, 6, (t, c) => { nadir.copy(c.pos).normalize().negate(); const a = c.aimControls(nadir); return T(0, a.pitch, a.roll) })
+  bodyUp.set(0, 1, 0).applyQuaternion(c.quat)
+  check('nadir assist points thrust at the planet', bodyUp.dot(nadir) > 0.95, `dot ${bodyUp.dot(nadir).toFixed(3)}`)
 }
 
 console.log(`\n${pass}/${pass + fail} checks`)

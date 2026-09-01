@@ -27,6 +27,7 @@ export class Dust {
     const g = new THREE.BufferGeometry()
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3))
     this.points = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xc9c39a, size: 0.7, sizeAttenuation: true, transparent: true, opacity: 0.8, depthWrite: false }))
+    ;(this.points.material as THREE.Material).name = 'dust'
     this.points.frustumCulled = false
     this.points.renderOrder = 3
   }
