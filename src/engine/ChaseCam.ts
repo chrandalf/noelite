@@ -16,6 +16,12 @@ const CAM_CLEARANCE = 2.5
 export class ChaseCam {
   readonly pos = new THREE.Vector3()
   readonly quat = new THREE.Quaternion()
+  /** User offsets on top of the follow: drag to orbit, wheel to zoom, reset() to snap back. */
+  orbitYaw = 0
+  orbitPitch = 0
+  zoom = 1
+  private readonly viewFwd = new THREE.Vector3()
+  private readonly spin = new THREE.Quaternion()
   private readonly fwd = new THREE.Vector3(0, 0, -1)
   private readonly up = new THREE.Vector3()
   private readonly f = new THREE.Vector3()
@@ -30,6 +36,8 @@ export class ChaseCam {
     this.seed = seed
   }
 
+  reset(): void { this.orbitYaw = 0; this.orbitPitch = 0; this.zoom = 1 }
+
   update(dt: number, craft: Craft): void {
     this.up.copy(craft.pos).normalize()
     const t = Math.min(1, Math.max(0, craft.altitude() / FAR_ALT))
@@ -40,7 +48,12 @@ export class ChaseCam {
     if (this.f.lengthSq() > 0.04) this.fwd.lerp(this.f.normalize(), this.first ? 1 : 1 - Math.exp(-2.5 * dt))
     this.fwd.addScaledVector(this.up, -this.fwd.dot(this.up)).normalize()
 
-    this.target.copy(craft.pos).addScaledVector(this.up, UP).addScaledVector(this.fwd, -BACK)
+    // The follow gives a heading; the user's orbit rotates around it and tilts it.
+    this.spin.setFromAxisAngle(this.up, this.orbitYaw)
+    this.viewFwd.copy(this.fwd).applyQuaternion(this.spin)
+    const dist = Math.hypot(BACK, UP) * this.zoom
+    const elev = Math.min(1.45, Math.max(0.08, Math.atan2(UP, BACK) + this.orbitPitch))
+    this.target.copy(craft.pos).addScaledVector(this.up, dist * Math.sin(elev)).addScaledVector(this.viewFwd, -dist * Math.cos(elev))
     this.pos.lerp(this.target, this.first ? 1 : 1 - Math.exp(-6 * dt))
     // Stay out of the ground.
     this.dir.copy(this.pos).normalize()

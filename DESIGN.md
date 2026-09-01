@@ -98,6 +98,20 @@ One rigid body. Gravity and atmospheric drag are functions of altitude.
 Same code. The craft flies differently in different places because the air is different,
 which is both correct and free.
 
+**The atmosphere is one number.** `atmosphereDensity(altitude)`: 1 on the deck, 0 at
+`ATMOSPHERE_HEIGHT`. Drag, sky colour, haze, the rim-glow shell you see from orbit and the
+HUD readout all key off it, so when the panel says VACUUM the physics agrees. That readout
+is the trigger for the space half of the game.
+
+**Landing is felt, not read off a number** (from the first flight, 2026-09-01). The stack:
+a blob shadow that conforms to the terrain and grows as you descend; an altimeter ladder
+with four landing lights (vertical speed, drift, tilt, ground slope) that arm under 60 m;
+ground effect in the physics, the last six metres pushing back harder the faster you fall
+into them; dust when you burn near the deck; a radar-altimeter blip that quickens on the
+way down; and a chase camera that closes in as you get low. Shift boosts thrust 2.6x, and
+because drag caps it low down and nothing caps it above the atmosphere, it is faster
+exactly where the air thins. Drag orbits the camera, wheel zooms, C snaps it back.
+
 ### Scarcity and rarity
 
 What a world holds falls out of its seed, so "the third one out from that red dwarf is

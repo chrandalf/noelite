@@ -1,5 +1,6 @@
 // Step 2 of the build order: the craft and the flight model, on the step-1 planet.
 //   default        fly the craft (space thrusts, shift boosts, W/S A/D tilt, Q/E yaw, R respawn, M mute)
+//                  drag orbits the camera, wheel zooms, C snaps it back
 //   ?mode=free     step-1 fly camera, for the LOD harness and screenshots
 //   ?cam=&at=      free-mode camera placement
 //   ?burn=N        full thrust for the first N seconds, for screenshots
@@ -16,6 +17,7 @@ import { Dust } from './engine/Dust.ts'
 import { Beeper } from './engine/Beeper.ts'
 import { height } from './world/height.ts'
 import { findLandable, slopeDeg } from './world/terrain.ts'
+import { atmosphereDensity, buildAtmosphereShell } from './world/atmosphere.ts'
 import { PLANET_RADIUS, MASTER_SEED, LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE } from './world/config.ts'
 
 const q = new URLSearchParams(location.search)
@@ -31,6 +33,9 @@ const scene = new THREE.Scene()
 const SKY = new THREE.Color(0x5d9be0), SPACE = new THREE.Color(0x06060e)
 const background = new THREE.Color()
 scene.background = background
+// Haze inside the atmosphere, the same colour as the sky, thinning with density.
+const fog = new THREE.FogExp2(SKY.getHex(), 0)
+scene.fog = fog
 
 // The camera never leaves the origin. The world moves around it.
 const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.05, 2e6)
@@ -51,6 +56,7 @@ const terrainMaterial = q.get('wire') === '1'
   : new THREE.MeshLambertMaterial({ vertexColors: true })
 const planet = new PlanetLOD(MASTER_SEED, terrainMaterial, q.get('skirts') === '0' ? false : q.get('skirts') === 'red' ? 'red' : true)
 world.add(planet.group)
+world.add(buildAtmosphereShell(sun.position, SKY))
 
 // The craft, its pad, its camera.
 const craft = new Craft(MASTER_SEED)
@@ -88,6 +94,20 @@ const altNum = document.getElementById('alt-num')!, altState = document.getEleme
 const lights = { v: document.getElementById('l-v')!, d: document.getElementById('l-d')!, t: document.getElementById('l-t')!, s: document.getElementById('l-s')! }
 altimeter.hidden = mode !== 'fly'
 const light = (el: HTMLElement, text: string, ok: boolean, armed: boolean) => { el.textContent = text; el.className = armed ? (ok ? 'ok' : 'bad') : '' }
+const atmosEl = document.getElementById('atmos')!
+// Drag orbits the chase camera, wheel zooms, C resets.
+{
+  let dragging = false, lx = 0, ly = 0
+  renderer.domElement.addEventListener('mousedown', (e) => { dragging = true; lx = e.clientX; ly = e.clientY })
+  addEventListener('mouseup', () => { dragging = false })
+  addEventListener('mousemove', (e) => {
+    if (!dragging || mode !== 'fly') return
+    chase.orbitYaw -= (e.clientX - lx) * 0.006
+    chase.orbitPitch = Math.min(1.2, Math.max(-0.6, chase.orbitPitch + (e.clientY - ly) * 0.006))
+    lx = e.clientX; ly = e.clientY
+  })
+  addEventListener('wheel', (e) => { if (mode === 'fly') chase.zoom = Math.min(3, Math.max(0.4, chase.zoom * Math.pow(1.1, e.deltaY / 100))) }, { passive: true })
+}
 const dir = new THREE.Vector3()
 const viewPos = new THREE.Vector3(), viewQuat = new THREE.Quaternion()
 let last = performance.now(), frames = 0, fps = 0, fpsAt = last, updates = 0, elapsed = 0
@@ -100,6 +120,7 @@ addEventListener('keydown', (e) => {
   if (mode !== 'fly') return
   if (e.code === 'KeyR') respawn()
   if (e.code === 'KeyM') beeper.muted = !beeper.muted
+  if (e.code === 'KeyC') chase.reset()
 })
 function respawn() { craft.spawnOn(pad, new THREE.Vector3(1, 0, 0)); crashedAt = null }
 
@@ -144,10 +165,13 @@ renderer.setAnimationLoop((now) => {
     light(lights.t, `TILT ${tilt.toFixed(0)}°`, tilt < LAND_MAX_TILT, armed)
     light(lights.s, `SLOPE ${slope.toFixed(0)}°`, slope < LAND_MAX_SLOPE, armed)
     altState.textContent = craft.state === 'landed' ? 'DOWN' : craft.state === 'crashed' ? 'CRASHED' : ''
+    const rho = craft.atmosphere()
+    atmosEl.textContent = rho > 0 ? `ATMOS ${(rho * 100).toFixed(0)}%` : 'VACUUM'
+    atmosEl.className = rho > 0 ? '' : 'vacuum'
     const lc = craft.lastContact
     line = `alt ${altitude.toFixed(1).padStart(6)} m   v↑ ${craft.vUp().toFixed(1).padStart(5)} m/s   spd ${craft.vel.length().toFixed(1).padStart(5)} m/s   tilt ${craft.tilt().toFixed(0).padStart(2)}°   ${craft.state.toUpperCase()}   landings ${craft.landings}  crashes ${craft.crashes}\n` +
       (craft.state === 'crashed' ? `contact: v↑ ${lc.vUp.toFixed(1)}  drift ${lc.vH.toFixed(1)}  tilt ${lc.tilt.toFixed(0)}°  slope ${lc.slope.toFixed(0)}°   (R to respawn)\n` : '') +
-      `space thrust   shift boost   W/S tilt   A/D roll   Q/E yaw   R respawn   M mute   ${fps} fps   chunks ${planet.liveCount}`
+      `space thrust   shift boost   W/S tilt   A/D roll   Q/E yaw   R respawn   M mute   drag orbit   wheel zoom   C reset cam   ${fps} fps   chunks ${planet.liveCount}`
   } else {
     dir.copy(free.pos).normalize()
     altitude = free.pos.length() - PLANET_RADIUS - height(dir, MASTER_SEED)
@@ -157,7 +181,10 @@ renderer.setAnimationLoop((now) => {
     line = `alt ${altitude.toFixed(0)} m   speed ${speed.toFixed(0)} m/s   chunks ${planet.liveCount} (+${planet.pendingCount})   lod ${lo}..${hi}   ${fps} fps\nWASD move  R/F up/down  Q/E roll  drag to look  shift = fast`
   }
 
-  background.lerpColors(SKY, SPACE, Math.min(1, Math.max(0, altitude / 900)))
+  const density = atmosphereDensity(altitude)
+  background.lerpColors(SPACE, SKY, density)
+  fog.color.copy(background)
+  fog.density = 0.00055 * density
   planet.update(viewPos); updates++
   world.position.copy(viewPos).negate()
   camera.quaternion.copy(viewQuat)

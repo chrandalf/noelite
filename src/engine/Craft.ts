@@ -9,8 +9,9 @@
 import * as THREE from 'three'
 import type { PlanetSeed } from '../world/height.ts'
 import { groundRadius, surfaceNormal, slopeDeg } from '../world/terrain.ts'
+import { atmosphereDensity } from '../world/atmosphere.ts'
 import {
-  PLANET_RADIUS, GRAVITY, ATMOSPHERE_HEIGHT, DRAG, THRUST_ACCEL, ANG_ACCEL, ANG_DAMP,
+  PLANET_RADIUS, GRAVITY, DRAG, THRUST_ACCEL, ANG_ACCEL, ANG_DAMP,
   HULL_CLEARANCE, LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE, FIXED_DT,
   BOOST_MULT, GROUND_EFFECT_HEIGHT, GROUND_EFFECT_ACCEL, GROUND_EFFECT_DAMP,
 } from '../world/config.ts'
@@ -56,6 +57,9 @@ export class Craft {
     this.up.copy(this.pos).normalize()
     return this.pos.length() - groundRadius(this.up, this.seed) - HULL_CLEARANCE
   }
+
+  /** Atmospheric density where the craft is, 1 on the deck, 0 in vacuum. */
+  atmosphere(): number { return atmosphereDensity(this.altitude() + HULL_CLEARANCE) }
 
   /** Vertical speed, positive up. */
   vUp(): number { return this.vel.dot(this.up.copy(this.pos).normalize()) }
@@ -127,8 +131,7 @@ export class Craft {
       const vUp = this.vel.dot(this.up)
       if (vUp < 0) this.acc.addScaledVector(this.up, -vUp * GROUND_EFFECT_DAMP * k)
     }
-    const x = 1 - Math.min(1, Math.max(0, alt / ATMOSPHERE_HEIGHT))
-    const rho = x * x * (3 - 2 * x) // smoothstep to zero at the top of the atmosphere
+    const rho = atmosphereDensity(alt)
     const speed = this.vel.length()
     if (rho > 0 && speed > 0) this.acc.addScaledVector(this.vel, -DRAG * rho * speed)
 

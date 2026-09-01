@@ -33,6 +33,8 @@
       #altimeter.low .fill { background: #e6b33a; }
       #altimeter.critical .fill { background: #e06a5a; }
       #altimeter.critical .marker { background: #ff8; }
+      #altimeter .atmos { text-align: right; opacity: 0.75; }
+      #altimeter .atmos.vacuum { color: #ffd56a; opacity: 1; letter-spacing: 0.2em; }
       #altimeter[hidden] { display: none; }
     </style>
   </head>
@@ -48,6 +50,7 @@
           <span id="l-v">V↑ 0.0</span><span id="l-d">DRIFT 0.0</span><span id="l-t">TILT 0°</span><span id="l-s">SLOPE 0°</span>
         </div>
         <div class="state" id="alt-state"></div>
+        <div class="atmos" id="atmos"></div>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
