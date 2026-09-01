@@ -21,8 +21,18 @@ export class PlanetLOD {
   private readonly queue: Want[] = []
   private readonly queued = new Set<ChunkKey>()
 
+  private readonly seed: PlanetSeed
+  private readonly material: THREE.Material
+  private readonly skirts: SkirtMode
+
   /** `skirts: false` is a debug switch: it makes LOD cracks visible on purpose. */
-  constructor(private readonly seed: PlanetSeed, private readonly material: THREE.Material, private readonly skirts: SkirtMode = true) {}
+  constructor(seed: PlanetSeed, material: THREE.Material, skirts: SkirtMode = true) {
+    // Explicit fields, not parameter properties: tools/*.mjs import this file
+    // through Node's strip-only TypeScript, which rejects parameter properties.
+    this.seed = seed
+    this.material = material
+    this.skirts = skirts
+  }
 
   get liveCount(): number { return this.live.size }
   get pendingCount(): number { return this.queue.length }
