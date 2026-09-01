@@ -238,7 +238,8 @@ body with a floating origin, LOD on the near ones, plain spheres far off, the su
 mesh and a point light; a free-camera tour. C, the craft in the heliocentric frame with
 summed gravity, per-body atmosphere, landed-rides-the-planet; `verify-flight` ported. D,
 body targeting on the HUD (Tab cycles), distance and closing speed, sphere-of-influence
-readout, and the escape-the-system trigger for the Elite half.
+readout, a lock-view camera that keeps the ship in the foreground and the target framed,
+and the escape-the-system trigger for the Elite half.
 
 ## 6. Instruments, before the game
 
@@ -273,6 +274,13 @@ Every step is playable. That's the point of the ordering.
   is further away, or blend normals across the boundary row.
 
 ## 9. Deferred
+
+- **Is space flight Newtonian or Elite?** (Chris, 2026-09-01: "ship's behaviour needs to
+  change once in space, but let's get more in space first.") Newtonian is what exists:
+  no drag, you coast, the retro assist and the thrusters are how you stop. Elite's ships
+  had a set speed and stopped when you throttled down, which is not physics but is very
+  playable. Decide once there are planets to fly between; possibly a flight-assist you
+  can switch off rather than a change of model.
 
 - How interplanetary travel compresses (jump? time accel? both?)
 - Combat, or whether there is any
