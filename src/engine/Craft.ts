@@ -7,11 +7,11 @@
 // Integrates at FIXED_DT so a recorded input tape replays exactly. No browser
 // dependency: tools/verify-flight.mjs drives this straight from Node.
 import * as THREE from 'three'
-import type { PlanetSeed } from '../world/height.ts'
+import type { Terrain } from '../world/height.ts'
 import { groundRadius, surfaceNormal, slopeDeg } from '../world/terrain.ts'
 import { atmosphereDensity } from '../world/atmosphere.ts'
 import {
-  PLANET_RADIUS, GRAVITY, DRAG, THRUST_ACCEL, ANG_ACCEL, ANG_DAMP,
+  DRAG, THRUST_ACCEL, ANG_ACCEL, ANG_DAMP,
   HULL_CLEARANCE, LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE, FIXED_DT,
   BOOST_MULT, GROUND_EFFECT_HEIGHT, GROUND_EFFECT_ACCEL, GROUND_EFFECT_DAMP, GRAVITY_FALLOFF, RCS_ACCEL,
 } from '../world/config.ts'
@@ -28,9 +28,9 @@ export type CraftState = 'landed' | 'flying' | 'crashed'
 
 const BODY_UP = new THREE.Vector3(0, 1, 0)
 
-/** m/s² at distance r from the planet centre. */
-export function gravityAt(r: number): number {
-  return GRAVITY * (PLANET_RADIUS / r) ** GRAVITY_FALLOFF
+/** m/s² at distance r from the body's centre. */
+export function gravityAt(r: number, t: Terrain): number {
+  return t.g * (t.radius / r) ** GRAVITY_FALLOFF
 }
 const BODY_FWD = new THREE.Vector3(0, 0, -1)
 
@@ -47,7 +47,7 @@ export class Craft {
   /** Set by the last contact, for the HUD and the harness. */
   lastContact = { vUp: 0, vH: 0, tilt: 0, slope: 0 }
 
-  private readonly seed: PlanetSeed
+  readonly terrain: Terrain
   private accumulator = 0
   private readonly up = new THREE.Vector3()
   private readonly bodyUp = new THREE.Vector3()
@@ -58,24 +58,24 @@ export class Craft {
   private readonly n = new THREE.Vector3()
   private readonly rcs = new THREE.Vector3()
 
-  constructor(seed: PlanetSeed) {
-    this.seed = seed
+  constructor(terrain: Terrain) {
+    this.terrain = terrain
   }
 
   /** Altitude of the hull's feet above the ground directly below. */
   altitude(): number {
     this.up.copy(this.pos).normalize()
-    return this.pos.length() - groundRadius(this.up, this.seed) - HULL_CLEARANCE
+    return this.pos.length() - groundRadius(this.up, this.terrain) - HULL_CLEARANCE
   }
 
   /** Atmospheric density where the craft is, 1 on the deck, 0 in vacuum. */
-  atmosphere(): number { return atmosphereDensity(this.altitude() + HULL_CLEARANCE) }
+  atmosphere(): number { return atmosphereDensity(this.altitude() + HULL_CLEARANCE, this.terrain.air) }
 
   speed(): number { return this.vel.length() }
   /** Circular orbital speed at the craft's current radius. */
-  orbitalSpeed(): number { const r = this.pos.length(); return Math.sqrt(gravityAt(r) * r) }
+  orbitalSpeed(): number { const r = this.pos.length(); return Math.sqrt(gravityAt(r, this.terrain) * r) }
   /** Speed beyond which gravity never brings you back. */
-  escapeSpeed(): number { const r = this.pos.length(); return Math.sqrt(2 * gravityAt(r) * r) }
+  escapeSpeed(): number { const r = this.pos.length(); return Math.sqrt(2 * gravityAt(r, this.terrain) * r) }
 
   /**
    * Attitude assist. Pitch and roll inputs that swing the thrust axis (body up)
@@ -110,10 +110,10 @@ export class Craft {
    */
   spawnOn(dir: THREE.Vector3, heading?: THREE.Vector3, align: 'surface' | 'radial' = 'surface'): void {
     this.up.copy(dir).normalize()
-    this.pos.copy(this.up).multiplyScalar(groundRadius(this.up, this.seed) + HULL_CLEARANCE)
+    this.pos.copy(this.up).multiplyScalar(groundRadius(this.up, this.terrain) + HULL_CLEARANCE)
     this.vel.set(0, 0, 0)
     this.angVel.set(0, 0, 0)
-    this.alignTo(align === 'surface' ? surfaceNormal(this.up, this.seed, this.n) : this.n.copy(this.up), heading)
+    this.alignTo(align === 'surface' ? surfaceNormal(this.up, this.terrain, this.n) : this.n.copy(this.up), heading)
     this.state = 'landed'
     this.thrusting = false
     this.accumulator = 0
@@ -146,8 +146,8 @@ export class Craft {
     // Forces.
     const r = this.pos.length()
     this.up.copy(this.pos).divideScalar(r)
-    const alt = r - groundRadius(this.up, this.seed)
-    const g = gravityAt(r)
+    const alt = r - groundRadius(this.up, this.terrain)
+    const g = gravityAt(r, this.terrain)
     this.acc.copy(this.up).multiplyScalar(-g)
     if (c.thrust > 0) {
       this.bodyUp.copy(BODY_UP).applyQuaternion(this.quat)
@@ -168,7 +168,7 @@ export class Craft {
       const vUp = this.vel.dot(this.up)
       if (vUp < 0) this.acc.addScaledVector(this.up, -vUp * GROUND_EFFECT_DAMP * k)
     }
-    const rho = atmosphereDensity(alt)
+    const rho = atmosphereDensity(alt, this.terrain.air)
     const speed = this.vel.length()
     if (rho > 0 && speed > 0) this.acc.addScaledVector(this.vel, -DRAG * rho * speed)
 
@@ -178,12 +178,12 @@ export class Craft {
     // Contact.
     const r2 = this.pos.length()
     this.up.copy(this.pos).divideScalar(r2)
-    const ground = groundRadius(this.up, this.seed)
+    const ground = groundRadius(this.up, this.terrain)
     if (r2 - ground < HULL_CLEARANCE) {
       const vUp = this.vel.dot(this.up)
       const vH = Math.sqrt(Math.max(0, this.vel.lengthSq() - vUp * vUp))
       const tilt = this.tilt()
-      const slope = slopeDeg(this.up, this.seed)
+      const slope = slopeDeg(this.up, this.terrain)
       this.lastContact = { vUp, vH, tilt, slope }
       this.pos.copy(this.up).multiplyScalar(ground + HULL_CLEARANCE)
       this.vel.set(0, 0, 0)
@@ -192,7 +192,7 @@ export class Craft {
       if (gentle) {
         this.state = 'landed'
         this.landings++
-        this.alignTo(surfaceNormal(this.up, this.seed, this.n))
+        this.alignTo(surfaceNormal(this.up, this.terrain, this.n))
       } else {
         this.state = 'crashed'
         this.crashes++

@@ -6,7 +6,7 @@
 import * as THREE from 'three'
 import type { Craft } from './Craft.ts'
 import { groundRadius } from '../world/terrain.ts'
-import type { PlanetSeed } from '../world/height.ts'
+import type { Terrain } from '../world/height.ts'
 
 const NEAR = { back: 14, up: 10 }
 const FAR = { back: 30, up: 26 }
@@ -39,10 +39,10 @@ export class ChaseCam {
   private readonly camUp = new THREE.Vector3()
   private readonly m = new THREE.Matrix4()
   private readonly dir = new THREE.Vector3()
-  private readonly seed: PlanetSeed
+  private readonly seed: Terrain
   private first = true
 
-  constructor(seed: PlanetSeed) {
+  constructor(seed: Terrain) {
     this.seed = seed
   }
 

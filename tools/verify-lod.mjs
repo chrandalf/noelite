@@ -8,8 +8,7 @@
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { readdirSync, existsSync } from 'node:fs'
-import { height } from '../src/world/height.ts'
-import { PLANET_RADIUS, MASTER_SEED } from '../src/world/config.ts'
+import { height, HOME } from '../src/world/height.ts'
 import { MAX_LEVEL } from '../src/world/lod.ts'
 
 const require = createRequire('/mnt/c/Users/chris/code/80sadventure/package.json')
@@ -22,7 +21,7 @@ function chrome() {
 const base = process.argv[2] ?? 'http://localhost:5175/'
 const url = base + (base.includes('?') ? '&' : '?') + 'mode=free'
 const MAX_CHUNKS = 400
-const R = PLANET_RADIUS
+const R = HOME.radius
 let pass = 0, fail = 0
 const check = (name, cond, detail = '') => { if (cond) { pass++; console.log(`  ok   ${name}${detail ? '  (' + detail + ')' : ''}`) } else { fail++; console.log(`  FAIL ${name}  ${detail}`) } }
 
@@ -37,7 +36,7 @@ await page.waitForFunction(() => globalThis.__noelite?.ready?.() === true, { tim
 // Descent along one direction, looking ahead along the surface.
 const n = (x, y, z) => { const l = Math.hypot(x, y, z); return { x: x / l, y: y / l, z: z / l } }
 const here = n(0.3, 0.2, 1), ahead = n(0.36, 0.22, 1)
-const hHere = height(here, MASTER_SEED), hAhead = height(ahead, MASTER_SEED)
+const hHere = height(here, HOME), hAhead = height(ahead, HOME)
 const profile = [3500, 2000, 1000, 500, 250, 120, 60, 25, 8, 2]
 let worst = 0
 for (const alt of profile) {

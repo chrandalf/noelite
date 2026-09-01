@@ -4,8 +4,7 @@
 // not visited at all, which is what keeps the live count bounded.
 import * as THREE from 'three'
 import { FACES, faceToUnit, type Face } from './cubesphere.ts'
-import { height, type PlanetSeed } from './height.ts'
-import { PLANET_RADIUS } from './config.ts'
+import { height, type Terrain } from './height.ts'
 import { buildChunk, chunkBounds, chunkKey, type ChunkKey, type SkirtMode } from './chunk.ts'
 
 export const MAX_LEVEL = 6
@@ -21,15 +20,15 @@ export class PlanetLOD {
   private readonly queue: Want[] = []
   private readonly queued = new Set<ChunkKey>()
 
-  private readonly seed: PlanetSeed
+  private readonly terrain: Terrain
   private readonly material: THREE.Material
   private readonly skirts: SkirtMode
 
   /** `skirts: false` is a debug switch: it makes LOD cracks visible on purpose. */
-  constructor(seed: PlanetSeed, material: THREE.Material, skirts: SkirtMode = true) {
+  constructor(terrain: Terrain, material: THREE.Material, skirts: SkirtMode = true) {
     // Explicit fields, not parameter properties: tools/*.mjs import this file
     // through Node's strip-only TypeScript, which rejects parameter properties.
-    this.seed = seed
+    this.terrain = terrain
     this.material = material
     this.skirts = skirts
   }
@@ -48,7 +47,8 @@ export class PlanetLOD {
     const wanted = new Map<ChunkKey, Want>()
     const camDist = cam.length()
     // Angle from the sub-camera point to the horizon, plus slack for terrain height.
-    const horizon = Math.acos(Math.min(1, PLANET_RADIUS / Math.max(camDist, PLANET_RADIUS + 1))) + 0.08
+    const R = this.terrain.radius
+    const horizon = Math.acos(Math.min(1, R / Math.max(camDist, R + 1))) + 0.08
     for (const f of FACES) this.visit(f, 0, 0, 0, cam, camDist, horizon, wanted)
 
     for (const [k, mesh] of this.live) {
@@ -77,7 +77,7 @@ export class PlanetLOD {
       const w = this.queue.shift()!
       const k = chunkKey(w.f, w.level, w.ix, w.iy)
       this.queued.delete(k)
-      const mesh = new THREE.Mesh(buildChunk(w.f, w.level, w.ix, w.iy, this.seed, this.skirts), this.material)
+      const mesh = new THREE.Mesh(buildChunk(w.f, w.level, w.ix, w.iy, this.terrain, this.skirts), this.material)
       mesh.frustumCulled = true
       this.group.add(mesh)
       this.live.set(k, mesh)
@@ -96,11 +96,11 @@ export class PlanetLOD {
     if (theta - angRad > horizon) return // entirely over the horizon
 
     if (level < MAX_LEVEL) {
-      const h = height(dir, this.seed)
-      const r = PLANET_RADIUS + h
+      const h = height(dir, this.terrain)
+      const r = this.terrain.radius + h
       const dx = cam.x - dir.x * r, dy = cam.y - dir.y * r, dz = cam.z - dir.z * r
       const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
-      if (dist < SPLIT_K * angRad * PLANET_RADIUS) {
+      if (dist < SPLIT_K * angRad * this.terrain.radius) {
         this.visit(f, level + 1, ix * 2, iy * 2, cam, camDist, horizon, wanted)
         this.visit(f, level + 1, ix * 2 + 1, iy * 2, cam, camDist, horizon, wanted)
         this.visit(f, level + 1, ix * 2, iy * 2 + 1, cam, camDist, horizon, wanted)

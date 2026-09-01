@@ -5,8 +5,9 @@ import * as THREE from 'three'
 import { PLANET_RADIUS, ATMOSPHERE_HEIGHT } from './config.ts'
 
 /** 1 at the surface, 0 at ATMOSPHERE_HEIGHT and above. Smoothstep between. */
-export function atmosphereDensity(altitude: number): number {
-  const x = 1 - Math.min(1, Math.max(0, altitude / ATMOSPHERE_HEIGHT))
+export function atmosphereDensity(altitude: number, air = ATMOSPHERE_HEIGHT): number {
+  if (air <= 0) return 0
+  const x = 1 - Math.min(1, Math.max(0, altitude / air))
   return x * x * (3 - 2 * x)
 }
 
@@ -42,14 +43,14 @@ const FRAG = /* glsl */ `
     gl_FragColor = vec4(uColor * day, glow * 0.9);
   }`
 
-export function buildAtmosphereShell(sunDir: THREE.Vector3, colour: THREE.Color): THREE.Mesh {
+export function buildAtmosphereShell(sunDir: THREE.Vector3, colour: THREE.Color, radius = PLANET_RADIUS, air = ATMOSPHERE_HEIGHT): THREE.Mesh {
   const mat = new THREE.ShaderMaterial({
     vertexShader: VERT, fragmentShader: FRAG,
     uniforms: { uColor: { value: colour.clone() }, uSun: { value: sunDir.clone().normalize() } },
     transparent: true, depthWrite: false, side: THREE.FrontSide,
   })
   mat.name = 'atmosphere'
-  const mesh = new THREE.Mesh(new THREE.SphereGeometry(PLANET_RADIUS + ATMOSPHERE_HEIGHT, 48, 32), mat)
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius + air, 48, 32), mat)
   mesh.renderOrder = 4
   return mesh
 }

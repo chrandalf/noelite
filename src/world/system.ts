@@ -71,7 +71,8 @@ export function buildSystem(seed = MASTER_SEED): Body[] {
     const tilt = spec.tilt ?? (next() - 0.5) * 0.5
     const b: Body = {
       id: spec.id, name: spec.name, kind: spec.kind,
-      seed: (seed ^ Math.imul(bodies.length + 1, 0x9e3779b1)) >>> 0,
+      // Home keeps the master seed so its terrain (and the pad) is what it always was.
+      seed: spec.id === 'home' ? seed : (seed ^ Math.imul(bodies.length + 1, 0x9e3779b1)) >>> 0,
       radius: spec.radius, surfaceGravity: spec.g, mu,
       atmosphereHeight: spec.air,
       // Moons are tidally locked: one rotation per orbit.

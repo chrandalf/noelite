@@ -3,7 +3,7 @@
 //
 // Asserts the things DESIGN.md §6 promises about height() and the cube-sphere
 // mapping, and reports the numbers a person would otherwise eyeball.
-import { height } from '../src/world/height.ts'
+import { height, HOME } from '../src/world/height.ts'
 import { FACES, faceToUnit, faceToCube, cubeToUnit, cubeToFace } from '../src/world/cubesphere.ts'
 import { TERRAIN_AMPLITUDE, PLANET_RADIUS, MASTER_SEED } from '../src/world/config.ts'
 import { rng } from '../src/world/noise.ts'
@@ -21,7 +21,8 @@ function randomUnit() {
   return { x: x * f, y: y * f, z: 1 - 2 * s }
 }
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z)
-const SEED = MASTER_SEED
+const SEED = HOME
+const OTHER = { ...HOME, seed: MASTER_SEED + 1 }
 
 // 1. Deterministic, bit for bit.
 {
@@ -32,7 +33,7 @@ const SEED = MASTER_SEED
 // 2. Different seeds are different planets.
 {
   let diff = 0
-  for (let i = 0; i < 200; i++) { const p = randomUnit(); diff += Math.abs(height(p, SEED) - height(p, SEED + 1)) }
+  for (let i = 0; i < 200; i++) { const p = randomUnit(); diff += Math.abs(height(p, SEED) - height(p, OTHER)) }
   check('different seeds give different terrain', diff > 200 * 1, `mean |Δh| ${(diff / 200).toFixed(1)} m`)
 }
 // 3. Finite and bounded everywhere sampled.

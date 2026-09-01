@@ -46,15 +46,12 @@ const FRAG = /* glsl */ `
     horizon = mix(horizon, vec3(0.95, 0.45, 0.18), dusk * (0.25 + 0.75 * towardSun * towardSun));
     vec3 col = mix(horizon, zenith, pow(clamp(h, 0.0, 1.0), 0.45));
     if (h < 0.0) col = horizon * (1.0 + h * 0.6);
-    // The sun itself: a hard disc and a soft glow, drawn here rather than as a
-    // mesh so it lives in a shader that is known to validate everywhere.
+    // Haze around the sun, in air only. The sun itself is a body in the scene.
     float s = max(dot(d, uSun), 0.0);
-    float disc = smoothstep(0.99984, 0.99993, s);
-    float glow = pow(s, 60.0) * (0.25 + 0.75 * uDay) * (0.4 + 0.6 * uDensity);
+    float glow = pow(s, 10.0) * 0.55 * uDensity * (0.3 + 0.7 * uDay);
     float alpha = uDensity * (0.35 + 0.65 * uDay);
-    col += uSunCol * glow * 0.9;
-    col = mix(col, uSunCol, disc);
-    alpha = max(alpha, max(disc, glow * 0.8));
+    col += uSunCol * glow;
+    alpha = max(alpha, glow * 0.8);
     gl_FragColor = vec4(col, alpha);
   }`
 

@@ -5,17 +5,19 @@
 import * as THREE from 'three'
 import { Craft, IDLE } from '../src/engine/Craft.ts'
 import { findLandable } from '../src/world/terrain.ts'
-import { FIXED_DT, GRAVITY, DRAG, LAND_MAX_VSPEED, MASTER_SEED, GROUND_EFFECT_HEIGHT, ATMOSPHERE_HEIGHT } from '../src/world/config.ts'
+import { HOME } from '../src/world/height.ts'
+import { FIXED_DT, DRAG, LAND_MAX_VSPEED, GROUND_EFFECT_HEIGHT } from '../src/world/config.ts'
+const GRAVITY = HOME.g, ATMOSPHERE_HEIGHT = HOME.air
 
 let pass = 0, fail = 0
 const check = (name, cond, detail = '') => { if (cond) { pass++; console.log(`  ok   ${name}${detail ? '  (' + detail + ')' : ''}`) } else { fail++; console.log(`  FAIL ${name}  ${detail}`) } }
 const finite = (v) => Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z)
 const T = (thrust, pitch = 0, roll = 0, yaw = 0, boost = 0, lateral = 0, vertical = 0, fore = 0) => ({ pitch, roll, yaw, thrust, boost, lateral, vertical, fore })
 
-const pad = findLandable(new THREE.Vector3(0, 0, 1), MASTER_SEED)
+const pad = findLandable(new THREE.Vector3(0, 0, 1), HOME)
 // Level spawn: thrust is then exactly radial, so a no-steer autopilot comes back
 // down on the pad it left. The game spawns aligned to the slope, on purpose.
-const fresh = () => { const c = new Craft(MASTER_SEED); c.spawnOn(pad, new THREE.Vector3(1, 0, 0), 'radial'); return c }
+const fresh = () => { const c = new Craft(HOME); c.spawnOn(pad, new THREE.Vector3(1, 0, 0), 'radial'); return c }
 /** Run until pred(craft) or maxSeconds. controller(t, craft) → Controls. Returns seconds elapsed. */
 function until(craft, pred, maxSeconds, controller) {
   let t = 0

@@ -9,7 +9,7 @@
 import * as THREE from 'three'
 import type { Craft } from './Craft.ts'
 import { groundRadius } from '../world/terrain.ts'
-import type { PlanetSeed } from '../world/height.ts'
+import type { Terrain } from '../world/height.ts'
 
 const SEGMENTS = 12
 
@@ -22,9 +22,9 @@ export class GroundShadow {
   private readonly t2 = new THREE.Vector3()
   private readonly ax = new THREE.Vector3()
   private readonly p = new THREE.Vector3()
-  private readonly seed: PlanetSeed
+  private readonly seed: Terrain
 
-  constructor(seed: PlanetSeed) {
+  constructor(seed: Terrain) {
     this.seed = seed
     this.pos = new Float32Array((SEGMENTS + 1) * 3)
     const g = new THREE.BufferGeometry()

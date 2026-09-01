@@ -241,6 +241,14 @@ body targeting on the HUD (Tab cycles), distance and closing speed, sphere-of-in
 readout, a lock-view camera that keeps the ship in the foreground and the target framed,
 and the escape-the-system trigger for the Elite half.
 
+## 5c. Lakes and forests (asked for 2026-09-01, not yet built)
+
+On the living worlds: a sea level per body, so basins fill; a flat-shaded water sphere
+whose facets move on a time term and whose colour turns with the view angle, which is
+what "great water" means in this look; and forests as seeded low-poly cones on facets
+whose height band and slope allow. All derived, no assets, and both are new height and
+placement terms on the same interface everything else already uses.
+
 ## 6. Instruments, before the game
 
 Most of this is invisible, so it gets measured rather than eyeballed.

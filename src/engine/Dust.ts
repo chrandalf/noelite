@@ -1,7 +1,7 @@
 // Dust thrown out when you burn near the ground. Zarch's smoke, cheaper.
 import * as THREE from 'three'
 import { groundRadius } from '../world/terrain.ts'
-import type { PlanetSeed } from '../world/height.ts'
+import type { Terrain } from '../world/height.ts'
 import { rng } from '../world/noise.ts'
 
 const N = 200
@@ -15,13 +15,13 @@ export class Dust {
   private cursor = 0
   private carry = 0
   private readonly next = rng(7)
-  private readonly seed: PlanetSeed
+  private readonly seed: Terrain
   private readonly dir = new THREE.Vector3()
   private readonly t1 = new THREE.Vector3()
   private readonly t2 = new THREE.Vector3()
   private readonly ax = new THREE.Vector3()
 
-  constructor(seed: PlanetSeed) {
+  constructor(seed: Terrain) {
     this.seed = seed
     this.pos = new Float32Array(N * 3) // all at the planet centre: inside, invisible
     const g = new THREE.BufferGeometry()

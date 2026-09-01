@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Chunk instrument: the geometry promises the LOD makes.
 import { buildChunk, CHUNK_GRID } from '../src/world/chunk.ts'
-import { MASTER_SEED } from '../src/world/config.ts'
+import { HOME } from '../src/world/height.ts'
 
 let pass = 0, fail = 0
 const check = (name, cond, detail = '') => { if (cond) { pass++; console.log(`  ok   ${name}${detail ? '  (' + detail + ')' : ''}`) } else { fail++; console.log(`  FAIL ${name}  ${detail}`) } }
@@ -9,7 +9,7 @@ const check = (name, cond, detail = '') => { if (cond) { pass++; console.log(`  
 const G = CHUNK_GRID
 const surfaceTris = G * G * 2, skirtTris = 4 * G * 2
 for (const [f, L, ix, iy] of [[4, 3, 3, 3], [0, 0, 0, 0], [2, 6, 17, 40]]) {
-  const geom = buildChunk(f, L, ix, iy, MASTER_SEED)
+  const geom = buildChunk(f, L, ix, iy, HOME)
   const pos = geom.getAttribute('position').array, nor = geom.getAttribute('normal').array, col = geom.getAttribute('color').array
   const tris = pos.length / 9
   check(`chunk ${f}:${L}:${ix}:${iy} has ${surfaceTris} surface + ${skirtTris} skirt triangles`, tris === surfaceTris + skirtTris, `${tris}`)

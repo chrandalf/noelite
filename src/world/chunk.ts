@@ -4,8 +4,7 @@
 // flat shading and no textures they are invisible unless you are underneath.
 import * as THREE from 'three'
 import { faceToUnit, type Face } from './cubesphere.ts'
-import { height, type PlanetSeed } from './height.ts'
-import { PLANET_RADIUS } from './config.ts'
+import { height, type Terrain } from './height.ts'
 import { terrainColour, facetJitter } from './palette.ts'
 
 export const CHUNK_GRID = 16
@@ -23,7 +22,8 @@ export function chunkBounds(level: number, ix: number, iy: number): { u0: number
 
 /** `skirts`: true, false, or 'red' to paint them for debugging. */
 export type SkirtMode = boolean | 'red'
-export function buildChunk(f: Face, level: number, ix: number, iy: number, seed: PlanetSeed, skirts: SkirtMode = true): THREE.BufferGeometry {
+export function buildChunk(f: Face, level: number, ix: number, iy: number, terrain: Terrain, skirts: SkirtMode = true): THREE.BufferGeometry {
+  const R = terrain.radius
   const G = CHUNK_GRID
   const { u0, v0, s } = chunkBounds(level, ix, iy)
   const W = G + 1
@@ -35,8 +35,8 @@ export function buildChunk(f: Face, level: number, ix: number, iy: number, seed:
   for (let j = 0; j < W; j++) {
     for (let i = 0; i < W; i++) {
       const p = faceToUnit(f, u0 + (s * i) / G, v0 + (s * j) / G)
-      const h = height(p, seed)
-      const r = PLANET_RADIUS + h
+      const h = height(p, terrain)
+      const r = R + h
       const k = j * W + i
       vx[k * 3] = p.x * r
       vx[k * 3 + 1] = p.y * r
@@ -47,7 +47,7 @@ export function buildChunk(f: Face, level: number, ix: number, iy: number, seed:
 
   // Skirt depth has to beat the worst gap between this chunk's edge and a
   // coarser neighbour's straight line across it. Generous; it is invisible anyway.
-  const chunkMetres = s * 0.8 * PLANET_RADIUS
+  const chunkMetres = s * 0.8 * R
   const skirtDepth = Math.max(4, 0.06 * chunkMetres)
 
   const triCount = G * G * 2 + (skirts ? 4 * G * 2 : 0)
@@ -70,7 +70,8 @@ export function buildChunk(f: Face, level: number, ix: number, iy: number, seed:
     if (isSkirt) n.copy(up)
     const slope = isSkirt ? 0 : (Math.acos(Math.min(1, Math.max(-1, n.dot(up)))) * 180) / Math.PI
     const jitter = facetJitter(up.x * 977, up.y * 977, up.z * 977)
-    const [r, g, bl] = terrainColour(hAvg, slope, jitter)
+    const lat = up.x * terrain.axis.x + up.y * terrain.axis.y + up.z * terrain.axis.z
+    const [r, g, bl] = terrainColour(terrain.kind, hAvg, slope, jitter, terrain.amplitude ? hAvg / terrain.amplitude : 0, lat)
     const o = t * 9
     pos[o] = ax; pos[o + 1] = ay; pos[o + 2] = az
     pos[o + 3] = bx; pos[o + 4] = by; pos[o + 5] = bz

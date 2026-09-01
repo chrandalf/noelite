@@ -1,13 +1,18 @@
-// Step 2 of the build order: the craft and the flight model, on the step-1 planet.
+// The solar system, rendered in home's rotating frame (stage B). Every body is
+// a group placed by its Kepler position and spin relative to home; near ones
+// are LOD terrain, far ones colour-mapped spheres, the sun an emissive ball
+// with a point light. The craft and the harnesses still live in home's frame;
+// stage C moves them to the heliocentric one.
+//
 //   default        fly the craft (space thrusts, shift boosts, W/S A/D tilt, Q/E yaw, R respawn, M mute)
 //                  drag orbits the camera, wheel zooms, C snaps it back
 //                  X points thrust against velocity, Z points it at the planet
 //                  , . side thrusters, / top thruster (pushes down), ' rear thruster (pushes forward)
-//   ?t=SECONDS     start the clock here (DAY_LENGTH per day), for dawn and dusk shots
 //   ?mode=free     step-1 fly camera, for the LOD harness and screenshots
 //   ?cam=&at=      free-mode camera placement
 //   ?burn=N        full thrust for the first N seconds, for screenshots
-//   ?wire=1  ?skirts=0|red   renderer debug
+//   ?t=SECONDS     start the clock here, for dawn and dusk shots (tools/sun-times.mjs)
+//   ?wire=1  ?skirts=0|red  ?no=dust,shadow,flame   renderer debug
 import * as THREE from 'three'
 import { PlanetLOD } from './world/lod.ts'
 import { FlyCam } from './engine/FlyCam.ts'
@@ -18,13 +23,14 @@ import { buildCraftMesh } from './engine/craftMesh.ts'
 import { GroundShadow } from './engine/GroundShadow.ts'
 import { Dust } from './engine/Dust.ts'
 import { Beeper } from './engine/Beeper.ts'
-import { height } from './world/height.ts'
-import { findLandable, slopeDeg } from './world/terrain.ts'
-import { atmosphereDensity, buildAtmosphereShell } from './world/atmosphere.ts'
-import { sunDirection } from './world/sun.ts'
 import { Sky } from './engine/Sky.ts'
 import { NavMarkers } from './engine/NavMarkers.ts'
-import { PLANET_RADIUS, MASTER_SEED, LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE } from './world/config.ts'
+import { height, HOME, terrainOf, type Terrain } from './world/height.ts'
+import { findLandable, slopeDeg } from './world/terrain.ts'
+import { atmosphereDensity, buildAtmosphereShell } from './world/atmosphere.ts'
+import { SYSTEM, body, bodyPosition, bodySpin, type Body } from './world/system.ts'
+import { terrainColour, facetJitter } from './world/palette.ts'
+import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE } from './world/config.ts'
 
 const q = new URLSearchParams(location.search)
 const mode: 'fly' | 'free' = q.get('mode') === 'free' ? 'free' : 'fly'
@@ -36,11 +42,11 @@ document.body.appendChild(renderer.domElement)
 
 const scene = new THREE.Scene()
 scene.background = new THREE.Color(0x000000)
-// Sky dome, stars, sun. Scene root, so camera-centred for free.
+// Sky dome and stars. Scene root, so camera-centred for free.
 const SKY = new THREE.Color(0x5d9be0)
 const sky = new Sky()
 scene.add(sky.group)
-// Haze inside the atmosphere, the sky's horizon colour, thinning with density.
+// Haze inside home's atmosphere, the sky's horizon colour, thinning with density.
 const fog = new THREE.FogExp2(SKY.getHex(), 0)
 scene.fog = fog
 
@@ -49,60 +55,108 @@ const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.05, 2
 const world = new THREE.Group()
 scene.add(world)
 
-// One hard sun and a hemisphere fill. That is the entire lighting rig. The sun
-// moves: sunDirection(t) drives the light, the shell, the sky and the disc.
-const sun = new THREE.DirectionalLight(0xfff2dc, 2.4)
+// The sun is a body; it lights as a point light with no falloff, so every
+// planet is lit from its own side of the sky. Plus a hemisphere fill.
+const sunLight = new THREE.PointLight(0xfff2dc, 2.4, 0, 0)
 const hemi = new THREE.HemisphereLight(0x9ec5ff, 0x3f5f2e, 0.85)
-scene.add(sun, hemi)
-const sunDir = sunDirection(0)
+scene.add(sunLight, hemi)
 const SUN_WHITE = new THREE.Color(0xfff2dc), SUN_LOW = new THREE.Color(0xffa060)
 
 // flatShading is deliberately OFF. With it on, Three ignores the normal
 // attribute and derives normals from screen-space derivatives, which lit every
 // skirt as the vertical wall it is and drew a dark line along every LOD seam.
 // The chunk builder supplies true per-facet normals on non-indexed geometry.
-const terrainMaterial = q.get('wire') === '1'
-  ? new THREE.MeshBasicMaterial({ wireframe: true, color: 0x9fe3a0 })
-  : new THREE.MeshLambertMaterial({ vertexColors: true })
+const wire = q.get('wire') === '1'
+const terrainMaterial = wire ? new THREE.MeshBasicMaterial({ wireframe: true, color: 0x9fe3a0 }) : new THREE.MeshLambertMaterial({ vertexColors: true })
 terrainMaterial.name = 'terrain'
-const planet = new PlanetLOD(MASTER_SEED, terrainMaterial, q.get('skirts') === '0' ? false : q.get('skirts') === 'red' ? 'red' : true)
-world.add(planet.group)
-const shell = buildAtmosphereShell(sunDir, SKY)
-world.add(shell)
-const shellSun = (shell.material as THREE.ShaderMaterial).uniforms.uSun.value as THREE.Vector3
+// Other bodies are seen through home's air, and fog would erase them. No fog on them.
+const bodyMaterial = wire ? terrainMaterial : new THREE.MeshLambertMaterial({ vertexColors: true, fog: false })
+bodyMaterial.name = 'body'
+const skirts = q.get('skirts') === '0' ? false : q.get('skirts') === 'red' ? 'red' : true
 
-// The craft, its pad, its camera.
-const craft = new Craft(MASTER_SEED)
+/** A colour-mapped sphere for a body seen from far away. The sun glows. */
+function buildFarSphere(b: Body, t: Terrain): THREE.Mesh {
+  if (b.kind === 'sun') {
+    const m = new THREE.MeshLambertMaterial({ color: 0x000000, emissive: 0xffe6a0, emissiveIntensity: 1.5, fog: false })
+    m.name = 'sun'
+    return new THREE.Mesh(new THREE.IcosahedronGeometry(b.radius, 3), m)
+  }
+  const g = new THREE.IcosahedronGeometry(b.radius, b.kind === 'giant' ? 5 : 4).toNonIndexed()
+  const pos = g.getAttribute('position') as THREE.BufferAttribute
+  const col = new Float32Array(pos.count * 3)
+  const c = new THREE.Vector3()
+  for (let i = 0; i < pos.count; i += 3) {
+    c.set(0, 0, 0)
+    for (let k = 0; k < 3; k++) c.x += pos.getX(i + k) / 3, c.y += pos.getY(i + k) / 3, c.z += pos.getZ(i + k) / 3
+    c.normalize()
+    const h = height(c, t)
+    const lat = c.x * t.axis.x + c.y * t.axis.y + c.z * t.axis.z
+    const [r, gg, bb] = terrainColour(t.kind, h, 0, facetJitter(c.x * 977, c.y * 977, c.z * 977), t.amplitude ? h / t.amplitude : 0, lat)
+    for (let k = 0; k < 3; k++) { col[(i + k) * 3] = r; col[(i + k) * 3 + 1] = gg; col[(i + k) * 3 + 2] = bb }
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3))
+  g.computeVertexNormals()
+  return new THREE.Mesh(g, bodyMaterial)
+}
+
+const SHELL_COLOUR: Record<string, number> = { terrestrial: 0x5d9be0, hot: 0xd08050, giant: 0xd8b890 }
+type BodyView = {
+  body: Body; terrain: Terrain; group: THREE.Group; far: THREE.Mesh; lod: PlanetLOD | null
+  shellSun: THREE.Vector3 | null; rel: THREE.Vector3
+}
+const home = body('home'), sunBody = body('sun')
+const views: BodyView[] = SYSTEM.map((b) => {
+  const terrain = b.id === 'home' ? HOME : terrainOf(b)
+  const group = new THREE.Group()
+  world.add(group)
+  const far = buildFarSphere(b, terrain)
+  group.add(far)
+  let lod: PlanetLOD | null = null
+  if (b.kind !== 'sun' && b.kind !== 'giant') { lod = new PlanetLOD(terrain, b.id === 'home' ? terrainMaterial : bodyMaterial, skirts); group.add(lod.group) }
+  let shellSun: THREE.Vector3 | null = null
+  if (b.atmosphereHeight > 0) {
+    const shell = buildAtmosphereShell(new THREE.Vector3(1, 0, 0), new THREE.Color(SHELL_COLOUR[b.kind] ?? 0x5d9be0), b.radius, b.atmosphereHeight)
+    group.add(shell)
+    shellSun = (shell.material as THREE.ShaderMaterial).uniforms.uSun.value as THREE.Vector3
+  }
+  return { body: b, terrain, group, far, lod, shellSun, rel: new THREE.Vector3() }
+})
+const homeView = views.find((v) => v.body === home)!
+const sunView = views.find((v) => v.body === sunBody)!
+/** Home's LOD, for the harness and the HUD. */
+const planet = homeView.lod!
+
+// The craft, its pad, its camera, its feedback stack. All in home's frame.
+const craft = new Craft(HOME)
 const input = new KeyInput()
-const chase = new ChaseCam(MASTER_SEED)
+const chase = new ChaseCam(HOME)
 const shipMaterial = new THREE.MeshLambertMaterial({ vertexColors: true })
 shipMaterial.name = 'ship'
 const { root: ship, flame, rcs } = buildCraftMesh(shipMaterial)
 ;(flame.material as THREE.Material).name = 'flame'
 ship.renderOrder = 2
-world.add(ship)
+homeView.group.add(ship)
 ship.visible = mode === 'fly'
-// The landing feedback stack: shadow, dust, beeper. See DESIGN.md §5.
-const shadow = new GroundShadow(MASTER_SEED)
-const dust = new Dust(MASTER_SEED)
+const pad = findLandable(new THREE.Vector3(0, 0, 1), HOME)
+craft.spawnOn(pad, new THREE.Vector3(1, 0, 0))
+const shadow = new GroundShadow(HOME)
+const dust = new Dust(HOME)
 const beeper = new Beeper()
-world.add(shadow.mesh, dust.points)
+homeView.group.add(shadow.mesh, dust.points)
 shadow.mesh.visible = dust.points.visible = mode === 'fly'
-// ?no=dust,shadow,flame switches feedback elements off, for bisecting renderer faults.
 const off = new Set((q.get('no') ?? '').split(','))
 if (off.has('dust')) dust.points.visible = false
 if (off.has('shadow')) shadow.mesh.visible = false
-const pad = findLandable(new THREE.Vector3(0, 0, 1), MASTER_SEED)
-craft.spawnOn(pad, new THREE.Vector3(1, 0, 0))
 
 const free = new FlyCam(renderer.domElement)
 {
   const vec = (s: string | null, d: THREE.Vector3) => { const p = s?.split(',').map(Number); return p && p.length === 3 && p.every(Number.isFinite) ? new THREE.Vector3(...(p as [number, number, number])) : d }
-  free.pos.copy(vec(q.get('cam'), new THREE.Vector3(0, PLANET_RADIUS * 0.9, PLANET_RADIUS * 2.6)))
+  free.pos.copy(vec(q.get('cam'), new THREE.Vector3(0, HOME.radius * 0.9, HOME.radius * 2.6)))
   free.lookAt(vec(q.get('at'), new THREE.Vector3(0, 0, 0)))
 }
 const burn = Number(q.get('burn') ?? 0)
-const clock0 = Number(q.get('t') ?? 0)
+// Default clock: mid-morning on the pad (tools/sun-times.mjs: dawn 110, noon 218, dusk 326).
+const clock0 = Number(q.get('t') ?? 160)
 const markers = new NavMarkers(document.body)
 
 const hud = document.getElementById('hud')!
@@ -126,7 +180,10 @@ const atmosEl = document.getElementById('atmos')!
   })
   addEventListener('wheel', (e) => { if (mode === 'fly') chase.zoom = Math.min(3, Math.max(0.4, chase.zoom * Math.pow(1.1, e.deltaY / 100))) }, { passive: true })
 }
-const dir = new THREE.Vector3()
+
+const dir = new THREE.Vector3(), tmp = new THREE.Vector3(), sunDir = new THREE.Vector3()
+const qHome = new THREE.Quaternion(), qHomeInv = new THREE.Quaternion(), qBody = new THREE.Quaternion(), qLocal = new THREE.Quaternion()
+const pHome = new THREE.Vector3(), pBody = new THREE.Vector3(), camLocal = new THREE.Vector3()
 const viewPos = new THREE.Vector3(), viewQuat = new THREE.Quaternion()
 let last = performance.now(), frames = 0, fps = 0, fpsAt = last, updates = 0, elapsed = 0
 // Stamped by place(): ready() must see an LOD update newer than the last camera move,
@@ -148,8 +205,37 @@ addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight)
 })
 
+/** Place every body relative to home's rotating frame and the viewer. */
+function placeBodies(t: number): void {
+  bodyPosition(home, t, pHome)
+  bodySpin(home, t, qHome)
+  qHomeInv.copy(qHome).invert()
+  for (const v of views) {
+    // Position in home's frame, then in scene space (camera at the origin).
+    bodyPosition(v.body, t, pBody).sub(pHome).applyQuaternion(qHomeInv)
+    v.rel.copy(pBody)
+    v.group.position.copy(pBody).sub(viewPos)
+    v.group.quaternion.copy(qHomeInv).multiply(bodySpin(v.body, t, qBody))
+    if (v.lod) {
+      const near = v.body === home || v.rel.distanceTo(viewPos) < 40 * v.body.radius
+      v.lod.group.visible = near
+      v.far.visible = !near
+      if (near) {
+        // The LOD thinks in the body's own frame: viewer relative to the body, un-spun.
+        camLocal.copy(viewPos).sub(v.rel).applyQuaternion(qLocal.copy(v.group.quaternion).invert())
+        v.lod.update(camLocal)
+      }
+    }
+    if (v.shellSun) v.shellSun.copy(sunView.rel).sub(v.rel).normalize()
+  }
+  // The sun, from the viewer.
+  sunDir.copy(sunView.rel).sub(viewPos).normalize()
+  sunLight.position.copy(sunView.rel).sub(viewPos)
+}
+
 renderer.setAnimationLoop((now) => {
   const dt = Math.min(0.1, (now - last) / 1000); last = now; elapsed += dt
+  const t = clock0 + elapsed
   let altitude: number, line: string
 
   if (mode === 'fly') {
@@ -173,23 +259,23 @@ renderer.setAnimationLoop((now) => {
     rcs.top.visible = flying && c.vertical < 0
     rcs.rear.visible = flying && c.fore > 0
     altitude = craft.altitude()
-    chase.update(dt, craft, atmosphereDensity(altitude))
+    chase.update(dt, craft, atmosphereDensity(altitude, HOME.air))
     viewPos.copy(chase.pos); viewQuat.copy(chase.quat)
     if (Math.abs(altitude) < 0.05) altitude = 0
     if (!off.has('shadow')) shadow.update(craft)
     if (!off.has('dust')) dust.update(dt, craft.pos, altitude, flame.visible)
     if (off.has('flame')) flame.visible = false
-    beeper.update(now / 1000, altitude, craft.state === 'flying')
+    beeper.update(now / 1000, altitude, flying)
 
     // Altimeter and the four landing lights. They arm below 60 m so they mean something.
     const vUp = craft.vUp(), tilt = craft.tilt()
     dir.copy(craft.pos).normalize()
-    const drift = Math.sqrt(Math.max(0, craft.vel.lengthSq() - vUp * vUp)), slope = slopeDeg(dir, MASTER_SEED)
-    const armed = craft.state === 'flying' && altitude < 60
+    const drift = Math.sqrt(Math.max(0, craft.vel.lengthSq() - vUp * vUp)), slope = slopeDeg(dir, HOME)
+    const armed = flying && altitude < 60
     const frac = Math.min(1, Math.max(0, altitude / 120))
     altFill.style.height = `${frac * 100}%`; altMarker.style.bottom = `${frac * 100}%`
     altNum.textContent = altitude < 100 ? altitude.toFixed(1) : altitude.toFixed(0)
-    altimeter.className = craft.state !== 'flying' ? '' : altitude < 15 ? 'critical' : altitude < 40 ? 'low' : ''
+    altimeter.className = !flying ? '' : altitude < 15 ? 'critical' : altitude < 40 ? 'low' : ''
     light(lights.v, `V↑ ${vUp.toFixed(1)}`, vUp > -LAND_MAX_VSPEED, armed)
     light(lights.d, `DRIFT ${drift.toFixed(1)}`, drift < LAND_MAX_HSPEED, armed)
     light(lights.t, `TILT ${tilt.toFixed(0)}°`, tilt < LAND_MAX_TILT, armed)
@@ -199,8 +285,7 @@ renderer.setAnimationLoop((now) => {
     atmosEl.textContent = rho > 0 ? `ATMOS ${(rho * 100).toFixed(0)}%` : 'VACUUM'
     atmosEl.className = rho > 0 ? '' : 'vacuum'
     // Nav markers once the ground stops being the obvious reference.
-    const showNav = craft.state === 'flying' && (altitude > 80 || rho < 0.5)
-    dir.copy(craft.pos).normalize()
+    const showNav = flying && (altitude > 80 || rho < 0.5)
     markers.place('planet', dir.clone().negate(), camera, showNav)
     const moving = craft.speed() > 2
     const pro = craft.vel.clone().normalize()
@@ -209,38 +294,35 @@ renderer.setAnimationLoop((now) => {
     const lc = craft.lastContact
     const vOrb = craft.orbitalSpeed(), vEsc = craft.escapeSpeed(), spd = craft.speed()
     const spaceLine = rho < 1 ? `orbit ${vOrb.toFixed(0)}   escape ${vEsc.toFixed(0)}   ${spd > vEsc ? '!! ESCAPING !!' : spd > vOrb ? 'above orbital' : ''}   X retro   Z planet\n` : ''
-    line = `alt ${altitude.toFixed(1).padStart(6)} m   v↑ ${craft.vUp().toFixed(1).padStart(5)} m/s   spd ${spd.toFixed(1).padStart(5)} m/s   tilt ${craft.tilt().toFixed(0).padStart(2)}°   ${craft.state.toUpperCase()}   landings ${craft.landings}  crashes ${craft.crashes}\n` + spaceLine +
+    line = `alt ${altitude.toFixed(1).padStart(6)} m   v↑ ${vUp.toFixed(1).padStart(5)} m/s   spd ${spd.toFixed(1).padStart(5)} m/s   tilt ${tilt.toFixed(0).padStart(2)}°   ${craft.state.toUpperCase()}   landings ${craft.landings}  crashes ${craft.crashes}\n` + spaceLine +
       (craft.state === 'crashed' ? `contact: v↑ ${lc.vUp.toFixed(1)}  drift ${lc.vH.toFixed(1)}  tilt ${lc.tilt.toFixed(0)}°  slope ${lc.slope.toFixed(0)}°   (R to respawn)\n` : '') +
       `space thrust   shift boost   W/S tilt   A/D roll   Q/E yaw   , . side   / top   ' rear   X/Z assists   R respawn   M mute   drag orbit   wheel zoom   C reset   ${fps} fps   chunks ${planet.liveCount}`
   } else {
     dir.copy(free.pos).normalize()
-    altitude = free.pos.length() - PLANET_RADIUS - height(dir, MASTER_SEED)
+    altitude = free.pos.length() - HOME.radius - height(dir, HOME)
     const speed = free.update(dt, altitude)
     viewPos.copy(free.pos); viewQuat.copy(free.quat)
     const [lo, hi] = planet.levelRange()
     line = `alt ${altitude.toFixed(0)} m   speed ${speed.toFixed(0)} m/s   chunks ${planet.liveCount} (+${planet.pendingCount})   lod ${lo}..${hi}   ${fps} fps\nWASD move  R/F up/down  Q/E roll  drag to look  shift = fast`
+    markers.hide()
   }
 
-  // The sun moves; everything lit by it follows.
-  sunDirection(clock0 + elapsed, sunDir)
-  sun.position.copy(sunDir).multiplyScalar(1e5)
-  shellSun.copy(sunDir)
-  const density = atmosphereDensity(altitude)
-  dir.copy(viewPos).normalize()
+  placeBodies(t); updates++
+
   // "How day is it" uses the sun's APPARENT elevation: level elevation plus the
   // horizon dip at this altitude. On a 2 km world the horizon drops 30° by 300 m,
   // so the sun that set on the pad is back above the horizon once you climb.
-  const sinApp = Sky.apparentSunElevation(dir, sunDir, altitude, PLANET_RADIUS)
-  const sinDip = Math.sin(Math.acos(Math.min(1, PLANET_RADIUS / (PLANET_RADIUS + Math.max(0, altitude)))))
+  const density = atmosphereDensity(altitude, HOME.air)
+  dir.copy(viewPos).normalize()
+  const sinApp = Sky.apparentSunElevation(dir, sunDir, altitude, HOME.radius)
+  const sinDip = Math.sin(Math.acos(Math.min(1, HOME.radius / (HOME.radius + Math.max(0, altitude)))))
   const day = sky.update(dir, sunDir, density, sinApp, sinDip)
   hemi.position.copy(dir) // the fill's "sky" is the local up, not scene +Y
   hemi.intensity = 0.85 * (0.2 + 0.8 * day)
-  sun.color.lerpColors(SUN_LOW, SUN_WHITE, Math.min(1, Math.max(0, (sinApp + 0.05) / 0.25)))
+  sunLight.color.lerpColors(SUN_LOW, SUN_WHITE, Math.min(1, Math.max(0, (sinApp + 0.05) / 0.25)))
   fog.color.copy(sky.horizon)
   fog.density = 0.00055 * density
-  if (mode === 'free') markers.hide()
-  planet.update(viewPos); updates++
-  world.position.copy(viewPos).negate()
+
   camera.quaternion.copy(viewQuat)
   renderer.render(scene, camera)
 
@@ -248,14 +330,15 @@ renderer.setAnimationLoop((now) => {
   if (now - fpsAt > 500) { fps = Math.round((frames * 1000) / (now - fpsAt)); frames = 0; fpsAt = now }
   hud.textContent = line
 })
+void tmp
 
 // For the harnesses.
 ;(window as unknown as { __noelite: unknown }).__noelite = {
-  mode, planet, craft, input, free,
+  mode, planet, craft, input, free, views,
   /** True only once the LOD has updated since the last place() and its queue is empty. */
   ready: () => updates > placedAt + 1 && planet.pendingCount === 0,
   /** Free mode: put the camera at p looking at a. */
   place: (px: number, py: number, pz: number, ax: number, ay: number, az: number) => { free.pos.set(px, py, pz); free.lookAt(new THREE.Vector3(ax, ay, az)); placedAt = updates },
-  altitude: () => mode === 'fly' ? craft.altitude() : free.pos.length() - PLANET_RADIUS - height(free.pos.clone().normalize(), MASTER_SEED),
+  altitude: () => mode === 'fly' ? craft.altitude() : free.pos.length() - HOME.radius - height(free.pos.clone().normalize(), HOME),
   respawn,
 }
