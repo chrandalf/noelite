@@ -9,7 +9,8 @@
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
-    "verify": "node tools/verify-terrain.mjs"
+    "verify": "node tools/verify-terrain.mjs && node tools/verify-chunk.mjs",
+    "verify:lod": "node tools/verify-lod.mjs"
   },
   "devDependencies": {
     "typescript": "^5.6.3",

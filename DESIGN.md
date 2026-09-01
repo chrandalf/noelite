@@ -77,6 +77,12 @@ unit-testable before a pixel exists.
   Skip this and Three averages the normals and you get smooth Gouraud mush.
 - One directional light, one weak ambient, saturated flat colours, no textures
 - `logarithmicDepthBuffer: true` — kills depth precision fights between orbit and ground
+- **`flatShading` stays OFF on the terrain material.** With it on, Three discards the
+  normal attribute and derives normals from screen-space derivatives, so a skirt lights
+  as the vertical wall it is and every LOD seam draws as a dark dotted line. The chunk
+  builder supplies true per-facet normals itself; skirts inherit their surface triangle's
+  normal and colour and vanish. Found 2026-09-01 after four wrong theories; the red-skirt
+  debug mode (`?skirts=red`) and `verify-chunk` are what finally pinned it.
 - Camera-relative rendering: translate the world so the ship sits near origin each frame
 
 Hard facets hide LOD popping, because the eye already expects discontinuity there. The
@@ -155,6 +161,7 @@ Most of this is invisible, so it gets measured rather than eyeballed.
 | Harness | Asserts |
 |---|---|
 | `verify-terrain` | `height()` deterministic, bounded, continuous across all twelve cube-face seams |
+| `verify-chunk` | every skirt quad hangs from a real surface edge and carries its owner's normal and colour |
 | `verify-lod` | no cracks between adjacent levels; chunk count bounded through a scripted orbit-to-ground descent |
 | `verify-flight` | replay an input tape, assert a landed state, assert no NaN anywhere in the physics |
 | `verify-loop` | launch → orbit → transfer → descend → land → scoop → return → sell |
