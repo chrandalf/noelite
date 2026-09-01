@@ -11,7 +11,10 @@ renderer.setSize(innerWidth, innerHeight)
 document.body.appendChild(renderer.domElement)
 
 const scene = new THREE.Scene()
-scene.background = new THREE.Color(0x06060e)
+// Lander's sky: flat blue, hard horizon, and it thins to space as you climb.
+const SKY = new THREE.Color(0x5d9be0), SPACE = new THREE.Color(0x06060e)
+const background = new THREE.Color()
+scene.background = background
 
 // The camera never leaves the origin. The world moves around it.
 const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.05, 2e6)
@@ -21,7 +24,9 @@ scene.add(world)
 // One hard sun, one cool ambient. That is the entire lighting rig.
 const sun = new THREE.DirectionalLight(0xfff2dc, 2.4)
 sun.position.set(1, 0.55, 0.35).multiplyScalar(1e5)
-scene.add(sun, new THREE.AmbientLight(0x50608a, 0.6))
+// Hemisphere fill instead of a flat ambient: sky colour from above, ground
+// bounce from below. Shadowed slopes stay readable; Lander was never black.
+scene.add(sun, new THREE.HemisphereLight(0x9ec5ff, 0x3f5f2e, 0.85))
 
 // Debug switches: ?wire=1 draws chunk edges, ?skirts=0 removes the crack-hiding skirts.
 const debug = new URLSearchParams(location.search)
@@ -47,7 +52,7 @@ const cam = new FlyCam(renderer.domElement)
 
 const hud = document.getElementById('hud')!
 const dir = new THREE.Vector3()
-let last = performance.now(), frames = 0, fps = 0, fpsAt = last
+let last = performance.now(), frames = 0, fps = 0, fpsAt = last, updates = 0
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight
@@ -62,7 +67,9 @@ renderer.setAnimationLoop((now) => {
   const altitude = cam.pos.length() - ground
   const speed = cam.update(dt, altitude)
 
-  planet.update(cam.pos)
+  background.lerpColors(SKY, SPACE, Math.min(1, Math.max(0, altitude / 900)))
+
+  planet.update(cam.pos); updates++
   world.position.copy(cam.pos).negate()
   camera.quaternion.copy(cam.quat)
   renderer.render(scene, camera)
@@ -78,7 +85,8 @@ renderer.setAnimationLoop((now) => {
 // For the harnesses.
 ;(window as unknown as { __noelite: unknown }).__noelite = {
   planet, cam,
-  ready: () => planet.pendingCount === 0,
+  /** True only once the LOD has run at least once and its queue is empty. */
+  ready: () => updates > 0 && planet.pendingCount === 0,
   /** Put the camera at p looking at a. Harness hook. */
   place: (px: number, py: number, pz: number, ax: number, ay: number, az: number) => { cam.pos.set(px, py, pz); cam.lookAt(new THREE.Vector3(ax, ay, az)) },
   altitude: () => { const d = cam.pos.clone().normalize(); return cam.pos.length() - PLANET_RADIUS - height(d, MASTER_SEED) },
