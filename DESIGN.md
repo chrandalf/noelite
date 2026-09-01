@@ -239,7 +239,14 @@ Every step is playable. That's the point of the ordering.
 7. **Mission board.** Derived fetch / deliver / survey from station seeds.
 8. **Authored missions and eggs.** The trails to the thirty rares and the three legendaries.
 
-## 8. Deferred
+## 8. Known and left alone
+
+- **LOD seams show under grazing light.** At dawn and dusk the facet normals on either
+  side of a level boundary differ enough that a whole chunk reads a shade brighter. Not
+  visible at any other hour. Options if it ever matters: higher `SPLIT_K` so the boundary
+  is further away, or blend normals across the boundary row.
+
+## 9. Deferred
 
 - How interplanetary travel compresses (jump? time accel? both?)
 - Combat, or whether there is any
