@@ -281,7 +281,24 @@ Every step is playable. That's the point of the ordering.
   visible at any other hour. Options if it ever matters: higher `SPLIT_K` so the boundary
   is further away, or blend normals across the boundary row.
 
+## 8b. First action tomorrow (2026-09-02)
+
+**Stage C: the craft in the sun's frame.** Chris flew to Vale I and could not land on it,
+because the craft's physics still lives in home's rotating frame and every other body is
+scenery. Heliocentric float64 position, gravity summed from every body, the atmosphere
+of whichever body you are in, landed means riding that body (inherit its surface velocity
+on lift-off), and the altimeter, shadow, dust and beeper follow the nearest body. Then
+`verify-flight` gets a moon landing. "Should be able to land on any planet."
+
+Then Stage D's remainder: the lock-view camera, sphere-of-influence readout, the
+escape-the-system trigger.
+
 ## 9. Deferred
+
+- **A button that morphs the ship into a TIE-fighter-like ship with boosters at the back**
+  (Chris, 2026-09-01, bedtime). Two hulls, one craft: the dart for hover, a TIE-ish body
+  with rear boosters for cruise, and a morph between them on a key (or on the mode switch,
+  which would make the two ships visibly two ships). Same six-facet, no-assets approach.
 
 - **Is space flight Newtonian or Elite?** (Chris, 2026-09-01: "ship's behaviour needs to
   change once in space, but let's get more in space first.") Newtonian is what exists:
