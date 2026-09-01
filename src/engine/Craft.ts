@@ -13,12 +13,16 @@ import { atmosphereDensity } from '../world/atmosphere.ts'
 import {
   PLANET_RADIUS, GRAVITY, DRAG, THRUST_ACCEL, ANG_ACCEL, ANG_DAMP,
   HULL_CLEARANCE, LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE, FIXED_DT,
-  BOOST_MULT, GROUND_EFFECT_HEIGHT, GROUND_EFFECT_ACCEL, GROUND_EFFECT_DAMP, GRAVITY_FALLOFF,
+  BOOST_MULT, GROUND_EFFECT_HEIGHT, GROUND_EFFECT_ACCEL, GROUND_EFFECT_DAMP, GRAVITY_FALLOFF, RCS_ACCEL,
 } from '../world/config.ts'
 
-/** pitch: nose down positive. roll: right wing down positive. yaw: nose right positive. All -1..1. thrust 0..1. */
-export type Controls = { pitch: number; roll: number; yaw: number; thrust: number; boost: number }
-export const IDLE: Readonly<Controls> = Object.freeze({ pitch: 0, roll: 0, yaw: 0, thrust: 0, boost: 0 })
+/**
+ * pitch: nose down positive. roll: right wing down positive. yaw: nose right positive. All -1..1.
+ * thrust 0..1 on the main engine, boost 0..1 multiplies it.
+ * RCS, body frame, small: lateral (+ right), vertical (− is the top thruster pushing you down), fore (+ rear thruster pushing you forward).
+ */
+export type Controls = { pitch: number; roll: number; yaw: number; thrust: number; boost: number; lateral: number; vertical: number; fore: number }
+export const IDLE: Readonly<Controls> = Object.freeze({ pitch: 0, roll: 0, yaw: 0, thrust: 0, boost: 0, lateral: 0, vertical: 0, fore: 0 })
 
 export type CraftState = 'landed' | 'flying' | 'crashed'
 
@@ -52,6 +56,7 @@ export class Craft {
   private readonly fwd = new THREE.Vector3()
   private readonly m = new THREE.Matrix4()
   private readonly n = new THREE.Vector3()
+  private readonly rcs = new THREE.Vector3()
 
   constructor(seed: PlanetSeed) {
     this.seed = seed
@@ -126,7 +131,7 @@ export class Craft {
   substep(h: number, c: Controls): void {
     this.thrusting = c.thrust > 0
     if (this.state !== 'flying') {
-      if (this.state === 'landed' && c.thrust > 0) this.state = 'flying'
+      if (this.state === 'landed' && (c.thrust > 0 || c.vertical > 0)) this.state = 'flying'
       else return
     }
 
@@ -147,6 +152,11 @@ export class Craft {
     if (c.thrust > 0) {
       this.bodyUp.copy(BODY_UP).applyQuaternion(this.quat)
       this.acc.addScaledVector(this.bodyUp, THRUST_ACCEL * c.thrust * (1 + c.boost * (BOOST_MULT - 1)))
+    }
+    // RCS: small pushes along the body axes. Translation without tilting.
+    if (c.lateral || c.vertical || c.fore) {
+      this.rcs.set(c.lateral, c.vertical, -c.fore).multiplyScalar(RCS_ACCEL).applyQuaternion(this.quat)
+      this.acc.add(this.rcs)
     }
     // Ground effect. A cushion in the last few metres, plus damping against
     // descent, both fading to nothing at GROUND_EFFECT_HEIGHT. It is the ground

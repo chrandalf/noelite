@@ -214,6 +214,32 @@ own seed, radius, atmosphere and LOD; nearest-body logic picks which sky and whi
 altimeter you get. Frontier's structure. Scale is gameplay, not astronomy: small planets,
 a sun of tens of km, orbits of hundreds of km, so a transfer is minutes at boost.
 
+**The roster (Chris, 2026-09-01):** the home world plus five: one tiny, one gas giant, one
+super-hot, two more like home. Moons on each, many on the giant. Gravity from all of it.
+
+| Body | Radius | Air | Surface g | Notes |
+|---|---|---|---|---|
+| sun | 25 km | | | emissive; a point light with no decay, so every body is lit from the right side |
+| hot | 1.5 km | thin, none | 6 | closest in; lava palette; a heat mechanic later |
+| home | 2 km | 700 m | 7 | the one you are on now |
+| terrestrial ×2 | 1.8 / 2.4 km | yes | 6.5 / 8 | different seeds, different palettes |
+| tiny | 400 m | none | 1.2 | you can jump off it |
+| gas giant | 10 km | deep | 20 | no surface: below a pressure line you are crushed |
+| moons | 200–800 m | none | 0.5–2 | 1–2 per terrestrial, 4–6 on the giant, none on tiny |
+
+**Physics-law-abiding means:** every body has `GM = g·R²`; every orbit's period comes from
+Kepler III, `T = 2π√(a³/GM_parent)`; moons sit inside a third of their planet's Hill
+radius so the craft feels the planet, not the sun, near them; nothing overlaps. The sun's
+GM is tuned down from "realistic" so the inner planets have Hill spheres big enough to
+hold moons at sensible distances. `verify-system` asserts all of it.
+
+**Stages:** A, the system model and its instrument, pure and headless. B, render every
+body with a floating origin, LOD on the near ones, plain spheres far off, the sun as a
+mesh and a point light; a free-camera tour. C, the craft in the heliocentric frame with
+summed gravity, per-body atmosphere, landed-rides-the-planet; `verify-flight` ported. D,
+body targeting on the HUD (Tab cycles), distance and closing speed, sphere-of-influence
+readout, and the escape-the-system trigger for the Elite half.
+
 ## 6. Instruments, before the game
 
 Most of this is invisible, so it gets measured rather than eyeballed.

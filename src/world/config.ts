@@ -53,3 +53,6 @@ export const GROUND_EFFECT_DAMP = 1.2
 export const DAY_LENGTH = 480
 /** Gravity falls off as (R/r)^GRAVITY_FALLOFF. 2 is real; lower it if space feels too easy to lose. */
 export const GRAVITY_FALLOFF = 2
+
+/** Reaction-control thrusters: side, top and rear. m/s², body frame, no boost. Enough to stop, not to go. */
+export const RCS_ACCEL = 3.5

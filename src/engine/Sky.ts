@@ -27,18 +27,21 @@ const FRAG = /* glsl */ `
   uniform float uDensity;
   uniform float uDay;
   uniform vec3 uSunCol;
+  uniform float uSunElev; // sine of the sun's APPARENT elevation, horizon dip included
+  uniform float uDip;     // sine of the horizon dip below level at this altitude
   varying vec3 vDir;
   void main() {
     #include <logdepthbuf_fragment>
     vec3 d = normalize(vDir);
-    float h = dot(d, uUp);
-    float sunElev = dot(uSun, uUp);
+    // Horizon is where the ground actually is from up here, not at level.
+    float h = (dot(d, uUp) + uDip) / (1.0 + uDip);
+    float sunElev = uSunElev;
     vec3 zenith  = mix(vec3(0.02, 0.03, 0.08), vec3(0.30, 0.55, 0.90), uDay);
     vec3 horizon = mix(vec3(0.05, 0.06, 0.12), vec3(0.62, 0.78, 0.95), uDay);
     // Dusk band: strongest toward the sun when it sits on the horizon.
     float dusk = 1.0 - smoothstep(0.0, 0.35, abs(sunElev));
     vec3 dh = normalize(d - uUp * h + 1e-4);
-    vec3 sh = normalize(uSun - uUp * sunElev + 1e-4);
+    vec3 sh = normalize(uSun - uUp * dot(uSun, uUp) + 1e-4);
     float towardSun = clamp(dot(dh, sh) * 0.5 + 0.5, 0.0, 1.0);
     horizon = mix(horizon, vec3(0.95, 0.45, 0.18), dusk * (0.25 + 0.75 * towardSun * towardSun));
     vec3 col = mix(horizon, zenith, pow(clamp(h, 0.0, 1.0), 0.45));
@@ -65,7 +68,7 @@ export class Sky {
   constructor() {
     this.dome = new THREE.ShaderMaterial({
       vertexShader: VERT, fragmentShader: FRAG,
-      uniforms: { uUp: { value: new THREE.Vector3(0, 1, 0) }, uSun: { value: new THREE.Vector3(1, 0, 0) }, uDensity: { value: 1 }, uDay: { value: 1 }, uSunCol: { value: new THREE.Color(1, 0.96, 0.86) } },
+      uniforms: { uUp: { value: new THREE.Vector3(0, 1, 0) }, uSun: { value: new THREE.Vector3(1, 0, 0) }, uDensity: { value: 1 }, uDay: { value: 1 }, uSunCol: { value: new THREE.Color(1, 0.96, 0.86) }, uSunElev: { value: 0.5 }, uDip: { value: 0 } },
       side: THREE.BackSide, transparent: true, depthWrite: false,
     })
     this.dome.name = 'skydome'
@@ -95,15 +98,27 @@ export class Sky {
     this.group.add(stars, dome)
   }
 
-  /** `up`: viewer's local vertical. `sun`: unit toward the sun. `density`: atmosphere where the viewer is. Returns the day factor. */
-  update(up: THREE.Vector3, sun: THREE.Vector3, density: number): number {
-    const sunElev = up.dot(sun)
+  /** Sine of the sun's apparent elevation from `altitude` above a sphere of radius `R`: level elevation plus the horizon dip. */
+  static apparentSunElevation(up: THREE.Vector3, sun: THREE.Vector3, altitude: number, R: number): number {
+    const dip = Math.acos(Math.min(1, R / (R + Math.max(0, altitude))))
+    return Math.sin(Math.asin(Math.min(1, Math.max(-1, up.dot(sun)))) + dip)
+  }
+
+  /**
+   * `up`: viewer's local vertical. `sun`: unit toward the sun. `density`: atmosphere at the
+   * viewer. `sunElev`: sine of the APPARENT sun elevation (see above); as you climb the horizon
+   * drops and the sun comes back, and everything here has to agree with that. `dip`: sine of
+   * the horizon dip. Returns the day factor.
+   */
+  update(up: THREE.Vector3, sun: THREE.Vector3, density: number, sunElev: number, dip: number): number {
     const day = dayFactor(sunElev)
     const u = this.dome.uniforms
     ;(u.uUp.value as THREE.Vector3).copy(up)
     ;(u.uSun.value as THREE.Vector3).copy(sun)
     u.uDensity.value = density
     u.uDay.value = day
+    u.uSunElev.value = sunElev
+    u.uDip.value = dip
 
     this.stars.opacity = 1 - density * (0.15 + 0.85 * day)
 

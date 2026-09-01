@@ -10,7 +10,7 @@ import { FIXED_DT, GRAVITY, DRAG, LAND_MAX_VSPEED, MASTER_SEED, GROUND_EFFECT_HE
 let pass = 0, fail = 0
 const check = (name, cond, detail = '') => { if (cond) { pass++; console.log(`  ok   ${name}${detail ? '  (' + detail + ')' : ''}`) } else { fail++; console.log(`  FAIL ${name}  ${detail}`) } }
 const finite = (v) => Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z)
-const T = (thrust, pitch = 0, roll = 0, yaw = 0, boost = 0) => ({ pitch, roll, yaw, thrust, boost })
+const T = (thrust, pitch = 0, roll = 0, yaw = 0, boost = 0, lateral = 0, vertical = 0, fore = 0) => ({ pitch, roll, yaw, thrust, boost, lateral, vertical, fore })
 
 const pad = findLandable(new THREE.Vector3(0, 0, 1), MASTER_SEED)
 // Level spawn: thrust is then exactly radial, so a no-steer autopilot comes back
@@ -130,6 +130,19 @@ const L1 = land()
   until(c, () => false, 6, (t, c) => { nadir.copy(c.pos).normalize().negate(); const a = c.aimControls(nadir); return T(0, a.pitch, a.roll) })
   bodyUp.set(0, 1, 0).applyQuaternion(c.quat)
   check('nadir assist points thrust at the planet', bodyUp.dot(nadir) > 0.95, `dot ${bodyUp.dot(nadir).toFixed(3)}`)
+}
+// 13. RCS translates without tilting, and the top thruster brakes a climb.
+{
+  const c = fresh()
+  until(c, () => false, 2, () => T(1))
+  const tilt0 = c.tilt()
+  until(c, () => false, 3, () => T(1, 0, 0, 0, 0, 1))
+  const up = c.pos.clone().normalize(), vUp = c.vel.dot(up)
+  const vH = Math.sqrt(Math.max(0, c.vel.lengthSq() - vUp * vUp))
+  check('side thruster builds drift with no tilt', vH > 6 && Math.abs(c.tilt() - tilt0) < 1, `drift ${vH.toFixed(1)} m/s, tilt ${c.tilt().toFixed(1)}°`)
+  const v1 = c.vUp()
+  until(c, () => false, 2, () => T(0, 0, 0, 0, 0, 0, -1))
+  check('top thruster brakes a climb harder than gravity alone', c.vUp() < v1 - 2 * GRAVITY - 4, `v↑ ${v1.toFixed(1)} → ${c.vUp().toFixed(1)} in 2 s`)
 }
 
 console.log(`\n${pass}/${pass + fail} checks`)

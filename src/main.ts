@@ -2,6 +2,7 @@
 //   default        fly the craft (space thrusts, shift boosts, W/S A/D tilt, Q/E yaw, R respawn, M mute)
 //                  drag orbits the camera, wheel zooms, C snaps it back
 //                  X points thrust against velocity, Z points it at the planet
+//                  , . side thrusters, / top thruster (pushes down), ' rear thruster (pushes forward)
 //   ?t=SECONDS     start the clock here (DAY_LENGTH per day), for dawn and dusk shots
 //   ?mode=free     step-1 fly camera, for the LOD harness and screenshots
 //   ?cam=&at=      free-mode camera placement
@@ -76,7 +77,7 @@ const input = new KeyInput()
 const chase = new ChaseCam(MASTER_SEED)
 const shipMaterial = new THREE.MeshLambertMaterial({ vertexColors: true })
 shipMaterial.name = 'ship'
-const { root: ship, flame } = buildCraftMesh(shipMaterial)
+const { root: ship, flame, rcs } = buildCraftMesh(shipMaterial)
 ;(flame.material as THREE.Material).name = 'flame'
 ship.renderOrder = 2
 world.add(ship)
@@ -166,6 +167,11 @@ renderer.setAnimationLoop((now) => {
     ship.position.copy(craft.pos)
     ship.quaternion.copy(craft.quat)
     flame.visible = craft.thrusting && craft.state === 'flying'
+    const flying = craft.state === 'flying'
+    rcs.right.visible = flying && c.lateral < 0
+    rcs.left.visible = flying && c.lateral > 0
+    rcs.top.visible = flying && c.vertical < 0
+    rcs.rear.visible = flying && c.fore > 0
     altitude = craft.altitude()
     chase.update(dt, craft, atmosphereDensity(altitude))
     viewPos.copy(chase.pos); viewQuat.copy(chase.quat)
@@ -205,7 +211,7 @@ renderer.setAnimationLoop((now) => {
     const spaceLine = rho < 1 ? `orbit ${vOrb.toFixed(0)}   escape ${vEsc.toFixed(0)}   ${spd > vEsc ? '!! ESCAPING !!' : spd > vOrb ? 'above orbital' : ''}   X retro   Z planet\n` : ''
     line = `alt ${altitude.toFixed(1).padStart(6)} m   v↑ ${craft.vUp().toFixed(1).padStart(5)} m/s   spd ${spd.toFixed(1).padStart(5)} m/s   tilt ${craft.tilt().toFixed(0).padStart(2)}°   ${craft.state.toUpperCase()}   landings ${craft.landings}  crashes ${craft.crashes}\n` + spaceLine +
       (craft.state === 'crashed' ? `contact: v↑ ${lc.vUp.toFixed(1)}  drift ${lc.vH.toFixed(1)}  tilt ${lc.tilt.toFixed(0)}°  slope ${lc.slope.toFixed(0)}°   (R to respawn)\n` : '') +
-      `space thrust   shift boost   W/S tilt   A/D roll   Q/E yaw   X/Z assists   R respawn   M mute   drag orbit   wheel zoom   C reset cam   ${fps} fps   chunks ${planet.liveCount}`
+      `space thrust   shift boost   W/S tilt   A/D roll   Q/E yaw   , . side   / top   ' rear   X/Z assists   R respawn   M mute   drag orbit   wheel zoom   C reset   ${fps} fps   chunks ${planet.liveCount}`
   } else {
     dir.copy(free.pos).normalize()
     altitude = free.pos.length() - PLANET_RADIUS - height(dir, MASTER_SEED)
@@ -221,9 +227,15 @@ renderer.setAnimationLoop((now) => {
   shellSun.copy(sunDir)
   const density = atmosphereDensity(altitude)
   dir.copy(viewPos).normalize()
-  const day = sky.update(dir, sunDir, density)
+  // "How day is it" uses the sun's APPARENT elevation: level elevation plus the
+  // horizon dip at this altitude. On a 2 km world the horizon drops 30° by 300 m,
+  // so the sun that set on the pad is back above the horizon once you climb.
+  const sinApp = Sky.apparentSunElevation(dir, sunDir, altitude, PLANET_RADIUS)
+  const sinDip = Math.sin(Math.acos(Math.min(1, PLANET_RADIUS / (PLANET_RADIUS + Math.max(0, altitude)))))
+  const day = sky.update(dir, sunDir, density, sinApp, sinDip)
+  hemi.position.copy(dir) // the fill's "sky" is the local up, not scene +Y
   hemi.intensity = 0.85 * (0.2 + 0.8 * day)
-  sun.color.lerpColors(SUN_LOW, SUN_WHITE, Math.min(1, Math.max(0, (dir.dot(sunDir) + 0.05) / 0.25)))
+  sun.color.lerpColors(SUN_LOW, SUN_WHITE, Math.min(1, Math.max(0, (sinApp + 0.05) / 0.25)))
   fog.color.copy(sky.horizon)
   fog.density = 0.00055 * density
   if (mode === 'free') markers.hide()

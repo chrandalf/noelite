@@ -41,17 +41,29 @@ export function buildCraftGeometry(): THREE.BufferGeometry {
   return g
 }
 
-/** Ship plus an engine flame that shows while thrusting. */
-export function buildCraftMesh(material: THREE.Material): { root: THREE.Group; flame: THREE.Mesh } {
+export type Rcs = { left: THREE.Mesh; right: THREE.Mesh; top: THREE.Mesh; rear: THREE.Mesh }
+
+/** Ship plus an engine flame that shows while thrusting, and four small RCS puffs. */
+export function buildCraftMesh(material: THREE.Material): { root: THREE.Group; flame: THREE.Mesh; rcs: Rcs } {
   const root = new THREE.Group()
   root.add(new THREE.Mesh(buildCraftGeometry(), material))
-  const flame = new THREE.Mesh(
-    new THREE.ConeGeometry(0.7, 3.4, 6),
-    new THREE.MeshBasicMaterial({ color: 0xffa040 }),
-  )
+  const flameMat = new THREE.MeshBasicMaterial({ color: 0xffa040 })
+  const flame = new THREE.Mesh(new THREE.ConeGeometry(0.7, 3.4, 6), flameMat)
   flame.position.set(0, -2.3, 0.9)
   flame.rotation.x = Math.PI
   flame.visible = false
   root.add(flame)
-  return { root, flame }
+  // A puff points AWAY from the direction it pushes: the left thruster fires out of the left side to push you right.
+  const puff = (x: number, y: number, z: number, rx: number, ry: number, rz: number) => {
+    const m = new THREE.Mesh(new THREE.ConeGeometry(0.28, 1.2, 5), flameMat)
+    m.position.set(x, y, z); m.rotation.set(rx, ry, rz); m.visible = false
+    root.add(m); return m
+  }
+  const rcs: Rcs = {
+    left: puff(-3.6, 0, 2.2, 0, 0, Math.PI / 2),    // fires out to the left, pushes right
+    right: puff(3.6, 0, 2.2, 0, 0, -Math.PI / 2),   // fires out to the right, pushes left
+    top: puff(0, 1.8, 0.9, 0, 0, 0),                // fires up, pushes down
+    rear: puff(0, 0, 3.3, Math.PI / 2, 0, 0),       // fires backward, pushes forward
+  }
+  return { root, flame, rcs }
 }
