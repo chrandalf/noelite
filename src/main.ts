@@ -17,6 +17,7 @@ scene.background = new THREE.Color(0x0a0a12)
 
 const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.01, 1e7)
 camera.position.set(0, 1.4, 4)
+camera.lookAt(0, 0, 0)
 
 // One hard directional, one weak ambient. That is the whole lighting rig.
 scene.add(new THREE.DirectionalLight(0xfff4e0, 2.6).translateOnAxis(new THREE.Vector3(1, 1, 0.6).normalize(), 10))
