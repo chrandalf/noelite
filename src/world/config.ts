@@ -19,7 +19,7 @@ export const TERRAIN_AMPLITUDE = 200
  * universe as gone rather than editing this silently.
  */
 export const MASTER_SEED = 0x4e4f454c // "NOEL"
-export const SEED_VERSION = 2 // 2: the 1:159 rescale, 2026-09-02
+export const SEED_VERSION = 3 // 2: the 1:159 rescale; 3: continuous noise kernel (2026-09-02)
 
 // ---- Flight. Gameplay numbers, not physics. Tune by flying, then by harness. ----
 
@@ -52,9 +52,13 @@ export const FIXED_DT = 1 / 120
 
 /** Shift. Thrust multiplier; drag caps it low down, nothing caps it high up. */
 export const BOOST_MULT = 2.6
-/** Ground effect: the last few metres push back, and harder the faster you fall into them. */
+/**
+ * Ground effect: the last few metres push back, and harder the faster you fall into them.
+ * The push is a fraction of the local surface gravity: a fixed 2.5 m/s² out-pushed the
+ * Moon's 1.62 and the craft floated two metres up forever (verify-flight, 2026-09-02).
+ */
 export const GROUND_EFFECT_HEIGHT = 6
-export const GROUND_EFFECT_ACCEL = 2.5
+export const GROUND_EFFECT_ACCEL_G = 0.25
 export const GROUND_EFFECT_DAMP = 1.2
 
 // ---- Sky and space (from the second flight, 2026-09-01). ----
@@ -64,7 +68,7 @@ export const GROUND_EFFECT_DAMP = 1.2
  * equator at 105 m/s, a sixth of orbital speed (Earth's is a seventeenth).
  */
 export const DAY_LENGTH = 2400
-/** Gravity falls off as (R/r)^GRAVITY_FALLOFF. 2 is real; lower it if space feels too easy to lose. */
+/** Readouts only since Stage C (the integrator sums real μ/r² from every body): orbital and escape speed use (R/r)^GRAVITY_FALLOFF. */
 export const GRAVITY_FALLOFF = 2
 
 /** Reaction-control thrusters: side, top and rear. m/s², body frame, no boost. Enough to stop, not to go. */
@@ -75,6 +79,11 @@ export const RCS_ACCEL = 3.5
 /** Density below which the ship switches to cruise, and above which it switches back. Hysteresis. */
 export const CRUISE_ENTER = 0.02
 export const CRUISE_EXIT = 0.1
+/**
+ * Metres above the reference body's ground below which you are always in hover, air or
+ * not: an airless moon still gets a Zarch landing. Cruise re-engages 20% above it.
+ */
+export const CRUISE_FLOOR = 2500
 /** Seconds for velocity across the nose to bleed away: turn, and your speed comes with you. */
 export const CRUISE_ALIGN_TAU = 1.2
 /**

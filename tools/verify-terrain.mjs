@@ -3,6 +3,7 @@
 //
 // Asserts the things DESIGN.md §6 promises about height() and the cube-sphere
 // mapping, and reports the numbers a person would otherwise eyeball.
+import * as THREE from 'three'
 import { height, HOME } from '../src/world/height.ts'
 import { FACES, faceToUnit, faceToCube, cubeToUnit, cubeToFace } from '../src/world/cubesphere.ts'
 import { TERRAIN_AMPLITUDE, PLANET_RADIUS, MASTER_SEED } from '../src/world/config.ts'
@@ -46,6 +47,18 @@ const OTHER = { ...HOME, seed: MASTER_SEED + 1 }
   }
   check('height() is finite over 40k samples', finite)
   check('height() stays within 1.1 × amplitude', Math.max(-lo, hi) <= 1.1 * TERRAIN_AMPLITUDE, `range ${lo.toFixed(1)} .. ${hi.toFixed(1)} m`)
+  // Simplex boundaries lie where two noise coordinates are equal, which on the sphere is
+  // p.x = p.y and friends. With a 0.6 kernel the field jumps there; the pad sat on one.
+  let crack = 0
+  const rr = rng(11)
+  for (let s = 0; s < 3000; s++) {
+    const a = rr() * 2 - 1, b = rr() * 2 - 1, e = 1e-9
+    for (const [p, q] of [[[a, a, b], [a + e, a - e, b]], [[b, a, a], [b, a + e, a - e]], [[a, b, a], [a + e, b, a - e]]]) {
+      const u = new THREE.Vector3(...p).normalize(), v = new THREE.Vector3(...q).normalize()
+      crack = Math.max(crack, Math.abs(height(u, HOME) - height(v, HOME)))
+    }
+  }
+  check('height() has no cracks on simplex boundaries', crack < 1e-3, `worst step ${crack.toExponential(1)} m`)
 }
 // 4. Cube-sphere round trip is exact, including on every edge and corner.
 {

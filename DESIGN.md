@@ -302,6 +302,12 @@ Every step is playable. That's the point of the ordering.
 
 ## 8. Known and left alone
 
+- **The terrain is flat.** After the rescale 100% of home is under 15° and the steepest
+  slope is 15°. Real, and dull from the deck. The relief dial (200 m) and the detail
+  octave's weight are where to push when the look matters more than the physics does.
+- **Re-entry is a cliff.** A full-boost dive is handed from cruise to hover at 2.5 km
+  doing 1,600 m/s. Step 4 in §8b.
+
 - **LOD seams show under grazing light.** At dawn and dusk the facet normals on either
   side of a level boundary differ enough that a whole chunk reads a shade brighter. Not
   visible at any other hour. Options if it ever matters: higher `SPLIT_K` so the boundary
@@ -313,13 +319,23 @@ Every step is playable. That's the point of the ordering.
    flight 23, system 11, lod 16, shot). LOD went to level 10 for ~5 m vertices on the deck;
    peak 203 chunks on the orbit-to-deck descent. A deck-scale noise octave in absolute
    metres (600 m cells down to 150 m) keeps the ground from going billiard-ball.
-2. **Stage C: the craft in the sun's frame.** Chris flew to Vale I and could not land on it,
-   because the craft's physics still lives in home's rotating frame and every other body is
-   scenery. Heliocentric float64 position, gravity summed from every body, the atmosphere
-   of whichever body you are in, landed means riding that body (inherit its surface
-   velocity on lift-off, and home now moves at 2,360 m/s), and the altimeter, shadow, dust
-   and beeper follow the nearest body. Then `verify-flight` gets a moon landing. "Should be
-   able to land on any planet."
+2. ~~**Stage C: the craft in the sun's frame.**~~ Done 2026-09-02, after Chris hit it a
+   second time ("I get to 50 km from another planet and can't land, it just gets stuck").
+   The truth is now heliocentric (`Craft.hpos/hvel/hquat`), gravity is summed from every
+   body, the reference body is chosen by sphere of influence with 5% hysteresis, and
+   everything outside the craft reads a local view in that body's rotating frame with a
+   ground-relative velocity. Landed means riding the body; lift-off inherits the surface
+   velocity because there is nothing else it could do. Ship, shadow, dust and camera
+   re-parent to the reference body's group when it changes. `?over=home-1:300` starts you
+   over the moon. **What the harness caught, all of which would have shipped:** the
+   ground-effect cushion was a fixed 2.5 m/s² and out-pushed the moon's 1.62, so the craft
+   floated two metres up forever (now a fraction of local g); an inertial attitude drifts
+   9° a minute against a 40-minute day, so near the ground the attitude holds against the
+   ground and by 5 km it holds against the stars; hover has to engage by altitude as well
+   as density (`CRUISE_FLOOR`, 2.5 km) or an airless moon is unlandable; and **the noise
+   kernel was 0.6**, the reference layout's value, which leaves the field discontinuous on
+   every simplex boundary and put a 12 cm step in the ground exactly under the pad. It is
+   0.5 now, the terrain harness checks for cracks, and the universe is SEED_VERSION 3.
 3. **Supercruise.** The cap `√(CRUISE_MAX² + 2·CRUISE_DECEL·d)` tops out around 10 km/s;
    Jupiter is 4.9 million km away. Let the cap keep climbing with distance from every mass,
    to the order of 1,000 km/s in deep space, so Vale to Bulwark is minutes and the same

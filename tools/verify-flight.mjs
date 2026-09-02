@@ -6,6 +6,7 @@ import * as THREE from 'three'
 import { Craft, IDLE } from '../src/engine/Craft.ts'
 import { findLandable } from '../src/world/terrain.ts'
 import { HOME } from '../src/world/height.ts'
+import { body, bodyVelocity } from '../src/world/system.ts'
 import { FIXED_DT, DRAG, LAND_MAX_VSPEED, GROUND_EFFECT_HEIGHT, CRUISE_MAX, CRUISE_DECEL } from '../src/world/config.ts'
 const GRAVITY = HOME.g, ATMOSPHERE_HEIGHT = HOME.air
 const BODY_UP = new THREE.Vector3(0, 1, 0), BODY_FWD = new THREE.Vector3(0, 0, -1)
@@ -194,6 +195,39 @@ const L1 = land()
     return T(1, a.pitch, a.roll, a.yaw, 1)
   })
   check('diving at full boost never exceeds the cap', worst < 1.02 && !c.cruise && c.state === 'flying', `from ${(top / 1000).toFixed(0)} km: worst ${(worst * 100).toFixed(0)}% of cap, handed back to hover at ${c.altitude().toFixed(0)} m doing ${c.speed().toFixed(0)} m/s`)
+}
+
+// 16. Stage C: the moon is a real place. Hang over it, fall, land, ride it, lift off with it.
+{
+  const moon = body('home-1')
+  const c = new Craft(HOME); c.time = 5000
+  c.placeAbove(moon, new THREE.Vector3(0.2, 1, 0.3), 120)
+  c.substep(FIXED_DT, IDLE)
+  check('over the moon, the moon is the reference body', c.ref === moon && Math.abs(c.altitude() - 120) < 2, `${c.ref.name}, alt ${c.altitude().toFixed(1)} m`)
+  const v0 = c.vUp(); until(c, () => false, 1, () => IDLE); const gM = -(c.vUp() - v0)
+  check("gravity over the moon is the moon's", Math.abs(gM - moon.surfaceGravity) < 0.05, `${gM.toFixed(2)} m/s² vs ${moon.surfaceGravity}`)
+  check('an airless body still gets hover mode near the ground', !c.cruise)
+  const t = until(c, (c) => c.state !== 'flying', 120, (t, c) => T(c.vUp() < -2 ? 1 : 0))
+  const lc = c.lastContact
+  check('autopilot lands on the moon', c.state === 'landed' && c.landings === 1, `${t.toFixed(1)} s, v↑ ${lc.vUp.toFixed(2)}, drift ${lc.vH.toFixed(2)}, tilt ${lc.tilt.toFixed(1)}°, slope ${lc.slope.toFixed(1)}°`)
+  const p0 = c.pos.clone()
+  until(c, () => false, 30, () => IDLE)
+  const vMoon = bodyVelocity(moon, c.time).length()
+  check('landed, the craft rides the moon', c.pos.distanceTo(p0) < 1e-6 && Math.abs(c.hvel.length() - vMoon) < 3 && c.speed() < 1e-6, `moved ${c.pos.distanceTo(p0).toExponential(1)} m in its frame; heliocentric ${c.hvel.length().toFixed(0)} m/s vs the moon's ${vMoon.toFixed(0)}`)
+  until(c, () => false, 2, () => T(1))
+  const dv = c.hvel.clone().sub(bodyVelocity(moon, c.time)).length()
+  const vExpect = 2 * (18 - moon.surfaceGravity)
+  check('lifting off inherits the surface velocity', c.state === 'flying' && Math.abs(c.speed() - vExpect) < 3 && Math.abs(dv - c.speed()) < 1, `ground-relative ${c.speed().toFixed(1)} m/s (expect ~${vExpect.toFixed(0)}), relative to the moon ${dv.toFixed(1)} m/s`)
+}
+// 17. The reference body follows the sphere of influence.
+{
+  const c = new Craft(HOME); c.time = 5000
+  const dir = new THREE.Vector3(0, 0, 1)
+  c.placeAbove(body('home'), dir, 4_000_000); c.substep(FIXED_DT, IDLE)
+  const a = c.ref.name
+  c.placeAbove(body('home'), dir, 20_000_000); c.substep(FIXED_DT, IDLE)
+  const b = c.ref.name
+  check('4,000 km up is still home; 20,000 km up is the sun', a === 'Vale' && b === 'Sol', `${a}, then ${b}`)
 }
 
 console.log(`\n${pass}/${pass + fail} checks`)

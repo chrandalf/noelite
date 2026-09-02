@@ -11,6 +11,15 @@ const GRAD3: readonly (readonly [number, number, number])[] = [
 ]
 const F3 = 1 / 3
 const G3 = 1 / 6
+/**
+ * Squared radius of each corner's falloff kernel. The reference used 0.6, and with 0.6
+ * the kernels reach past the simplex, so the field has small jumps on every simplex
+ * boundary (6e-3 in noise units; at 200 m of relief a 12 cm step in the ground, which
+ * the pad sat on, found by verify-flight on 2026-09-02). 0.5 keeps every kernel inside
+ * its simplex and the field continuous. SCALE brings the range back to roughly [-1, 1].
+ */
+const KERNEL = 0.5
+const SCALE = 75
 
 /** mulberry32. Small, fast, plenty for shuffling a table and scattering sites. */
 export function rng(seed: number): () => number {
@@ -72,15 +81,15 @@ export class Simplex3 {
     const gi3 = permMod12[ii + 1 + perm[jj + 1 + perm[kk + 1]]]
 
     let n = 0
-    let t0 = 0.6 - x0 * x0 - y0 * y0 - z0 * z0
+    let t0 = KERNEL - x0 * x0 - y0 * y0 - z0 * z0
     if (t0 > 0) { t0 *= t0; const g = GRAD3[gi0]; n += t0 * t0 * (g[0] * x0 + g[1] * y0 + g[2] * z0) }
-    let t1 = 0.6 - x1 * x1 - y1 * y1 - z1 * z1
+    let t1 = KERNEL - x1 * x1 - y1 * y1 - z1 * z1
     if (t1 > 0) { t1 *= t1; const g = GRAD3[gi1]; n += t1 * t1 * (g[0] * x1 + g[1] * y1 + g[2] * z1) }
-    let t2 = 0.6 - x2 * x2 - y2 * y2 - z2 * z2
+    let t2 = KERNEL - x2 * x2 - y2 * y2 - z2 * z2
     if (t2 > 0) { t2 *= t2; const g = GRAD3[gi2]; n += t2 * t2 * (g[0] * x2 + g[1] * y2 + g[2] * z2) }
-    let t3 = 0.6 - x3 * x3 - y3 * y3 - z3 * z3
+    let t3 = KERNEL - x3 * x3 - y3 * y3 - z3 * z3
     if (t3 > 0) { t3 *= t3; const g = GRAD3[gi3]; n += t3 * t3 * (g[0] * x3 + g[1] * y3 + g[2] * z3) }
-    return 32 * n
+    return SCALE * n
   }
 
   /** Fractal Brownian motion, normalised so the sum stays roughly in [-1, 1]. */

@@ -15,14 +15,15 @@ export class Dust {
   private cursor = 0
   private carry = 0
   private readonly next = rng(7)
-  private readonly seed: Terrain
+  /** The body under the craft; main swaps it when the reference body changes. */
+  terrain: Terrain
   private readonly dir = new THREE.Vector3()
   private readonly t1 = new THREE.Vector3()
   private readonly t2 = new THREE.Vector3()
   private readonly ax = new THREE.Vector3()
 
-  constructor(seed: Terrain) {
-    this.seed = seed
+  constructor(terrain: Terrain) {
+    this.terrain = terrain
     this.pos = new Float32Array(N * 3) // all at the planet centre: inside, invisible
     const g = new THREE.BufferGeometry()
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3))
@@ -43,7 +44,7 @@ export class Dust {
         this.ax.set(Math.abs(this.dir.x) < 0.9 ? 1 : 0, Math.abs(this.dir.x) < 0.9 ? 0 : 1, 0)
         this.t1.crossVectors(this.ax, this.dir).normalize()
         this.t2.crossVectors(this.dir, this.t1)
-        const gr = groundRadius(this.dir, this.seed) + 0.4
+        const gr = groundRadius(this.dir, this.terrain) + 0.4
         for (let i = 0; i < count; i++) {
           const j = this.cursor; this.cursor = (this.cursor + 1) % N
           const a = this.next() * Math.PI * 2, sp = (5 + 8 * this.next()) * (0.5 + 0.5 * k)

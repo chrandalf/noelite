@@ -1,20 +1,29 @@
 // The craft. One rigid body, DESIGN.md §5 "Flight: one model, not two".
 //
-// Thrust fires along the body's own up-axis, so you tilt to move and tilt back
-// to stop, and nothing forgives you. Gravity and drag are functions of altitude:
-// on the deck this is Zarch, in orbit it is Elite, and it is the same code.
+// Since Stage C (2026-09-02) the truth is heliocentric: `hpos`, `hvel`, `hquat` in
+// the sun's inertial frame, gravity summed from every body in the system, and a
+// reference body chosen by sphere of influence. Everything outside reads the LOCAL
+// VIEW instead: `pos`, `vel`, `quat` in the reference body's rotating frame with a
+// ground-relative velocity, which is what the renderer, the camera, the HUD and the
+// harness always read. Landed means riding the body: the rest pose is body-fixed and
+// the heliocentric state is re-derived from it every step, so lifting off inherits
+// the surface velocity without anyone having to remember to add it.
 //
-// Integrates at FIXED_DT so a recorded input tape replays exactly. No browser
-// dependency: tools/verify-flight.mjs drives this straight from Node.
+// Thrust fires along the body's own up-axis in air (tilt to move, tilt back to
+// stop) and along the nose in vacuum (cruise). Integrates at FIXED_DT so a recorded
+// input tape replays exactly. No browser dependency: tools/verify-flight.mjs drives
+// this straight from Node.
 import * as THREE from 'three'
 import type { Terrain } from '../world/height.ts'
+import { terrainOf } from '../world/height.ts'
 import { groundRadius, surfaceNormal, slopeDeg } from '../world/terrain.ts'
 import { atmosphereDensity } from '../world/atmosphere.ts'
+import { SYSTEM, body, bodyPosition, bodyVelocity, bodySpin, type Body } from '../world/system.ts'
 import {
   DRAG, THRUST_ACCEL, ANG_ACCEL, ANG_DAMP,
   HULL_CLEARANCE, LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE, FIXED_DT,
-  BOOST_MULT, GROUND_EFFECT_HEIGHT, GROUND_EFFECT_ACCEL, GROUND_EFFECT_DAMP, GRAVITY_FALLOFF, RCS_ACCEL,
-  CRUISE_ENTER, CRUISE_EXIT, CRUISE_ALIGN_TAU, CRUISE_MAX, CRUISE_BRAKE, CRUISE_DECEL, CRUISE_THRUST_GAIN,
+  BOOST_MULT, GROUND_EFFECT_HEIGHT, GROUND_EFFECT_ACCEL_G, GROUND_EFFECT_DAMP, GRAVITY_FALLOFF, RCS_ACCEL,
+  CRUISE_ENTER, CRUISE_EXIT, CRUISE_FLOOR, CRUISE_ALIGN_TAU, CRUISE_MAX, CRUISE_BRAKE, CRUISE_DECEL, CRUISE_THRUST_GAIN,
 } from '../world/config.ts'
 
 /**
@@ -28,36 +37,63 @@ export const IDLE: Readonly<Controls> = Object.freeze({ pitch: 0, roll: 0, yaw: 
 export type CraftState = 'landed' | 'flying' | 'crashed'
 
 const BODY_UP = new THREE.Vector3(0, 1, 0)
+const BODY_FWD = new THREE.Vector3(0, 0, -1)
+const TWO_PI = Math.PI * 2
 
-/** m/s² at distance r from the body's centre. */
+/** m/s² at distance r from the body's centre. Readouts (orbital and escape speed); the integrator sums real μ/r² from every body. */
 export function gravityAt(r: number, t: Terrain): number {
   return t.g * (t.radius / r) ** GRAVITY_FALLOFF
 }
-const BODY_FWD = new THREE.Vector3(0, 0, -1)
 
 export class Craft {
+  /** Local view: the reference body's rotating frame, velocity relative to the ground. */
   readonly pos = new THREE.Vector3()
   readonly vel = new THREE.Vector3()
   readonly quat = new THREE.Quaternion()
+  /** The truth: heliocentric, inertial. */
+  readonly hpos = new THREE.Vector3()
+  readonly hvel = new THREE.Vector3()
+  readonly hquat = new THREE.Quaternion()
   /** Body frame, rad/s. */
   readonly angVel = new THREE.Vector3()
+  /** Simulation clock, seconds. The system is a function of it. */
+  time = 0
+  /** The body whose sphere of influence you are in. Frame, ground, air and altimeter all follow it. */
+  ref: Body
+  terrain: Terrain
+  /** True for the step in which the reference body changed, so the camera can snap to the new frame. */
+  refChanged = false
   state: CraftState = 'landed'
   thrusting = false
   /**
-   * False in air: Zarch, thrust along body-up, tilt to move. True in vacuum: cruise,
-   * thrust along the nose, velocity follows the nose, / brakes. Switches on density
-   * with hysteresis so it never flickers at the edge of the atmosphere.
+   * False near ground or in air: Zarch, thrust along body-up, tilt to move. True in
+   * vacuum and high up: cruise, thrust along the nose, velocity follows the nose,
+   * / brakes. Switches on density with hysteresis, and never above CRUISE_FLOOR of
+   * altitude, so an airless moon still gets a hover landing.
    */
   cruise = false
-  /** Metres to the nearest body's surface, set by whoever knows the system; null means "use my own altitude". */
-  proximity: number | null = null
+  /** Metres to the nearest body's surface, whichever body that is. Drives the cruise cap and thrust gain. */
+  proximity = Infinity
   landings = 0
   crashes = 0
   /** Set by the last contact, for the HUD and the harness. */
   lastContact = { vUp: 0, vH: 0, tilt: 0, slope: 0 }
 
-  readonly terrain: Terrain
   private accumulator = 0
+  // Rest pose, body-fixed, held while landed or crashed.
+  private readonly restPos = new THREE.Vector3()
+  private readonly restQuat = new THREE.Quaternion()
+  // The reference body's frame at `time`: centre, velocity, spin, angular velocity (inertial).
+  private readonly bPos = new THREE.Vector3()
+  private readonly bVel = new THREE.Vector3()
+  private readonly spin = new THREE.Quaternion()
+  private readonly spinInv = new THREE.Quaternion()
+  private readonly omega = new THREE.Vector3()
+  // Scratch.
+  private readonly rel = new THREE.Vector3()
+  private readonly frameVel = new THREE.Vector3()
+  private readonly vRel = new THREE.Vector3()
+  private readonly localDir = new THREE.Vector3()
   private readonly up = new THREE.Vector3()
   private readonly bodyUp = new THREE.Vector3()
   private readonly acc = new THREE.Vector3()
@@ -67,8 +103,11 @@ export class Craft {
   private readonly n = new THREE.Vector3()
   private readonly rcs = new THREE.Vector3()
   private readonly nose = new THREE.Vector3()
+  private readonly tmp = new THREE.Vector3()
 
+  /** `terrain` names the starting body; the craft looks the body up by id. */
   constructor(terrain: Terrain) {
+    this.ref = body(terrain.id)
     this.terrain = terrain
   }
 
@@ -81,7 +120,10 @@ export class Craft {
   /** Atmospheric density where the craft is, 1 on the deck, 0 in vacuum. */
   atmosphere(): number { return atmosphereDensity(this.altitude() + HULL_CLEARANCE, this.terrain.air) }
 
+  /** Ground-relative speed: what the pilot feels and what a landing is judged on. */
   speed(): number { return this.vel.length() }
+  /** Speed relative to the reference body's centre, not its spin: the one to compare with orbital speed. */
+  inertialSpeed(): number { return this.tmp.copy(this.hvel).sub(this.bVel).length() }
   /** Circular orbital speed at the craft's current radius. */
   orbitalSpeed(): number { const r = this.pos.length(); return Math.sqrt(gravityAt(r, this.terrain) * r) }
   /** Speed beyond which gravity never brings you back. */
@@ -89,7 +131,7 @@ export class Craft {
 
   /**
    * Attitude assist. Pitch and roll inputs that swing the thrust axis (body up)
-   * toward `target` (unit, world). A P-controller on angular velocity whose
+   * toward `target` (unit, local frame). A P-controller on angular velocity whose
    * setpoint is the angle error, so it plays the same keys a pilot would.
    */
   aimControls(target: THREE.Vector3, k = 3): { pitch: number; roll: number; yaw: number } {
@@ -112,7 +154,7 @@ export class Craft {
   /** The cruise speed allowed at distance d from the nearest surface: what you could brake from in time. */
   cruiseCap(d: number): number { return Math.sqrt(CRUISE_MAX * CRUISE_MAX + 2 * CRUISE_DECEL * Math.max(0, d)) }
 
-  /** Vertical speed, positive up. */
+  /** Vertical speed, positive up, relative to the ground. */
   vUp(): number { return this.vel.dot(this.up.copy(this.pos).normalize()) }
 
   /** Degrees between the craft's up and the local vertical. */
@@ -123,19 +165,41 @@ export class Craft {
   }
 
   /**
-   * Put it down at rest in direction `dir`, feet on the ground, nose along `heading` if given.
-   * `align: 'surface'` sits it on the slope, so thrust from a tilted pad pushes you sideways,
-   * which is honest. `'radial'` is dead level, for harnesses that only want to test landing.
+   * Put it down at rest in direction `dir` on `on` (default: the current reference body),
+   * feet on the ground, nose along `heading` if given. `align: 'surface'` sits it on the
+   * slope, so thrust from a tilted pad pushes you sideways, which is honest. `'radial'`
+   * is dead level, for harnesses that only want to test landing.
    */
-  spawnOn(dir: THREE.Vector3, heading?: THREE.Vector3, align: 'surface' | 'radial' = 'surface'): void {
+  spawnOn(dir: THREE.Vector3, heading?: THREE.Vector3, align: 'surface' | 'radial' = 'surface', on?: Body): void {
+    this.setRef(on ?? this.ref)
     this.up.copy(dir).normalize()
     this.pos.copy(this.up).multiplyScalar(groundRadius(this.up, this.terrain) + HULL_CLEARANCE)
     this.vel.set(0, 0, 0)
     this.angVel.set(0, 0, 0)
     this.alignTo(align === 'surface' ? surfaceNormal(this.up, this.terrain, this.n) : this.n.copy(this.up), heading)
+    this.rest()
     this.state = 'landed'
     this.thrusting = false
+    this.cruise = false
     this.accumulator = 0
+    this.frameAt(this.time)
+    this.syncHelio()
+  }
+
+  /** Hang it in the air `altitude` metres over direction `dir` on `on`, level, at rest relative to the ground. */
+  placeAbove(on: Body, dir: THREE.Vector3, altitude: number, heading?: THREE.Vector3): void {
+    this.setRef(on)
+    this.up.copy(dir).normalize()
+    this.pos.copy(this.up).multiplyScalar(groundRadius(this.up, this.terrain) + HULL_CLEARANCE + altitude)
+    this.vel.set(0, 0, 0)
+    this.angVel.set(0, 0, 0)
+    this.alignTo(this.n.copy(this.up), heading)
+    this.state = 'flying'
+    this.thrusting = false
+    this.cruise = false
+    this.accumulator = 0
+    this.frameAt(this.time)
+    this.syncHelio()
   }
 
   /** Advance by real time; integrates in FIXED_DT substeps. Returns substeps taken. */
@@ -149,43 +213,75 @@ export class Craft {
   /** One exact substep. The harness calls this directly. */
   substep(h: number, c: Controls): void {
     this.thrusting = c.thrust > 0
+    this.refChanged = false
     if (this.state !== 'flying') {
       if (this.state === 'landed' && (c.thrust > 0 || c.vertical > 0)) this.state = 'flying'
-      else return
+      else {
+        // Ride the body: the rest pose is body-fixed, the heliocentric state follows it.
+        this.time += h
+        this.frameAt(this.time)
+        this.pos.copy(this.restPos); this.quat.copy(this.restQuat); this.vel.set(0, 0, 0)
+        this.syncHelio()
+        return
+      }
     }
+    this.frameAt(this.time)
+
+    // Gravity from every body, and how close the nearest surface is.
+    this.acc.set(0, 0, 0)
+    let nearest = Infinity
+    for (const b of SYSTEM) {
+      bodyPosition(b, this.time, this.tmp).sub(this.hpos)
+      const r2 = this.tmp.lengthSq(), r = Math.sqrt(r2)
+      this.acc.addScaledVector(this.tmp, b.mu / (r2 * r))
+      nearest = Math.min(nearest, r - b.radius)
+    }
+    this.proximity = Math.max(0, nearest)
+
+    // Where we are relative to the reference body: altitude, air, the frame's velocity.
+    this.rel.copy(this.hpos).sub(this.bPos)
+    const r = this.rel.length()
+    this.up.copy(this.rel).divideScalar(r)
+    this.localDir.copy(this.up).applyQuaternion(this.spinInv)
+    const alt = r - groundRadius(this.localDir, this.terrain)
+    const rhoNow = atmosphereDensity(alt, this.terrain.air)
+    if (this.cruise ? rhoNow > CRUISE_EXIT || alt < CRUISE_FLOOR : rhoNow < CRUISE_ENTER && alt > CRUISE_FLOOR * 1.2) this.cruise = !this.cruise
+    this.frameVel.copy(this.omega).cross(this.rel).add(this.bVel)
+    this.vRel.copy(this.hvel).sub(this.frameVel)
 
     // Attitude. Torque in body frame, exponential damping, first-order quaternion update.
+    // Near the ground the attitude holds against the ground, which turns under an
+    // inertial craft at 9° a minute on a 40-minute day; by twice CRUISE_FLOOR it holds
+    // against the stars. Rotation, not force: blending it is harmless.
     this.angVel.x -= c.pitch * ANG_ACCEL * h
     this.angVel.z -= c.roll * ANG_ACCEL * h
     this.angVel.y -= c.yaw * ANG_ACCEL * 0.6 * h
     this.angVel.multiplyScalar(Math.exp(-ANG_DAMP * h))
     this.dq.set(this.angVel.x * h * 0.5, this.angVel.y * h * 0.5, this.angVel.z * h * 0.5, 1).normalize()
-    this.quat.multiply(this.dq).normalize()
+    this.hquat.multiply(this.dq).normalize()
+    const hold = Math.min(1, Math.max(0, (2 * CRUISE_FLOOR - alt) / CRUISE_FLOOR))
+    const wh = this.omega.length()
+    if (hold > 0 && wh > 0) {
+      this.dq.setFromAxisAngle(this.tmp.copy(this.omega).divideScalar(wh), hold * wh * h)
+      this.hquat.premultiply(this.dq).normalize()
+    }
 
-    // Forces.
-    const r = this.pos.length()
-    this.up.copy(this.pos).divideScalar(r)
-    const alt = r - groundRadius(this.up, this.terrain)
-    const g = gravityAt(r, this.terrain)
-    this.acc.copy(this.up).multiplyScalar(-g)
-    const rhoNow = atmosphereDensity(alt, this.terrain.air)
-    if (this.cruise ? rhoNow > CRUISE_EXIT : rhoNow < CRUISE_ENTER) this.cruise = !this.cruise
     const mainThrust = THRUST_ACCEL * c.thrust * (1 + c.boost * (BOOST_MULT - 1))
-    const d = Math.max(0, this.proximity ?? alt - HULL_CLEARANCE)
+    const d = this.proximity
     if (this.cruise) {
       // Cruise: the engine fires along the nose, harder the further you are from anything, and / is a brake.
-      this.nose.copy(BODY_FWD).applyQuaternion(this.quat)
+      this.nose.copy(BODY_FWD).applyQuaternion(this.hquat)
       const gain = 1 + d * CRUISE_THRUST_GAIN
       if (c.thrust > 0) this.acc.addScaledVector(this.nose, mainThrust * gain)
       if (c.vertical < 0) this.acc.addScaledVector(this.nose, -THRUST_ACCEL * CRUISE_BRAKE * gain)
     } else if (c.thrust > 0) {
-      this.bodyUp.copy(BODY_UP).applyQuaternion(this.quat)
+      this.bodyUp.copy(BODY_UP).applyQuaternion(this.hquat)
       this.acc.addScaledVector(this.bodyUp, mainThrust)
     }
     // RCS: small pushes along the body axes. Translation without tilting. In cruise the
     // top thruster is the brake instead, handled above.
     if (c.lateral || (c.vertical && !this.cruise) || c.fore) {
-      this.rcs.set(c.lateral, this.cruise ? 0 : c.vertical, -c.fore).multiplyScalar(RCS_ACCEL).applyQuaternion(this.quat)
+      this.rcs.set(c.lateral, this.cruise ? 0 : c.vertical, -c.fore).multiplyScalar(RCS_ACCEL).applyQuaternion(this.hquat)
       this.acc.add(this.rcs)
     }
     // Ground effect. A cushion in the last few metres, plus damping against
@@ -194,54 +290,128 @@ export class Craft {
     const feet = alt - HULL_CLEARANCE
     if (feet < GROUND_EFFECT_HEIGHT) {
       const k = 1 - Math.max(0, feet) / GROUND_EFFECT_HEIGHT
-      this.acc.addScaledVector(this.up, GROUND_EFFECT_ACCEL * k)
-      const vUp = this.vel.dot(this.up)
+      this.acc.addScaledVector(this.up, GROUND_EFFECT_ACCEL_G * this.terrain.g * k)
+      const vUp = this.vRel.dot(this.up)
       if (vUp < 0) this.acc.addScaledVector(this.up, -vUp * GROUND_EFFECT_DAMP * k)
     }
-    const rho = rhoNow
-    const speed = this.vel.length()
-    if (rho > 0 && speed > 0) this.acc.addScaledVector(this.vel, -DRAG * rho * speed)
+    // Drag, against the air, which rides the body.
+    const speed = this.vRel.length()
+    if (rhoNow > 0 && speed > 0) this.acc.addScaledVector(this.vRel, -DRAG * rhoNow * speed)
 
-    this.vel.addScaledVector(this.acc, h)
+    this.hvel.addScaledVector(this.acc, h)
     if (this.cruise) {
       // Flight assist: velocity across the nose bleeds away, so where you point is where
-      // you go; and above CRUISE_MAX the assist eases you back. Not physics. Very playable.
-      const vPar = this.vel.dot(this.nose)
+      // you go; and above the cap the assist eases you back. Not physics. Very playable.
+      // All of it on the velocity relative to the body you are near, never on the orbit.
+      this.vRel.copy(this.hvel).sub(this.frameVel)
+      const vPar = this.vRel.dot(this.nose)
       const bleed = 1 - Math.exp(-h / CRUISE_ALIGN_TAU)
-      this.vel.addScaledVector(this.nose, -vPar).multiplyScalar(1 - bleed).addScaledVector(this.nose, vPar)
+      this.vRel.addScaledVector(this.nose, -vPar).multiplyScalar(1 - bleed).addScaledVector(this.nose, vPar)
       // The cap is a hard clamp on speed along the nose. Thrust grows with distance and
       // would otherwise out-muscle any gentle reel-in on a dive.
       const cap = this.cruiseCap(d)
-      if (vPar > cap) this.vel.addScaledVector(this.nose, cap - vPar)
+      if (vPar > cap) this.vRel.addScaledVector(this.nose, cap - vPar)
+      this.hvel.copy(this.frameVel).add(this.vRel)
     }
-    this.pos.addScaledVector(this.vel, h)
+    this.hpos.addScaledVector(this.hvel, h)
+    this.time += h
+    this.frameAt(this.time)
 
-    // Contact.
-    const r2 = this.pos.length()
-    this.up.copy(this.pos).divideScalar(r2)
-    const ground = groundRadius(this.up, this.terrain)
+    // Contact, against the reference body's ground where it is now.
+    this.rel.copy(this.hpos).sub(this.bPos)
+    const r2 = this.rel.length()
+    this.up.copy(this.rel).divideScalar(r2)
+    this.localDir.copy(this.up).applyQuaternion(this.spinInv)
+    const ground = groundRadius(this.localDir, this.terrain)
     if (r2 - ground < HULL_CLEARANCE) {
-      const vUp = this.vel.dot(this.up)
-      const vH = Math.sqrt(Math.max(0, this.vel.lengthSq() - vUp * vUp))
-      const tilt = this.tilt()
-      const slope = slopeDeg(this.up, this.terrain)
+      this.frameVel.copy(this.omega).cross(this.rel).add(this.bVel)
+      this.vRel.copy(this.hvel).sub(this.frameVel)
+      const vUp = this.vRel.dot(this.up)
+      const vH = Math.sqrt(Math.max(0, this.vRel.lengthSq() - vUp * vUp))
+      this.bodyUp.copy(BODY_UP).applyQuaternion(this.hquat)
+      const tilt = (Math.acos(Math.min(1, Math.max(-1, this.bodyUp.dot(this.up)))) * 180) / Math.PI
+      const slope = slopeDeg(this.localDir, this.terrain)
       this.lastContact = { vUp, vH, tilt, slope }
-      this.pos.copy(this.up).multiplyScalar(ground + HULL_CLEARANCE)
-      this.vel.set(0, 0, 0)
+      this.hpos.copy(this.bPos).addScaledVector(this.up, ground + HULL_CLEARANCE)
       this.angVel.set(0, 0, 0)
+      this.syncLocal()
+      this.vel.set(0, 0, 0)
       const gentle = vUp > -LAND_MAX_VSPEED && vH < LAND_MAX_HSPEED && tilt < LAND_MAX_TILT && slope < LAND_MAX_SLOPE
       if (gentle) {
         this.state = 'landed'
         this.landings++
-        this.alignTo(surfaceNormal(this.up, this.terrain, this.n))
+        this.alignTo(surfaceNormal(this.localDir, this.terrain, this.n))
       } else {
         this.state = 'crashed'
         this.crashes++
       }
+      this.rest()
+      this.syncHelio()
+      return
+    }
+    this.syncLocal()
+    this.pickRef()
+  }
+
+  // ---- Frames ----
+
+  /** The reference body's centre, velocity, spin and angular velocity at time t. */
+  private frameAt(t: number): void {
+    bodyPosition(this.ref, t, this.bPos)
+    bodyVelocity(this.ref, t, this.bVel)
+    bodySpin(this.ref, t, this.spin)
+    this.spinInv.copy(this.spin).invert()
+    const w = this.ref.spinPeriod > 0 ? TWO_PI / this.ref.spinPeriod : 0
+    this.omega.copy(this.ref.spinAxis).multiplyScalar(w)
+  }
+
+  /** Local view from the heliocentric truth, using the frame last computed by frameAt. */
+  private syncLocal(): void {
+    this.rel.copy(this.hpos).sub(this.bPos)
+    this.pos.copy(this.rel).applyQuaternion(this.spinInv)
+    this.frameVel.copy(this.omega).cross(this.rel).add(this.bVel)
+    this.vel.copy(this.hvel).sub(this.frameVel).applyQuaternion(this.spinInv)
+    this.quat.copy(this.spinInv).multiply(this.hquat)
+  }
+
+  /** Heliocentric truth from the local view, using the frame last computed by frameAt. */
+  private syncHelio(): void {
+    this.rel.copy(this.pos).applyQuaternion(this.spin)
+    this.hpos.copy(this.bPos).add(this.rel)
+    this.frameVel.copy(this.omega).cross(this.rel).add(this.bVel)
+    this.hvel.copy(this.vel).applyQuaternion(this.spin).add(this.frameVel)
+    this.hquat.copy(this.spin).multiply(this.quat)
+  }
+
+  private rest(): void { this.restPos.copy(this.pos); this.restQuat.copy(this.quat) }
+
+  private setRef(b: Body): void {
+    if (b === this.ref) return
+    this.ref = b
+    this.terrain = terrainOf(b)
+    this.refChanged = true
+  }
+
+  /**
+   * The deepest body whose sphere of influence holds the craft; the sun otherwise.
+   * A little hysteresis on the boundary so the frame never flickers.
+   */
+  private pickRef(): void {
+    let best: Body | null = null
+    for (const b of SYSTEM) {
+      if (!b.parent) continue
+      const d = bodyPosition(b, this.time, this.tmp).distanceTo(this.hpos)
+      if (d < b.hill * (b === this.ref ? 1.05 : 0.95) && (!best || b.hill < best.hill)) best = b
+    }
+    best ??= body('sun')
+    if (best !== this.ref) {
+      this.setRef(best)
+      this.frameAt(this.time)
+      this.syncLocal()
     }
   }
 
-  /** Rotate so body-up matches `up`, keeping the current heading (or taking `heading`). */
+  /** Rotate the LOCAL orientation so body-up matches `up`, keeping the current heading (or taking `heading`). */
   private alignTo(up: THREE.Vector3, heading?: THREE.Vector3): void {
     if (heading) this.fwd.copy(heading)
     else this.fwd.copy(BODY_FWD).applyQuaternion(this.quat)

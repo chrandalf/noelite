@@ -40,14 +40,17 @@ export class ChaseCam {
   private readonly camUp = new THREE.Vector3()
   private readonly m = new THREE.Matrix4()
   private readonly dir = new THREE.Vector3()
-  private readonly seed: Terrain
+  /** The body under the craft, for the ground clamp; main swaps it when the reference body changes. */
+  terrain: Terrain
   private first = true
 
-  constructor(seed: Terrain) {
-    this.seed = seed
+  constructor(terrain: Terrain) {
+    this.terrain = terrain
   }
 
   reset(): void { this.orbitYaw = 0; this.orbitPitch = 0; this.zoom = 1 }
+  /** Next update lands the camera instantly: the frame just changed under it. */
+  snap(): void { this.first = true }
 
   /** `density`: 1 is the planet-level follow, 0 is locked to the ship's frame. */
   update(dt: number, craft: Craft, density: number): void {
@@ -88,7 +91,7 @@ export class ChaseCam {
     const k = 6 + craft.speed() * 0.5
     this.pos.lerp(this.target, this.first ? 1 : 1 - Math.exp(-k * dt))
     this.dir.copy(this.pos).normalize()
-    const minR = groundRadius(this.dir, this.seed) + CAM_CLEARANCE
+    const minR = groundRadius(this.dir, this.terrain) + CAM_CLEARANCE
     if (this.pos.length() < minR) this.pos.copy(this.dir).multiplyScalar(minR)
 
     this.m.lookAt(this.pos, this.look, this.camUp)

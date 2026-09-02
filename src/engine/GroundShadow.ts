@@ -22,10 +22,11 @@ export class GroundShadow {
   private readonly t2 = new THREE.Vector3()
   private readonly ax = new THREE.Vector3()
   private readonly p = new THREE.Vector3()
-  private readonly seed: Terrain
+  /** The body under the craft; main swaps it when the reference body changes. */
+  terrain: Terrain
 
-  constructor(seed: Terrain) {
-    this.seed = seed
+  constructor(terrain: Terrain) {
+    this.terrain = terrain
     this.pos = new Float32Array((SEGMENTS + 1) * 3)
     const g = new THREE.BufferGeometry()
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3))
@@ -54,12 +55,12 @@ export class GroundShadow {
     this.t2.crossVectors(this.dir, this.t1)
     const r = 3.2 + alt * 0.06
     const lift = 0.15
-    this.p.copy(this.dir).multiplyScalar(groundRadius(this.dir, this.seed) + lift)
+    this.p.copy(this.dir).multiplyScalar(groundRadius(this.dir, this.terrain) + lift)
     this.pos[0] = this.p.x; this.pos[1] = this.p.y; this.pos[2] = this.p.z
     for (let i = 0; i < SEGMENTS; i++) {
       const a = (i / SEGMENTS) * Math.PI * 2
-      this.p.copy(this.dir).addScaledVector(this.t1, (Math.cos(a) * r) / groundRadius(this.dir, this.seed)).addScaledVector(this.t2, (Math.sin(a) * r * 0.8) / groundRadius(this.dir, this.seed)).normalize()
-      this.p.multiplyScalar(groundRadius(this.p, this.seed) + lift)
+      this.p.copy(this.dir).addScaledVector(this.t1, (Math.cos(a) * r) / groundRadius(this.dir, this.terrain)).addScaledVector(this.t2, (Math.sin(a) * r * 0.8) / groundRadius(this.dir, this.terrain)).normalize()
+      this.p.multiplyScalar(groundRadius(this.p, this.terrain) + lift)
       this.pos[(1 + i) * 3] = this.p.x; this.pos[(1 + i) * 3 + 1] = this.p.y; this.pos[(1 + i) * 3 + 2] = this.p.z
     }
     ;(this.mesh.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true

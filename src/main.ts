@@ -14,6 +14,7 @@
 //   ?burn=N        full thrust for the first N seconds, for screenshots
 //   ?t=SECONDS     start the clock here, for dawn and dusk shots (tools/sun-times.mjs)
 //   ?wire=1  ?skirts=0|red  ?no=dust,shadow,flame   renderer debug
+//   ?over=home-1:300   start hanging over another body (id:altitude)
 import * as THREE from 'three'
 import { PlanetLOD } from './world/lod.ts'
 import { FlyCam } from './engine/FlyCam.ts'
@@ -139,12 +140,19 @@ ship.renderOrder = 2
 homeView.group.add(ship)
 ship.visible = mode === 'fly'
 const pad = findLandable(new THREE.Vector3(0, 0, 1), HOME)
-craft.spawnOn(pad, new THREE.Vector3(1, 0, 0))
 const shadow = new GroundShadow(HOME)
 const dust = new Dust(HOME)
 const beeper = new Beeper()
 homeView.group.add(shadow.mesh, dust.points)
 shadow.mesh.visible = dust.points.visible = mode === 'fly'
+/** The view whose frame the scene is drawn in: the craft's reference body. Ship, shadow and dust live in it. */
+let refView = homeView
+function switchFrame(): void {
+  refView = views.find((v) => v.body === craft.ref)!
+  refView.group.add(ship, shadow.mesh, dust.points)
+  shadow.terrain = dust.terrain = chase.terrain = craft.terrain
+  chase.snap()
+}
 const off = new Set((q.get('no') ?? '').split(','))
 if (off.has('dust')) dust.points.visible = false
 if (off.has('shadow')) shadow.mesh.visible = false
@@ -158,6 +166,13 @@ const free = new FlyCam(renderer.domElement)
 const burn = Number(q.get('burn') ?? 0)
 // Default clock: mid-morning on the pad (tools/sun-times.mjs: dawn 103, noon 702, dusk 1301).
 const clock0 = Number(q.get('t') ?? 350)
+craft.time = clock0
+craft.spawnOn(pad, new THREE.Vector3(1, 0, 0), 'surface', home)
+// ?over=<body id>:<altitude m> starts you hanging over another body instead: over=home-1:300 is the moon.
+{
+  const over = q.get('over')
+  if (over) { const [id, alt] = over.split(':'); craft.placeAbove(body(id), new THREE.Vector3(0, 0, 1), Number(alt) || 500) }
+}
 const markers = new NavMarkers(document.body)
 
 const hud = document.getElementById('hud')!
@@ -191,8 +206,8 @@ let last = performance.now(), frames = 0, fps = 0, fpsAt = last, updates = 0, el
 // otherwise a harness can read the queue in the gap before the move is noticed.
 let placedAt = -1
 let crashedAt: number | null = null
-// Targeting: Tab cycles through every body but home.
-const targets = views.filter((v) => v.body !== home)
+// Targeting: Tab cycles through every body, home included, so there is always a way back.
+const targets = views.slice()
 let targetIndex = 0
 const toTarget = new THREE.Vector3()
 addEventListener('keydown', (e) => {
@@ -203,7 +218,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyC') chase.reset()
   if (e.code === 'Tab') { e.preventDefault(); targetIndex = (targetIndex + 1) % targets.length }
 })
-function respawn() { craft.spawnOn(pad, new THREE.Vector3(1, 0, 0)); crashedAt = null }
+function respawn() { craft.spawnOn(pad, new THREE.Vector3(1, 0, 0), 'surface', home); if (refView.body !== craft.ref) switchFrame(); crashedAt = null }
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight
@@ -211,10 +226,10 @@ addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight)
 })
 
-/** Place every body relative to home's rotating frame and the viewer. */
-function placeBodies(t: number): void {
-  bodyPosition(home, t, pHome)
-  bodySpin(home, t, qHome)
+/** Place every body relative to `frame`'s rotating frame and the viewer. */
+function placeBodies(t: number, frame: Body): void {
+  bodyPosition(frame, t, pHome)
+  bodySpin(frame, t, qHome)
   qHomeInv.copy(qHome).invert()
   for (const v of views) {
     // Position in home's frame, then in scene space (camera at the origin).
@@ -223,7 +238,7 @@ function placeBodies(t: number): void {
     v.group.position.copy(pBody).sub(viewPos)
     v.group.quaternion.copy(qHomeInv).multiply(bodySpin(v.body, t, qBody))
     if (v.lod) {
-      const near = v.body === home || v.rel.distanceTo(viewPos) < 40 * v.body.radius
+      const near = v.body === frame || v.rel.distanceTo(viewPos) < 40 * v.body.radius
       v.lod.group.visible = near
       v.far.visible = !near
       if (near) {
@@ -258,11 +273,8 @@ renderer.setAnimationLoop((now) => {
       const a = craft.aimControls(target)
       c = { ...c, pitch: a.pitch, roll: a.roll, yaw: a.yaw }
     }
-    // Cruise wants to know how close the nearest thing is, whichever body that is.
-    let nearest = Infinity
-    for (const v of views) nearest = Math.min(nearest, v.rel.distanceTo(craft.pos) - v.body.radius)
-    craft.proximity = nearest
     craft.step(dt, c)
+    if (refView.body !== craft.ref) switchFrame()
     if (craft.state === 'crashed') { crashedAt ??= now; if (now - crashedAt > 2000) respawn() }
     ship.position.copy(craft.pos)
     ship.quaternion.copy(craft.quat)
@@ -273,7 +285,7 @@ renderer.setAnimationLoop((now) => {
     rcs.top.visible = flying && c.vertical < 0
     rcs.rear.visible = flying && c.fore > 0
     altitude = craft.altitude()
-    chase.update(dt, craft, atmosphereDensity(altitude, HOME.air))
+    chase.update(dt, craft, atmosphereDensity(altitude, craft.terrain.air))
     viewPos.copy(chase.pos); viewQuat.copy(chase.quat)
     if (Math.abs(altitude) < 0.05) altitude = 0
     if (!off.has('shadow')) shadow.update(craft)
@@ -284,7 +296,7 @@ renderer.setAnimationLoop((now) => {
     // Altimeter and the four landing lights. They arm below 60 m so they mean something.
     const vUp = craft.vUp(), tilt = craft.tilt()
     dir.copy(craft.pos).normalize()
-    const drift = Math.sqrt(Math.max(0, craft.vel.lengthSq() - vUp * vUp)), slope = slopeDeg(dir, HOME)
+    const drift = Math.sqrt(Math.max(0, craft.vel.lengthSq() - vUp * vUp)), slope = slopeDeg(dir, craft.terrain)
     const armed = flying && altitude < 60
     const frac = Math.min(1, Math.max(0, altitude / 120))
     altFill.style.height = `${frac * 100}%`; altMarker.style.bottom = `${frac * 100}%`
@@ -309,11 +321,11 @@ renderer.setAnimationLoop((now) => {
     const closing = -craft.vel.dot(tDir)
     markers.place('target', tDir, camera, showNav, `${tgt.body.name}  ${(tDist / 1000).toFixed(1)} km  ${closing >= 0 ? '↓' : '↑'}${Math.abs(closing).toFixed(0)} m/s`)
     const lc = craft.lastContact
-    const vOrb = craft.orbitalSpeed(), vEsc = craft.escapeSpeed(), spd = craft.speed()
-    const spaceLine = rho < 1 ? `${craft.cruise ? `CRUISE  cap ${craft.cruiseCap(craft.proximity ?? 0).toFixed(0)} m/s  (thrust forward, / brakes)` : 'HOVER'}   orbit ${vOrb.toFixed(0)}   escape ${vEsc.toFixed(0)}   ${craft.cruise ? '' : spd > vEsc ? '!! ESCAPING !!' : spd > vOrb ? 'above orbital' : ''}   target ${tgt.body.name} (Tab)   T aim   X retro   Z planet\n` : ''
+    const vOrb = craft.orbitalSpeed(), vEsc = craft.escapeSpeed(), spd = craft.speed(), vIn = craft.inertialSpeed()
+    const spaceLine = rho < 1 ? `${craft.cruise ? `CRUISE  cap ${craft.cruiseCap(craft.proximity).toFixed(0)} m/s  (thrust forward, / brakes)` : 'HOVER'}   SOI ${craft.ref.name}   orbit ${vOrb.toFixed(0)}   escape ${vEsc.toFixed(0)}   ${craft.cruise ? '' : vIn > vEsc ? '!! ESCAPING !!' : vIn > vOrb ? 'above orbital' : ''}   target ${tgt.body.name} (Tab)   T aim   X retro   Z planet\n` : ''
     line = `alt ${altitude.toFixed(1).padStart(6)} m   v↑ ${vUp.toFixed(1).padStart(5)} m/s   spd ${spd.toFixed(1).padStart(5)} m/s   tilt ${tilt.toFixed(0).padStart(2)}°   ${craft.state.toUpperCase()}   landings ${craft.landings}  crashes ${craft.crashes}\n` + spaceLine +
       (craft.state === 'crashed' ? `contact: v↑ ${lc.vUp.toFixed(1)}  drift ${lc.vH.toFixed(1)}  tilt ${lc.tilt.toFixed(0)}°  slope ${lc.slope.toFixed(0)}°   (R to respawn)\n` : '') +
-      `space thrust   shift boost   W/S tilt   A/D roll   Q/E yaw   , . side   / top   ' rear   X/Z assists   R respawn   M mute   drag orbit   wheel zoom   C reset   ${fps} fps   chunks ${planet.liveCount}`
+      `space thrust   shift boost   W/S tilt   A/D roll   Q/E yaw   , . side   / top   ' rear   X/Z assists   R respawn   M mute   drag orbit   wheel zoom   C reset   ${fps} fps   chunks ${refView.lod?.liveCount ?? 0}`
   } else {
     dir.copy(free.pos).normalize()
     altitude = free.pos.length() - HOME.radius - height(dir, HOME)
@@ -324,15 +336,16 @@ renderer.setAnimationLoop((now) => {
     markers.hide()
   }
 
-  placeBodies(t); updates++
+  placeBodies(mode === 'fly' ? craft.time : t, mode === 'fly' ? craft.ref : home); updates++
+  const ft = mode === 'fly' ? craft.terrain : HOME
 
   // "How day is it" uses the sun's APPARENT elevation: level elevation plus the
   // horizon dip at this altitude. On a 40 km world the horizon drops 7° by 300 m,
   // so the sun that set on the pad is back above the horizon once you climb.
-  const density = atmosphereDensity(altitude, HOME.air)
+  const density = atmosphereDensity(altitude, ft.air)
   dir.copy(viewPos).normalize()
-  const sinApp = Sky.apparentSunElevation(dir, sunDir, altitude, HOME.radius)
-  const sinDip = Math.sin(Math.acos(Math.min(1, HOME.radius / (HOME.radius + Math.max(0, altitude)))))
+  const sinApp = Sky.apparentSunElevation(dir, sunDir, altitude, ft.radius)
+  const sinDip = Math.sin(Math.acos(Math.min(1, ft.radius / (ft.radius + Math.max(0, altitude)))))
   const day = sky.update(dir, sunDir, density, sinApp, sinDip)
   hemi.position.copy(dir) // the fill's "sky" is the local up, not scene +Y
   hemi.intensity = 0.85 * (0.2 + 0.8 * day)
