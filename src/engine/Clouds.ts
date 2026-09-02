@@ -12,10 +12,12 @@ const VERT = /* glsl */ `
   attribute float cover;
   varying float vCover;
   varying vec3 vN;
+  varying vec3 vP;
   void main() {
     vCover = cover;
     vN = normalize(mat3(modelMatrix) * normal);
     vec4 wp = modelMatrix * vec4(position, 1.0);
+    vP = wp.xyz;
     vec4 mvPosition = viewMatrix * wp;
     gl_Position = projectionMatrix * mvPosition;
     #include <logdepthbuf_vertex>
@@ -29,12 +31,15 @@ const FRAG = /* glsl */ `
   uniform float uDay;
   varying float vCover;
   varying vec3 vN;
+  varying vec3 vP;
   void main() {
     #include <logdepthbuf_fragment>
-    if (vCover < 0.02) discard;
+    // Near the camera the puffs carry the weather; the shell's kilometre faces fade out.
+    float near = smoothstep(4000.0, 9000.0, length(vP - cameraPosition));
+    if (vCover * near < 0.02) discard;
     float lit = 0.55 + 0.45 * max(dot(vN, uSun), 0.0);
     vec3 col = mix(vec3(0.62, 0.65, 0.70), vec3(0.97, 0.97, 0.98), lit) * (0.15 + 0.85 * uDay);
-    gl_FragColor = vec4(col, vCover * 0.92);
+    gl_FragColor = vec4(col, vCover * 0.92 * near);
     #include <fog_fragment>
   }`
 

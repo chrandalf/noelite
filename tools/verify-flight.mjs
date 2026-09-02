@@ -6,7 +6,7 @@ import * as THREE from 'three'
 import { Craft, IDLE } from '../src/engine/Craft.ts'
 import { OrbitAutopilot } from '../src/engine/Autopilot.ts'
 import { findLandable, groundRadius } from '../src/world/terrain.ts'
-import { HOME, height } from '../src/world/height.ts'
+import { HOME, height, padOf } from '../src/world/height.ts'
 import { body, bodyVelocity, bodyPosition, bodySpin } from '../src/world/system.ts'
 import { wind } from '../src/world/weather.ts'
 import { FIXED_DT, DRAG, LAND_MAX_VSPEED, GROUND_EFFECT_HEIGHT, CRUISE_MAX, CRUISE_DECEL, CRUISE_SECONDS } from '../src/world/config.ts'
@@ -18,7 +18,8 @@ const check = (name, cond, detail = '') => { if (cond) { pass++; console.log(`  
 const finite = (v) => Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z)
 const T = (thrust, pitch = 0, roll = 0, yaw = 0, boost = 0, lateral = 0, vertical = 0, fore = 0) => ({ pitch, roll, yaw, thrust, boost, lateral, vertical, fore })
 
-const pad = findLandable(new THREE.Vector3(0, 0, 1), HOME)
+const site = padOf(HOME)
+const pad = new THREE.Vector3(site.dir.x, site.dir.y, site.dir.z)
 // Level spawn: thrust is then exactly radial, so a no-steer autopilot comes back
 // down on the pad it left. The game spawns aligned to the slope, on purpose.
 // Weather off: these are flight tests. Test 22 turns it on.

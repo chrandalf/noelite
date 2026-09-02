@@ -9,7 +9,9 @@ import { FACES, faceToUnit, faceToCube, cubeToUnit, cubeToFace } from '../src/wo
 import { TERRAIN_AMPLITUDE, PLANET_RADIUS, MASTER_SEED } from '../src/world/config.ts'
 import { rng } from '../src/world/noise.ts'
 import { wind, front, tide, WIND_CALM, WIND_STORM, TIDE_AMPLITUDE } from '../src/world/weather.ts'
-import { terrainOf } from '../src/world/height.ts'
+import { terrainOf, padOf } from '../src/world/height.ts'
+import { slopeDeg } from '../src/world/terrain.ts'
+import { forestAt } from '../src/world/forest.ts'
 import { body } from '../src/world/system.ts'
 
 let pass = 0, fail = 0
@@ -150,6 +152,30 @@ const OTHER = { ...HOME, seed: MASTER_SEED + 1 }
   check('the front stays in [-1, 1] and actually varies', fLo >= -1 && fHi <= 1 && fHi - fLo > 0.8, `${fLo.toFixed(2)} .. ${fHi.toFixed(2)}`)
   check('the tide runs from a trough to a bulge of TIDE_AMPLITUDE', tLo < -0.4 * TIDE_AMPLITUDE && tHi > 0.9 * TIDE_AMPLITUDE && tHi <= TIDE_AMPLITUDE + 1e-9, `${tLo.toFixed(2)} .. ${tHi.toFixed(2)} m`)
   check('an airless body has no wind', wind(new THREE.Vector3(0, 0, 1), terrainOf(body('home-1')), 100, w).length() === 0)
+}
+
+// 9. The landing pad: dry, flat, at a reasonable height, clear of forest, and the ground blends back smoothly.
+{
+  const site = padOf(HOME)
+  const d = new THREE.Vector3(site.dir.x, site.dir.y, site.dir.z)
+  const above = height(d, HOME) - HOME.sea
+  check('the pad sits at a reasonable height above the sea', above >= 25 && above <= 140, `${above.toFixed(0)} m`)
+  check('the pad is flat', slopeDeg(d, HOME) < 0.2, `${slopeDeg(d, HOME).toFixed(2)}°`)
+  const ax = new THREE.Vector3(1, 0, 0).cross(d).normalize(), ay = d.clone().cross(ax)
+  let flat = true, treeFree = true, worstStep = 0
+  for (let i = 0; i < 64; i++) {
+    const a = i * 0.098
+    const q = d.clone().addScaledVector(ax, Math.cos(a) * 18 / HOME.radius).addScaledVector(ay, Math.sin(a) * 18 / HOME.radius).normalize()
+    if (Math.abs(height(q, HOME) - height(d, HOME)) > 0.01) flat = false
+    const f = d.clone().addScaledVector(ax, Math.cos(a) * 60 / HOME.radius).addScaledVector(ay, Math.sin(a) * 60 / HOME.radius).normalize()
+    if (forestAt(f, HOME)) treeFree = false
+    // Walk out along the ramp: no step bigger than a metre between neighbours 2 m apart.
+    let prev = height(d, HOME)
+    for (let r = 2; r <= 60; r += 2) { const w = d.clone().addScaledVector(ax, Math.cos(a) * r / HOME.radius).addScaledVector(ay, Math.sin(a) * r / HOME.radius).normalize(); const h = height(w, HOME); worstStep = Math.max(worstStep, Math.abs(h - prev)); prev = h }
+  }
+  check('the pad is dead level for 18 m all round', flat)
+  check('no tree within 60 m of the pad', treeFree)
+  check('the ground ramps back smoothly from the pad', worstStep < 1.5, `worst 2 m step ${worstStep.toFixed(2)} m`)
 }
 
 console.log(`\n${pass}/${pass + fail} checks`)

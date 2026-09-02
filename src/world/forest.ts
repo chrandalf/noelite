@@ -5,15 +5,17 @@
 // the chunk mesh so it appears and retires with it. Only erasable TypeScript.
 import * as THREE from 'three'
 import { faceToUnit, type Face } from './cubesphere.ts'
-import { height, type Terrain } from './height.ts'
+import { height, clump, CLUMP_EDGE, nearPad, PAD_RADIUS, PAD_BLEND, type Terrain } from './height.ts'
 import { chunkBounds } from './chunk.ts'
-import { Simplex3, rng } from './noise.ts'
+import { rng } from './noise.ts'
 
-/** Trees appear on chunks at this LOD level and finer. */
-export const FOREST_LEVEL = 8
+/** Trees appear on chunks at this LOD level and finer; the coarsest level is sparse and large. */
+export const FOREST_LEVEL = 7
 /** Trees per square metre inside a clump. */
 const DENSITY = 1 / 30
-const MAX_TREES = 900
+const MAX_TREES = 1400
+/** Metres from the camera over which a tree shrinks into the ground. Chris, 2026-09-02: "fade out slowly and merge into the colour". */
+export const TREE_FADE_NEAR = 500, TREE_FADE_FAR = 1500
 /** Height band, in amplitudes above the sea. */
 const BAND_LO = 0.04, BAND_HI = 0.85
 const MAX_SLOPE = Math.tan((22 * Math.PI) / 180)
@@ -41,22 +43,12 @@ export function treeGeometry(): THREE.BufferGeometry {
   return g
 }
 
-const tables = new Map<number, Simplex3>()
-function noiseFor(seed: number): Simplex3 {
-  let n = tables.get(seed)
-  if (!n) { n = new Simplex3((seed ^ 0x464f5245) >>> 0); tables.set(seed, n) }
-  return n
-}
-
-/** Where the forest clumps are: -1..1, forest above CLUMP_EDGE. Cells of ~R/25, a kilometre or two. */
-export function clump(p: { x: number; y: number; z: number }, t: Terrain): number {
-  return noiseFor(t.seed).fbm(p.x * 25 + 91.3, p.y * 25 + 91.3, p.z * 25 + 91.3, 2)
-}
-export const CLUMP_EDGE = 0.05
+export { clump, CLUMP_EDGE }
 
 /** Is there forest at p? Band, slope and clump. */
 export function forestAt(p: THREE.Vector3, t: Terrain, out?: { h: number }): boolean {
   if (t.kind !== 'terrestrial' || !t.amplitude) return false
+  if (nearPad(p, t, PAD_RADIUS + PAD_BLEND + 25)) return false
   const h = height(p, t)
   if (out) out.h = h
   const above = (h - (t.sea ?? 0)) / t.amplitude
@@ -74,6 +66,19 @@ export function forestAt(p: THREE.Vector3, t: Terrain, out?: { h: number }): boo
 
 const treeMaterial = new THREE.MeshLambertMaterial({ vertexColors: true })
 treeMaterial.name = 'tree'
+// Each tree scales about its own base by its distance to the camera, so a forest sinks
+// into the ground colour as you leave it rather than switching off with its chunk.
+treeMaterial.onBeforeCompile = (shader) => {
+  shader.vertexShader = shader.vertexShader.replace(
+    '#include <begin_vertex>',
+    `vec3 transformed = vec3(position);
+    #ifdef USE_INSTANCING
+      vec4 treeBase = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+      float treeDist = length(treeBase.xyz - cameraPosition);
+      transformed *= smoothstep(${TREE_FADE_FAR.toFixed(1)}, ${TREE_FADE_NEAR.toFixed(1)}, treeDist);
+    #endif`,
+  )
+}
 
 const m = new THREE.Matrix4(), q = new THREE.Quaternion(), pos = new THREE.Vector3(), sc = new THREE.Vector3(), up = new THREE.Vector3(), yaw = new THREE.Quaternion()
 const Y = new THREE.Vector3(0, 1, 0)
@@ -82,7 +87,9 @@ export function buildForest(f: Face, level: number, ix: number, iy: number, t: T
   if (t.kind !== 'terrestrial' || t.water || level < FOREST_LEVEL || !t.amplitude) return null
   const { u0, v0, s } = chunkBounds(level, ix, iy)
   const side = s * 0.8 * t.radius
-  const wanted = Math.min(MAX_TREES, Math.round(side * side * DENSITY))
+  // The coarsest forest level is a third as dense and half again as big: it is only ever seen shrunk.
+  const coarse = level === FOREST_LEVEL
+  const wanted = Math.min(MAX_TREES, Math.round(side * side * DENSITY * (coarse ? 1 / 3 : 1)))
   const next = rng((t.seed ^ Math.imul((f as number) + 1, 0x9e3779b1) ^ Math.imul(level + 1, 0x85ebca6b) ^ Math.imul(ix + 1, 0xc2b2ae35) ^ Math.imul(iy + 7, 0x27d4eb2f)) >>> 0)
   const mats: THREE.Matrix4[] = []
   const probe = { h: 0 }
@@ -95,7 +102,7 @@ export function buildForest(f: Face, level: number, ix: number, iy: number, t: T
     q.setFromUnitVectors(Y, up)
     yaw.setFromAxisAngle(Y, next() * Math.PI * 2)
     q.multiply(yaw)
-    const k = 0.7 + 0.6 * next()
+    const k = (0.7 + 0.6 * next()) * (coarse ? 1.5 : 1)
     sc.set(k, k * (0.85 + 0.3 * next()), k)
     mats.push(m.clone().compose(pos, q, sc))
   }

@@ -419,9 +419,26 @@ Every step is playable. That's the point of the ordering.
    against the old value would have shoved the craft at 11 m/s². The harnesses hold the
    wind tangential and bounded, the tide's range, no wind on the moon, a gale pushing a
    falling craft downwind and a calm not, and the craft floating on the tide.
-7. ~~Forests.~~ Done 2026-09-02. Next: **re-entry** (item 4), then Stage D's remainder: the
-   lock-view camera, the escape-the-system trigger. Rain streaks are faint in the murk;
-   clouds from orbit are big flat triangles (icosahedron detail 5).
+7. ~~Forests.~~ Done 2026-09-02.
+8. ~~**The pad, the puffs, the livery, the gear.**~~ Done 2026-09-02, from Chris's first
+   evening of flying the update, his words in the commit. **The pad** is the first authored
+   shape: `padOf()` spirals out from (0, 0, 1) for a dry, flat, forest-free site 25 to 140 m
+   above the sea, `height()` flattens a 22 m disc there and ramps back over 18 m, trees keep
+   65 m clear, and `Pad.ts` paints a grey octagon with a ring flush with it. **Puffs**
+   (`CloudPuffs.ts`): low-poly blobs at cloud height in a field of ~500 m cells round the
+   camera, seeded per cube-sphere cell so they stay put, present and sized by the front;
+   the shell fades out within 9 km so nobody looks up at its kilometre faces again. Rain
+   streaks are longer and brighter. **Livery** (`craftMesh.ts`): every hull face split into
+   sixteen panels shaded a few percent apart, a navy spine stripe, a tinted canopy, a white
+   belly stripe, two nozzles, red and green wingtip lamps. **Gear**: three skids to the real
+   contact height (the hull hung 85 cm over its own shadow before), hinged groups that
+   retract above 100 m over the ground directly below (the altimeter's number, so mountains
+   count) and drop below it; the contact shadow stays on when landed. **Trees** shrink into
+   the ground between 500 and 1,500 m from the camera (a vertex-shader scale on each
+   instance) and exist one LOD level further out, sparse and half again as big, so a forest
+   sinks into the palette's green instead of switching off with its chunk.
+   Next: **re-entry** (item 4), then Stage D's remainder: the lock-view camera, the
+   escape-the-system trigger.
 
 ## 9. Deferred
 

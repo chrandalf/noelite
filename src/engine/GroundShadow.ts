@@ -46,14 +46,14 @@ export class GroundShadow {
   update(craft: Craft): void {
     const alt = Math.max(0, craft.altitude())
     this.mat.opacity = 0.55 * Math.max(0, 1 - alt / 140)
-    this.mesh.visible = this.mat.opacity > 0.01 && craft.state !== 'landed'
+    this.mesh.visible = this.mat.opacity > 0.01 // landed too: a contact shadow is what says it is down
     if (!this.mesh.visible) return
 
     this.dir.copy(craft.pos).normalize()
     this.ax.set(Math.abs(this.dir.x) < 0.9 ? 1 : 0, Math.abs(this.dir.x) < 0.9 ? 0 : 1, 0)
     this.t1.crossVectors(this.ax, this.dir).normalize()
     this.t2.crossVectors(this.dir, this.t1)
-    const r = 3.2 + alt * 0.06
+    const r = 3.4 + alt * 0.06
     const lift = 0.15
     this.p.copy(this.dir).multiplyScalar(groundRadius(this.dir, this.terrain) + lift)
     this.pos[0] = this.p.x; this.pos[1] = this.p.y; this.pos[2] = this.p.z

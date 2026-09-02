@@ -15,6 +15,7 @@
 //   ?t=SECONDS     start the clock here, for dawn and dusk shots (tools/sun-times.mjs)
 //   ?wire=1  ?skirts=0|red  ?no=dust,shadow,flame   renderer debug
 //   ?over=home-1:300   start hanging over another body (id:altitude, optionally :x,y,z direction)
+//   ?pitch=-1.2        chase camera orbit pitch in radians (negative looks up from under the ship)
 import * as THREE from 'three'
 import { PlanetLOD } from './world/lod.ts'
 import { FlyCam } from './engine/FlyCam.ts'
@@ -27,8 +28,9 @@ import { Dust } from './engine/Dust.ts'
 import { Beeper } from './engine/Beeper.ts'
 import { Sky } from './engine/Sky.ts'
 import { NavMarkers } from './engine/NavMarkers.ts'
-import { waterOf, height, HOME, terrainOf, type Terrain } from './world/height.ts'
-import { findLandable, slopeDeg } from './world/terrain.ts'
+import { waterOf, height, HOME, terrainOf, padOf, type Terrain } from './world/height.ts'
+import { buildPad } from './engine/Pad.ts'
+import { slopeDeg } from './world/terrain.ts'
 import { atmosphereDensity, buildAtmosphereShell } from './world/atmosphere.ts'
 import { SYSTEM, body, bodyPosition, bodySpin, type Body } from './world/system.ts'
 import { terrainColour, facetJitter, SEA } from './world/palette.ts'
@@ -36,6 +38,7 @@ import { Water } from './engine/Water.ts'
 import { OrbitAutopilot } from './engine/Autopilot.ts'
 import { Rain } from './engine/Rain.ts'
 import { Clouds } from './engine/Clouds.ts'
+import { CloudPuffs } from './engine/CloudPuffs.ts'
 import { front, rainOf, cloudOf, moonDirection, TIDE_AMPLITUDE } from './world/weather.ts'
 import { setGroundClock } from './world/terrain.ts'
 import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE } from './world/config.ts'
@@ -144,25 +147,32 @@ const planet = homeView.lod!
 const craft = new Craft(HOME)
 const input = new KeyInput()
 const chase = new ChaseCam(HOME)
+chase.orbitPitch = Math.min(ChaseCam.MAX_PITCH, Math.max(-ChaseCam.MAX_PITCH, Number(q.get('pitch') ?? 0)))
 const shipMaterial = new THREE.MeshLambertMaterial({ vertexColors: true })
 shipMaterial.name = 'ship'
-const { root: ship, flame, rcs } = buildCraftMesh(shipMaterial)
+const { root: ship, flame, rcs, gear } = buildCraftMesh(shipMaterial)
+/** 1 down, 0 up. Goes up above GEAR_ALT over the ground, down below it, over about a second. */
+let gearDown = 1
+const GEAR_ALT = 100
 ;(flame.material as THREE.Material).name = 'flame'
 ship.renderOrder = 2
 homeView.group.add(ship)
 ship.visible = mode === 'fly'
-const pad = findLandable(new THREE.Vector3(0, 0, 1), HOME)
+const padSite = padOf(HOME)!
+const pad = new THREE.Vector3(padSite.dir.x, padSite.dir.y, padSite.dir.z)
+{ const padMesh = buildPad(HOME); if (padMesh) homeView.group.add(padMesh) }
 const shadow = new GroundShadow(HOME)
 const dust = new Dust(HOME)
 const rain = new Rain()
+const puffs = new CloudPuffs()
 const beeper = new Beeper()
-homeView.group.add(shadow.mesh, dust.points, rain.lines)
+homeView.group.add(shadow.mesh, dust.points, rain.lines, puffs.mesh)
 shadow.mesh.visible = dust.points.visible = mode === 'fly'
 /** The view whose frame the scene is drawn in: the craft's reference body. Ship, shadow and dust live in it. */
 let refView = homeView
 function switchFrame(): void {
   refView = views.find((v) => v.body === craft.ref)!
-  refView.group.add(ship, shadow.mesh, dust.points, rain.lines)
+  refView.group.add(ship, shadow.mesh, dust.points, rain.lines, puffs.mesh)
   shadow.terrain = dust.terrain = chase.terrain = craft.terrain
   chase.snap()
 }
@@ -316,6 +326,12 @@ renderer.setAnimationLoop((now) => {
     rcs.top.visible = flying && c.vertical < 0
     rcs.rear.visible = flying && c.fore > 0
     altitude = craft.altitude()
+    {
+      const want = craft.state !== 'flying' || altitude < GEAR_ALT ? 1 : 0
+      gearDown += (want - gearDown) * Math.min(1, dt / 0.35)
+      const sy = Math.max(0.03, gearDown)
+      for (const g of gear) g.scale.y = sy
+    }
     chase.update(dt, craft, atmosphereDensity(altitude, craft.terrain.air))
     viewPos.copy(chase.pos); viewQuat.copy(chase.quat)
     if (Math.abs(altitude) < 0.05) altitude = 0
@@ -328,6 +344,7 @@ renderer.setAnimationLoop((now) => {
     cloudNow = craft.atmosphere() > 0 ? cloudOf(weatherFront) : 0
     windNow = craft.wind.length()
     if (!off.has('rain')) rain.update(dt, craft.pos, craft.wind, rainNow, craft.atmosphere())
+    if (!off.has('clouds')) puffs.update(craft.pos, craft.terrain, craft.time)
     if (off.has('flame')) flame.visible = false
     beeper.update(now / 1000, altitude, flying)
 
@@ -344,7 +361,7 @@ renderer.setAnimationLoop((now) => {
     light(lights.d, `DRIFT ${drift.toFixed(1)}`, drift < LAND_MAX_HSPEED, armed)
     light(lights.t, `TILT ${tilt.toFixed(0)}°`, tilt < LAND_MAX_TILT, armed)
     light(lights.s, `SLOPE ${slope.toFixed(0)}°`, slope < LAND_MAX_SLOPE, armed)
-    altState.textContent = craft.state === 'landed' ? 'DOWN' : craft.state === 'crashed' ? 'CRASHED' : ''
+    altState.textContent = craft.state === 'landed' ? 'DOWN' : craft.state === 'crashed' ? 'CRASHED' : gearDown > 0.5 ? 'GEAR ↓' : 'GEAR ↑'
     const rho = craft.atmosphere()
     atmosEl.textContent = rho > 0 ? `ATMOS ${(rho * 100).toFixed(0)}%   WIND ${windNow.toFixed(0)} m/s${rainNow > 0 ? `   RAIN ${(rainNow * 100).toFixed(0)}%` : cloudNow > 0.5 ? '   OVERCAST' : ''}` : 'VACUUM'
     atmosEl.className = rho > 0 ? '' : 'vacuum'
@@ -370,6 +387,7 @@ renderer.setAnimationLoop((now) => {
   } else {
     setGroundClock(t)
     weatherFront = -1; rainNow = 0; cloudNow = 0; windNow = 4
+    puffs.update(free.pos, HOME, t)
     dir.copy(free.pos).normalize()
     altitude = free.pos.length() - HOME.radius - height(dir, HOME)
     const speed = free.update(dt, altitude)

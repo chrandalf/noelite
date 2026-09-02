@@ -3,9 +3,9 @@
 import * as THREE from 'three'
 import { rng } from '../world/noise.ts'
 
-const N = 700
+const N = 1200
 const BOX = 45
-const STREAK = 0.06
+const STREAK = 0.14
 
 export class Rain {
   readonly lines: THREE.LineSegments
@@ -22,7 +22,7 @@ export class Rain {
     this.pos = new Float32Array(N * 6)
     const g = new THREE.BufferGeometry()
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3))
-    const m = new THREE.LineBasicMaterial({ color: 0xc8d4e0, transparent: true, opacity: 0.35, depthWrite: false })
+    const m = new THREE.LineBasicMaterial({ color: 0xdde6ee, transparent: true, opacity: 0.6, depthWrite: false })
     m.name = 'rain'
     this.lines = new THREE.LineSegments(g, m)
     this.lines.frustumCulled = false
