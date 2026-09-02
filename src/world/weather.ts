@@ -45,6 +45,25 @@ export function rainOf(f: number): number { return smooth(0.3, 0.6, f) }
 /** 0 clear to 1 overcast. Comes in ahead of the rain. */
 export function cloudOf(f: number): number { return smooth(0.0, 0.5, f) }
 
+/**
+ * Structure inside a system: a finer field (cells of a couple of kilometres, drifting)
+ * that breaks a deck into masses, streets and gaps. -1..1.
+ */
+export function cloudDetail(d: UnitVector, t: Terrain, time: number): number {
+  const n = noiseFor(t.seed)
+  const tt = time / (WEATHER_PERIOD * 0.4)
+  return n.fbm(d.x * 22 + 5.1 + tt * 0.3, d.y * 22 + 5.1 - tt * 0.2, d.z * 22 + 5.1 + tt * 0.5, 2)
+}
+
+/** How much cloud there is at d: the front's cover shaped by the detail field. 0..1. */
+export function cloudCover(d: UnitVector, t: Terrain, time: number): number {
+  const c = cloudOf(front(d, t, time))
+  if (c <= 0) return 0
+  const fine = cloudDetail(d, t, time)
+  // Heavy cover keeps most of its deck; light cover survives only where the detail field is high.
+  return c * smooth(-0.9 + 1.3 * (1 - c), 0.4, fine)
+}
+
 const t1 = new THREE.Vector3(), t2 = new THREE.Vector3(), ax = new THREE.Vector3(), q = new THREE.Vector3()
 /** Wind at body-local direction d, m/s, tangential to the surface, body-local axes. */
 export function wind(d: THREE.Vector3, t: Terrain, time: number, out: THREE.Vector3): THREE.Vector3 {

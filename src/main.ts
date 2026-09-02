@@ -411,7 +411,8 @@ renderer.setAnimationLoop((now) => {
   const simTime = mode === 'fly' ? craft.time : t
   const hasMoon = mode === 'fly' && moonDirection(craft.terrain, craft.time, tmp)
   waterMat.update(simTime, sunDir, day, windNow, hasMoon ? tmp : null, TIDE_AMPLITUDE)
-  if (mode === 'fly') refView.clouds?.update(craft.time, sunDir, day)
+  if (mode === 'fly') refView.clouds?.update(craft.time, sunDir, day, altitude)
+  else homeView.clouds?.update(t, sunDir, day, altitude)
   // Under cloud the light goes flat and grey; in rain the air thickens.
   const overcast = cloudNow * density
   hemi.position.copy(dir) // the fill's "sky" is the local up, not scene +Y

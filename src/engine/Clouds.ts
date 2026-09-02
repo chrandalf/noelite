@@ -3,7 +3,7 @@
 // field rains on you, so what is overhead is what is falling. Chunky on purpose.
 import * as THREE from 'three'
 import type { Terrain } from '../world/height.ts'
-import { front, cloudOf } from '../world/weather.ts'
+import { cloudCover } from '../world/weather.ts'
 
 const VERT = /* glsl */ `
   #include <common>
@@ -29,13 +29,16 @@ const FRAG = /* glsl */ `
   #include <fog_pars_fragment>
   uniform vec3 uSun;
   uniform float uDay;
+  uniform float uCamAlt;
   varying float vCover;
   varying vec3 vN;
   varying vec3 vP;
   void main() {
     #include <logdepthbuf_fragment>
-    // Near the camera the puffs carry the weather; the shell's kilometre faces fade out.
-    float near = smoothstep(4000.0, 9000.0, length(vP - cameraPosition));
+    // The shell is the view from above: cover seen from orbit. Under the cloud tops the
+    // cumulus carries the weather and the shell's kilometre faces would show edge-on at
+    // the horizon like paper, so it is gone until the camera is well above them.
+    float near = smoothstep(4000.0, 9000.0, length(vP - cameraPosition)) * smoothstep(3500.0, 7000.0, uCamAlt);
     if (vCover * near < 0.02) discard;
     float lit = 0.55 + 0.45 * max(dot(vN, uSun), 0.0);
     vec3 col = mix(vec3(0.62, 0.65, 0.70), vec3(0.97, 0.97, 0.98), lit) * (0.15 + 0.85 * uDay);
@@ -71,7 +74,7 @@ export class Clouds {
     g.computeVertexNormals()
     this.material = new THREE.ShaderMaterial({
       vertexShader: VERT, fragmentShader: FRAG,
-      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uSun: { value: new THREE.Vector3(0, 1, 0) }, uDay: { value: 1 } }]),
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uSun: { value: new THREE.Vector3(0, 1, 0) }, uDay: { value: 1 }, uCamAlt: { value: 1e6 } }]),
       transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: true,
     })
     this.material.name = 'clouds'
@@ -86,17 +89,19 @@ export class Clouds {
     for (let i = 0; i < n; i++) {
       const f = this.cursor; this.cursor = (this.cursor + 1) % this.faces
       this.d.set(this.centres[f * 3], this.centres[f * 3 + 1], this.centres[f * 3 + 2])
-      const c = cloudOf(front(this.d, this.terrain, time))
-      const a = c < 0.3 ? 0 : (c - 0.3) / 0.7
+      const c = cloudCover(this.d, this.terrain, time)
+      const a = c < 0.22 ? 0 : (c - 0.22) / 0.78
       this.cover[f * 3] = this.cover[f * 3 + 1] = this.cover[f * 3 + 2] = a
     }
     ;(this.mesh.geometry.getAttribute('cover') as THREE.BufferAttribute).needsUpdate = true
   }
 
-  update(time: number, sun: THREE.Vector3, day: number): void {
+  /** `camAlt`: the viewer's altitude over the body, metres. */
+  update(time: number, sun: THREE.Vector3, day: number, camAlt: number): void {
     this.refresh(time)
     const u = this.material.uniforms
     ;(u.uSun.value as THREE.Vector3).copy(sun)
     u.uDay.value = day
+    u.uCamAlt.value = camAlt
   }
 }

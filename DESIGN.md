@@ -427,7 +427,14 @@ Every step is playable. That's the point of the ordering.
    65 m clear, and `Pad.ts` paints a grey octagon with a ring flush with it. **Puffs**
    (`CloudPuffs.ts`): low-poly blobs at cloud height in a field of ~500 m cells round the
    camera, seeded per cube-sphere cell so they stay put, present and sized by the front;
-   the shell fades out within 9 km so nobody looks up at its kilometre faces again. Rain
+   the shell fades out within 9 km so nobody looks up at its kilometre faces again. Then
+   Chris: "like someone has been blowing bubbles, we need them to be proper weather
+   systems." So the puffs became cumulus: each site grows four to twelve overlapping lobes
+   cut flat underneath and sat on the cloud base, so a cluster is one deck with a lumpy
+   top; lobe count, size and spread grow with cover so heavy cover merges into overcast;
+   a finer drifting field (`cloudDetail`, `cloudCover`) breaks a system's deck into masses,
+   streets and gaps; clusters stretch along one heading. The shell is gone below 3.5 km
+   of camera altitude, where its faces showed edge-on at the horizon. Rain
    streaks are longer and brighter. **Livery** (`craftMesh.ts`): every hull face split into
    sixteen panels shaded a few percent apart, a navy spine stripe, a tinted canopy, a white
    belly stripe, two nozzles, red and green wingtip lamps. **Gear**: three skids to the real

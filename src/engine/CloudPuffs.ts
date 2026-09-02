@@ -1,23 +1,44 @@
-// Clouds you can fly under: low-poly puffs at cloud height in a field round the craft,
-// seeded per cell of the cube-sphere so they stay put as you move, present and sized by
-// the same weather front that rains on you. The shell (Clouds.ts) carries the cover at a
-// distance and fades out near the camera, where its kilometre faces were reading as
-// "large triangles" (Chris, 2026-09-02) rather than weather.
+// Clouds you can fly under. Chris, 2026-09-02, after the first version: "like someone has
+// been blowing bubbles, we need them to be proper weather systems." So: cumulus, not
+// balls. Each seeded site grows a cluster of overlapping lobes, their bottoms clamped to
+// the cloud base (a cumulus is flat underneath, at the height where the air condenses),
+// tops lumpy. The number of lobes and their spread grow with cover, so heavy cover merges
+// into a continuous deck, and a finer field inside each system breaks that deck into
+// masses, streets and gaps. Sites are seeded per cube-sphere cell so they stay put as
+// you move. The shell (Clouds.ts) carries the cover at a distance and fades out near.
 import * as THREE from 'three'
 import type { Terrain } from '../world/height.ts'
 import { cubeToFace, faceToUnit } from '../world/cubesphere.ts'
-import { front, cloudOf } from '../world/weather.ts'
+import { cloudCover } from '../world/weather.ts'
 import { rng } from '../world/noise.ts'
 
 const CELL_LEVEL = 6 // cells of ~500 m on a 40 km world
-const REACH = 9000 // metres round the camera
+const REACH = 7500 // metres round the camera
 const SITES = 3
-const MAX = 4000
+const MAX = 9000
+const SQUASH = 0.42
 
 let shared: THREE.BufferGeometry | null = null
-function puffGeometry(): THREE.BufferGeometry {
-  if (!shared) { shared = new THREE.IcosahedronGeometry(1, 1).toNonIndexed(); shared.computeVertexNormals() }
-  return shared
+/** One lobe: a low-poly ball, white on top shading to grey underneath. */
+function lobeGeometry(): THREE.BufferGeometry {
+  if (shared) return shared
+  const g = new THREE.IcosahedronGeometry(1, 2).toNonIndexed()
+  const pos = g.getAttribute('position') as THREE.BufferAttribute
+  // Cut flat underneath: a cumulus is level at the base, where the air condenses, and
+  // lumpy on top. Everything below the cut folds up onto it.
+  for (let i = 0; i < pos.count; i++) if (pos.getY(i) < -0.08) pos.setY(i, -0.08)
+  pos.needsUpdate = true
+  g.computeVertexNormals()
+  const col = new Float32Array(pos.count * 3)
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i)
+    const t = Math.min(1, Math.max(0, (y + 0.3) / 0.9))
+    const k = 0.66 + 0.32 * t * t * (3 - 2 * t)
+    col[i * 3] = k; col[i * 3 + 1] = k; col[i * 3 + 2] = k * 1.02
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3))
+  shared = g
+  return g
 }
 
 export class CloudPuffs {
@@ -27,6 +48,7 @@ export class CloudPuffs {
   private lastId = ''
   private readonly m = new THREE.Matrix4()
   private readonly q = new THREE.Quaternion()
+  private readonly yaw = new THREE.Quaternion()
   private readonly pos = new THREE.Vector3()
   private readonly sc = new THREE.Vector3()
   private readonly up = new THREE.Vector3()
@@ -34,12 +56,15 @@ export class CloudPuffs {
   private readonly t2 = new THREE.Vector3()
   private readonly ax = new THREE.Vector3()
   private readonly d = new THREE.Vector3()
+  private readonly site = new THREE.Vector3()
+  private readonly s1 = new THREE.Vector3()
+  private readonly s2 = new THREE.Vector3()
   private readonly Y = new THREE.Vector3(0, 1, 0)
 
   constructor() {
-    const mat = new THREE.MeshLambertMaterial({ color: 0xf4f6f8 })
-    mat.name = 'puff'
-    this.mesh = new THREE.InstancedMesh(puffGeometry(), mat, MAX)
+    const mat = new THREE.MeshLambertMaterial({ vertexColors: true })
+    mat.name = 'cloud'
+    this.mesh = new THREE.InstancedMesh(lobeGeometry(), mat, MAX)
     this.mesh.count = 0
     this.mesh.frustumCulled = false
     this.mesh.renderOrder = 1
@@ -72,16 +97,36 @@ export class CloudPuffs {
       const next = rng((t.seed ^ Math.imul(face + 1, 0x9e3779b1) ^ Math.imul(ix + 3, 0x85ebca6b) ^ Math.imul(iy + 5, 0xc2b2ae35)) >>> 0)
       for (let k = 0; k < SITES && count < MAX; k++) {
         const pu = -1 + (ix + next()) * s, pv = -1 + (iy + next()) * s
-        const alt = base + (next() - 0.5) * 400
-        const size = 50 + 130 * next(), squash = 0.35 + 0.25 * next(), yaw = next() * Math.PI * 2
         const p = faceToUnit(face, pu, pv)
-        const cover = cloudOf(front(p, t, time))
-        if (cover < 0.45) continue
-        const grow = 0.6 + 0.8 * (cover - 0.45) / 0.55
-        this.pos.set(p.x, p.y, p.z).multiplyScalar(alt)
-        this.q.setFromUnitVectors(this.Y, this.d.set(p.x, p.y, p.z)).multiply(new THREE.Quaternion().setFromAxisAngle(this.Y, yaw))
-        this.sc.set(size * grow, size * grow * squash, size * grow * (0.8 + 0.4 * next()))
-        this.mesh.setMatrixAt(count++, this.m.compose(this.pos, this.q, this.sc))
+        this.site.set(p.x, p.y, p.z)
+        // The site's own tangent frame.
+        this.ax.set(Math.abs(this.site.x) < 0.9 ? 1 : 0, Math.abs(this.site.x) < 0.9 ? 0 : 1, 0)
+        this.s1.crossVectors(this.ax, this.site).normalize()
+        this.s2.crossVectors(this.site, this.s1)
+        // Consume the site's randoms whether or not it is cloudy, so the cluster is stable as the front moves.
+        const seedA = next(), seedB = next(), seedC = next()
+        const cover = cloudCover(this.site, t, time)
+        if (cover < 0.22) continue
+        const grow = (cover - 0.22) / 0.78
+        const lobes = 4 + Math.round(8 * grow)
+        const spread = 90 + 220 * grow
+        const big = 95 + 120 * grow
+        const local = rng((seedA * 4294967296) >>> 0 ^ Math.floor(seedB * 65536))
+        const street = seedC * Math.PI // clusters stretch along one heading, the way streets do
+        for (let l = 0; l < lobes && count < MAX; l++) {
+          const a = local() * Math.PI * 2, r = spread * Math.sqrt(local())
+          const ox = Math.cos(a) * r * (1 + 0.6 * Math.cos(street)), oy = Math.sin(a) * r * (1 + 0.6 * Math.sin(street))
+          const size = big * (0.6 + 0.4 * local()) * (1 - 0.3 * (r / spread))
+          const h = size * SQUASH
+          this.d.copy(this.site).addScaledVector(this.s1, ox / t.radius).addScaledVector(this.s2, oy / t.radius).normalize()
+          // Flat base: the cut underside of every lobe sits on the cloud base, so a cluster is one deck.
+          this.pos.copy(this.d).multiplyScalar(base + h * 0.08 + 6 * local())
+          this.q.setFromUnitVectors(this.Y, this.d)
+          this.yaw.setFromAxisAngle(this.Y, local() * Math.PI * 2)
+          this.q.multiply(this.yaw)
+          this.sc.set(size * (0.85 + 0.3 * local()), h, size * (0.85 + 0.3 * local()))
+          this.mesh.setMatrixAt(count++, this.m.compose(this.pos, this.q, this.sc))
+        }
       }
     }
     this.mesh.count = count
