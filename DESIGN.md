@@ -479,3 +479,84 @@ Every step is playable. That's the point of the ordering.
 - Whether the radius dial ever gets turned past 20 km
 - Exact universe size. 2,000 systems is Elite's 8 × 256 and a sensible default; it sets
   the rarity counts, so it gets fixed before authoring starts.
+
+## 10. The think for 2026-09-03 (Chris's brief, evening of 09-02, my ideas, not yet agreed)
+
+Chris: "more realistic crashes ... what items we need to be picking up for trade ... trade
+stations on every planet, and in the solar system, and plans to go light speed to other
+systems in the galaxy ... a way of picking up items, but those items make the ship visibly
+more bulky, so part of the puzzle will be to work out how much you can carry without making
+the ship more difficult to fly ... puzzles a bit like carry the rabbit, the wolf across the
+water on a boat but can only carry one at a time."
+
+**Order I'd build in, and why.** Re-entry first (it is one evening and it makes coming home
+from the orbit you now park in the hard part). Then crashes and cargo together, because they
+are the same physics: mass, inertia and damage on one rigid body. Then the first station,
+because trade needs a place before it needs a price. Then the economy. Then jumps, because a
+jump needs the roster to become a function of a seed, which is a refactor best done last.
+
+**Crashes.** Today a hard contact is a flag and a two-second respawn. Instead: impact energy
+from the contact's vertical and lateral speed against the limits gives damage 0..1. Under a
+threshold it is a hard landing: gear bent (stuck down, a limp on the pad), a thrust
+vibration, a cracked HUD, the beeper sulking. Over it, a wreck: the hull's own facets (we
+already build it as separate triangles) tumble off as little rigid bodies with gravity and
+bounce, a fireball, a dust burst, a scorch on the ground, and the camera holds on the debris
+before the respawn. Into water: a splash and the hull sinks, bubbles. Gear-up landing: a skid
+with sparks and damage. Terrain at cruise speed: crater dust, instant wreck. **The wreck is
+persistent and seeded**: it stays where it fell, and you can fly back to it for the cargo,
+which is how crashes join trade. Damage is repaired at a station for money, the first money
+sink.
+
+**Cargo and bulk.** Goods are pods that clamp visibly onto the hull, Lander style: under the
+wings, then on the spine, then hanging off the tail, each a low-poly drum or crate. Every
+pod adds mass, and mass is felt three ways with no new numbers invented: thrust-to-weight
+drops (the climb you already know gets slower), the moment of inertia grows (pitch and roll
+go heavy), and the drag area grows (the air fights you more). The HUD shows TWR for the body
+you are on. **The carrying puzzle is then physics, not a slot count**: on the moon you can lift
+almost anything; on the giant, 24.8 g, you can barely leave with yourself; home sits between.
+Pick-up: gear down, hover within a couple of metres of a pod site, a winch/claw grabs it (two
+seconds, the ship dips, the pod swings). Drop: the reverse, on a pad. A pod that falls off in
+a crash lies where it fell.
+
+**What the goods are.** Derived from the terrain, because the universe is a function:
+timber from forests, water from the sea, salt from the shallows, ore from mountain belts,
+crystal from canyons, ice from the airless moon, sulphur from the hot world, gas from a scoop
+run through the giant's upper air, helium from the moon's regolith. Every body has a natural
+supply and a station whose demand is what its world lacks: the moon wants water and timber,
+the hot world wants ice, the giant's station wants anything solid. Price = base × demand /
+stock, stock drifting back over time, so a route exists and then softens as you hammer it.
+Missions are data over this: deliver, fetch, survey.
+
+**Stations.** One on each body at a seeded site, built the way the pad was: an authored flat
+disc with pads (each with lights and a number), a dome, a tower with a beacon that is a HUD
+target, a landing that must be on a pad to count. **And one in space**: a rotating
+dodecahedron with a letterbox slot, Elite's Coriolis, where docking means matching the
+rotation and flying through the slot. That is the single most remembered thing in Elite and
+it costs one rigid body and a rotation.
+
+**The galaxy.** The escape-the-system trigger already planned becomes a jump. The galaxy is a
+seeded set of systems (Elite had 256 to a galaxy), each system its own seed: number of
+planets, kinds, radii, the sun's colour and size, all from it, the way today's roster is
+written by hand. Systems get an economy type (agricultural, industrial, mining, refinery,
+the Elite set) so what is cheap here is dear there and routes are worth finding. A jump:
+charge, countdown, a tunnel, arrive at the new system's edge. Jump fuel is a good you buy,
+so distance costs money.
+
+**The puzzles.** The one Chris half-remembers: the wolf, the goat and the cabbage; one seat
+in the boat; the wolf eats the goat and the goat eats the cabbage if left together
+unwatched. In our terms: **constraints between goods** the ship enforces. Some pairs cannot
+share a hull without a special pod (livestock and the predator, ore and the acid, fuel cells
+through the hot world's daylight side, ice through Venus's air unless insulated, and the
+insulated pod takes two slots). Some sites only let one pod down per visit. Some cargo is
+heavier than the body's gravity lets you lift with anything else aboard, so you strip pods
+to fetch it. A delivery of three things across a sea with two forbidden pairings is the
+classic in a spaceship. **Generate and verify**: the game writes an instance (items,
+forbidden pairs, capacity, sites) and a solver proves it is doable in N trips before it is
+offered, which is what §5 already promised for puzzles. The three legendaries could be
+puzzle chains: the relic on the giant's moon that only a stripped ship can lift, and so on.
+
+**Where I'd push back.** "Trade stations on every planet" is right for the living ones and
+the moon; on the hot world and the giant it should be one outpost each and hard to reach,
+because a place you cannot easily land is the point of those places. And the light-speed
+part should wait until this system is worth leaving: one good station and a working route
+here will teach us more than ten empty systems.
