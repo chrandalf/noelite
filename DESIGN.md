@@ -560,3 +560,52 @@ the moon; on the hot world and the giant it should be one outpost each and hard 
 because a place you cannot easily land is the point of those places. And the light-speed
 part should wait until this system is worth leaving: one good station and a working route
 here will teach us more than ten empty systems.
+
+### 10b. Progression: the ten-hour ladder (Chris, later the same evening)
+
+Chris: "we have to get the right recipe to get light speed, like antimatter, and you can't
+get that until you've been to the furthest planet in the solar system, and that's not
+achievable with the fuel you have. We'll need constant progression lined in, early
+progression all the way through to a 10 hour game. Maybe there will be grinding, but
+that's part of these games."
+
+**Fuel is the gate.** There is no fuel today. Add it: the hover engine and the cruise drive
+burn from a tank; the tank, the burn rate and the drive's top speed are the three things
+that decide what you can reach, and all three are items you earn. Reach is then a fact of
+physics you can read off the HUD (range at this throttle), not a locked door. Refuel at a
+station for money, or, later, crack your own from water and ice with an upgrade, which is
+what makes the far bodies possible.
+
+**The rule for the ladder:** every half hour you should hold something you did not have:
+money, an item, a reach, a place, a good. Roughly twenty rungs.
+
+| Hours | Where you can get to | The loop | What you earn | What it unlocks |
+|---|---|---|---|---|
+| 0 to ½ | the pad and 30 km round it | hover, scan, one pod of timber or water to the home station | the first money, the first pod | the small tank refill; the orbit lesson |
+| ½ to 2 | all of home, low orbit | routes between home's stations; dock at the Coriolis | tank II, the cruise drive (5 km/s) | the moon is now 10 minutes away |
+| 2 to 4 | the moon | helium from the regolith, ice; the grind route moon ↔ Coriolis | drive II (100 km/s), the insulated pod, the cage pod | Venus and Mercury in reach on fuel |
+| 4 to 6 | Venus, Mercury | Venus needs the heat shield (re-entry); Mercury's day side cooks, its night side has the ice; timing the day is the puzzle | drive III (2,000 km/s), the scoop, the fuel cracker | the giant in reach, and you can make fuel on the way |
+| 6 to 8 | the giant and its moons | the scoop run through the giant's upper air for deuterium; the outpost on its moon only exists once you have delivered what builds it | the containment vessel (canyon crystal + belt ore, fabricated at the outpost) | the antimatter trap |
+| 8 to 10 | the jump | antimatter is bred in the trap at the outpost from deuterium and time; the drive core is bought at the Coriolis with money that only the far routes make | the jump drive: core + containment + antimatter | the first jump; the galaxy |
+
+**The recipe, spelled out**: jump drive = drive core (bought, dear, Coriolis) + containment
+vessel (fabricated at the giant's outpost from canyon crystal and belt ore you carried
+there) + antimatter (bred at the outpost's trap from deuterium you scooped from the giant,
+over real time, so you fly other things while it breeds). The giant is the furthest body,
+and you cannot reach it until the tank, the burn rate and the drive have all been earned,
+which is Chris's sentence made of numbers.
+
+**Grind, and the two kinds of it.** The good kind is a route you have learned that pays,
+flown with the whole game in it: weather, the landing, the orbit insertion, the dock. The
+bad kind is waiting. So: every route pays visibly (a counter, a best time), **skill
+compresses the grind** (a cleaner insertion burns less fuel, a faster landing turns more
+runs an hour, gear up in cruise saves drag, all of it shows in profit), and the rare finds
+already in the design (counts in a fixed universe, §5) are shortcuts up the ladder for the
+curious: a crystal seam that pays three runs in one, a wreck with a pod of something you
+cannot buy yet. Breeding antimatter over real time is the one deliberate wait, and it is
+there so the last hours are spent flying, not standing at a counter.
+
+**What this adds to the build order.** Fuel comes before cargo (it is the first number
+that gates anything). The giant's Galilean moons come back (one line each in the roster;
+the outpost sits on one). Re-entry's heat shield is a purchasable, which is why re-entry is
+still first: it is the gate to Venus.
