@@ -13,10 +13,11 @@ const FAR = { back: 30, up: 26 }
 const FAR_ALT = 150
 const SHIP = { back: 24, up: 9 }
 const CAM_CLEARANCE = 2.5
-const X = new THREE.Vector3(1, 0, 0)
 const Y = new THREE.Vector3(0, 1, 0)
 
 export class ChaseCam {
+  /** Radians of orbit pitch either way: straight over the top to straight underneath, short of the poles. */
+  static readonly MAX_PITCH = 1.5
   readonly pos = new THREE.Vector3()
   readonly quat = new THREE.Quaternion()
   /** User offsets on top of the follow: drag to orbit, wheel to zoom, reset() to snap back. */
@@ -62,12 +63,17 @@ export class ChaseCam {
     this.spin.setFromAxisAngle(this.up, this.orbitYaw)
     this.viewFwd.copy(this.fwd).applyQuaternion(this.spin)
     const distP = Math.hypot(BACK, UP) * this.zoom
-    const elev = Math.min(1.45, Math.max(0.08, Math.atan2(UP, BACK) + this.orbitPitch))
+    // Elevation runs the full arc: drag down far enough and you are looking up at the hull.
+    // The ground clamp below is what keeps the camera out of the terrain, not this.
+    const elev = Math.min(ChaseCam.MAX_PITCH, Math.max(-ChaseCam.MAX_PITCH, Math.atan2(UP, BACK) + this.orbitPitch))
     this.targetP.copy(craft.pos).addScaledVector(this.up, distP * Math.sin(elev)).addScaledVector(this.viewFwd, -distP * Math.cos(elev))
     this.lookP.copy(craft.pos).addScaledVector(this.up, 1.5)
 
-    // Ship frame. Behind the nose, above the spine, orbit offsets in body axes.
-    this.off.set(0, SHIP.up, SHIP.back).multiplyScalar(this.zoom).applyAxisAngle(X, -this.orbitPitch).applyAxisAngle(Y, this.orbitYaw).applyQuaternion(craft.quat)
+    // Ship frame. Same spherical orbit as the planet frame, in body axes: elevation from
+    // the ship's own horizontal, then yaw about its spine, so the two frames agree.
+    const distS = Math.hypot(SHIP.back, SHIP.up) * this.zoom
+    const elevS = Math.min(ChaseCam.MAX_PITCH, Math.max(-ChaseCam.MAX_PITCH, Math.atan2(SHIP.up, SHIP.back) + this.orbitPitch))
+    this.off.set(0, distS * Math.sin(elevS), distS * Math.cos(elevS)).applyAxisAngle(Y, this.orbitYaw).applyQuaternion(craft.quat)
     this.targetS.copy(craft.pos).add(this.off)
     this.lookS.set(0, 0, -8).applyQuaternion(craft.quat).add(craft.pos)
     this.upS.copy(Y).applyQuaternion(craft.quat)

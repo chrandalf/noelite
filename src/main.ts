@@ -176,7 +176,7 @@ const atmosEl = document.getElementById('atmos')!
   addEventListener('mousemove', (e) => {
     if (!dragging || mode !== 'fly') return
     chase.orbitYaw -= (e.clientX - lx) * 0.006
-    chase.orbitPitch = Math.min(1.2, Math.max(-0.6, chase.orbitPitch + (e.clientY - ly) * 0.006))
+    chase.orbitPitch = Math.min(ChaseCam.MAX_PITCH, Math.max(-ChaseCam.MAX_PITCH, chase.orbitPitch + (e.clientY - ly) * 0.006))
     lx = e.clientX; ly = e.clientY
   })
   addEventListener('wheel', (e) => { if (mode === 'fly') chase.zoom = Math.min(3, Math.max(0.4, chase.zoom * Math.pow(1.1, e.deltaY / 100))) }, { passive: true })
