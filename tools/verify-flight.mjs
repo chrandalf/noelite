@@ -4,6 +4,7 @@
 // you the moment it stops being a flight model.
 import * as THREE from 'three'
 import { Craft, IDLE } from '../src/engine/Craft.ts'
+import { OrbitAutopilot } from '../src/engine/Autopilot.ts'
 import { findLandable, groundRadius } from '../src/world/terrain.ts'
 import { HOME, height } from '../src/world/height.ts'
 import { body, bodyVelocity, bodyPosition, bodySpin } from '../src/world/system.ts'
@@ -280,6 +281,23 @@ const L1 = land()
     const lc = c.lastContact
     check('autopilot puts down on the sea and floats', c.state === 'landed' && Math.abs(c.pos.length() - (HOME.radius + HOME.sea + 1.6)) < 0.01 && lc.slope < 0.5, `${t.toFixed(1)} s, at ${(c.pos.length() - HOME.radius).toFixed(2)} m above datum (sea ${HOME.sea}), slope ${lc.slope.toFixed(2)}°, ground below the water ${(groundRadius(sea, HOME) - HOME.radius - height(sea, HOME)).toFixed(0)} m up from the floor`)
   }
+}
+
+// 21. The orbit autopilot: from 150 km over the moon, park in a circular orbit and stay there.
+for (const [id, start] of [['home-1', 150_000], ['home', 400_000]]) {
+  const b = body(id)
+  const c = new Craft(HOME); c.time = 5000
+  c.placeAbove(b, new THREE.Vector3(0.3, 0.5, 0.8), start)
+  const ap = new OrbitAutopilot()
+  const rPark = ap.parkRadius(c), vCirc = ap.parkSpeed(c)
+  const radial = () => c.vel.dot(c.pos.clone().normalize())
+  const t = until(c, (c) => ap.phase === 'orbit', 500, () => ap.controls(c))
+  const alt = c.pos.length() - rPark
+  check(`autopilot parks over ${b.name} from ${start / 1000} km`, ap.phase === 'orbit' && Math.abs(alt) < 0.1 * (rPark - b.radius) && Math.abs(c.speed() - vCirc) < 0.05 * vCirc && Math.abs(radial()) < 5, `${t.toFixed(0)} s: ${(alt / 1000).toFixed(1)} km off the park radius, ${c.speed().toFixed(0)} m/s vs circular ${vCirc.toFixed(0)}, radial ${radial().toFixed(1)} m/s, ${ap.phase}`)
+  const r0 = c.pos.length(), T = 2 * Math.PI * rPark / vCirc
+  let worst = 0
+  until(c, () => false, Math.min(600, T), (t, c) => { worst = Math.max(worst, Math.abs(c.pos.length() - r0)); return ap.controls(c) })
+  check(`and holds the orbit for ${Math.min(600, T).toFixed(0)} s (${(T / 60).toFixed(0)} min period)`, worst < 0.05 * (rPark - b.radius) && c.state === 'flying', `radius wandered ${(worst / 1000).toFixed(2)} km, now ${c.speed().toFixed(0)} m/s at ${(c.altitude() / 1000).toFixed(1)} km`)
 }
 
 console.log(`\n${pass}/${pass + fail} checks`)

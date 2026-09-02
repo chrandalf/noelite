@@ -380,10 +380,16 @@ Every step is playable. That's the point of the ordering.
    a reason to exist. The harness already shows the problem: a full-boost dive is handed
    back to hover at 1,590 m doing 1,168 m/s, into air whose drag would pull 16,000 m/s².
    DRAG (terminal velocity 29 m/s, a feather) gets reconsidered here too.
-5. **Orbit autopilot** (Chris, 2026-09-02: arriving at the moon at 1.6 km/s in hover with
-   no air was "nearly impossible to crash land" without crashing). Close in, it brings the
-   ship into the hover zone and parks it in a circular orbit until you press to land or,
-   later, scan.
+5. ~~**Orbit autopilot**~~ Done 2026-09-02 (`src/engine/Autopilot.ts`, the O key). It flies
+   the pilot's own controls: under the floor it climbs; in cruise it wants a velocity,
+   inward at gap/30 s blending into circular speed sideways as the gap closes, and since
+   velocity follows the nose in cruise the nose goes where that velocity should be and
+   nowhere else, with thrust and brake setting the magnitude. The first version aimed at
+   the velocity error and the assist bled the orbit away; the harness saw it take 400 s
+   and oscillate. Parks 6 km up (or 1.5 airs, or a tenth of the radius): over the moon
+   from 150 km in 218 s, over home from 400 km in 239 s, holds to 80 m for ten minutes.
+   Any control releases it. Snow went in the same commit: a snowline at 1.8 amplitudes
+   falling to the shore at the poles, feathered, and it does not stick to cliffs.
 6. **Weather and tides** (Chris, 2026-09-02): wind as a velocity the air carries, felt
    through the drag that already exists; waves from the wind; rain near the craft where
    a seeded weather field says so; the tide as the moon bending sea level, two bulges.

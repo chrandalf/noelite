@@ -16,9 +16,14 @@ const GREEN: { upTo: number; c: RGB }[] = [
   { upTo: 0.85, c: [0.28, 0.60, 0.30] }, // lowland forest green
   { upTo: 1.5, c: [0.58, 0.72, 0.34] }, // yellow-green upland
   { upTo: 2.1, c: [0.62, 0.55, 0.36] }, // tan
-  { upTo: 2.6, c: [0.60, 0.57, 0.52] }, // stone
-  { upTo: Infinity, c: [0.94, 0.95, 0.97] }, // snow
+  { upTo: Infinity, c: [0.60, 0.57, 0.52] }, // stone; snow is by snowline, below
 ]
+const SNOW: RGB = [0.94, 0.95, 0.97]
+/**
+ * Snowline in amplitudes above the sea: 1.8 at the equator, falling steeply toward the
+ * poles so the caps reach the shore. Chris, 2026-09-02: "snow on mountain tops too".
+ */
+function snowline(lat: number): number { const l2 = lat * lat; return 1.8 - 1.9 * l2 * l2 * l2 }
 /** Deep water, for the far sphere; near the ground the water shader draws the sea. */
 export const SEA: RGB = [0.08, 0.26, 0.45]
 const LAVA: { upTo: number; c: RGB }[] = [
@@ -43,7 +48,13 @@ export function terrainColour(kind: BodyKind, hNorm: number, slope: number, jitt
   const k = 1 + 0.07 * jitter
   let base: RGB
   switch (kind) {
-    case 'terrestrial': base = mix(band(GREEN, aboveNorm), ROCK, clamp01((slope - 24) / 16)); break
+    case 'terrestrial': {
+      base = mix(band(GREEN, aboveNorm), ROCK, clamp01((slope - 24) / 16))
+      // Snow above the line, feathered over a tenth of an amplitude; it does not stick to cliffs.
+      const snow = clamp01((aboveNorm - snowline(lat)) / 0.1) * (1 - clamp01((slope - 38) / 12))
+      if (aboveNorm > 0.02) base = mix(base, SNOW, snow)
+      break
+    }
     case 'hot': base = mix(band(LAVA, hNorm), [0.12, 0.09, 0.09], clamp01((slope - 30) / 20)); break
     case 'giant': {
       const i = Math.floor((lat + 1) * 5.5 + jitter * 0.25) & 3

@@ -33,6 +33,7 @@ import { atmosphereDensity, buildAtmosphereShell } from './world/atmosphere.ts'
 import { SYSTEM, body, bodyPosition, bodySpin, type Body } from './world/system.ts'
 import { terrainColour, facetJitter, SEA } from './world/palette.ts'
 import { Water } from './engine/Water.ts'
+import { OrbitAutopilot } from './engine/Autopilot.ts'
 import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE } from './world/config.ts'
 
 const q = new URLSearchParams(location.search)
@@ -182,6 +183,7 @@ craft.spawnOn(pad, new THREE.Vector3(1, 0, 0), 'surface', home)
   }
 }
 const markers = new NavMarkers(document.body)
+const orbitAP = new OrbitAutopilot()
 
 const hud = document.getElementById('hud')!
 const altimeter = document.getElementById('altimeter')!
@@ -227,6 +229,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyR') respawn()
   if (e.code === 'KeyM') beeper.muted = !beeper.muted
   if (e.code === 'KeyC') chase.reset()
+  if (e.code === 'KeyO') orbitAP.engaged = !orbitAP.engaged && craft.state === 'flying'
   if (e.code === 'Tab') { e.preventDefault(); targetIndex = (targetIndex + 1) % targets.length }
 })
 function respawn() { craft.spawnOn(pad, new THREE.Vector3(1, 0, 0), 'surface', home); if (refView.body !== craft.ref) switchFrame(); crashedAt = null }
@@ -275,7 +278,10 @@ renderer.setAnimationLoop((now) => {
   if (mode === 'fly') {
     let c: Controls = input.read()
     if (burn > 0 && elapsed < burn) c = { ...c, thrust: 1 }
-    const assist = input.assist()
+    // The orbit autopilot flies until you touch anything.
+    if (orbitAP.engaged && (c.thrust || c.pitch || c.roll || c.yaw || c.vertical || c.lateral || c.fore || craft.state !== 'flying')) orbitAP.engaged = false
+    if (orbitAP.engaged) c = orbitAP.controls(craft)
+    const assist = orbitAP.engaged ? null : input.assist()
     const tgt = targets[targetIndex]
     toTarget.copy(tgt.rel).sub(craft.pos)
     if (assist && craft.state === 'flying') {
@@ -340,7 +346,8 @@ renderer.setAnimationLoop((now) => {
     markers.place('target', tDir, camera, showNav, `${tgt.body.name}  ${fmtDist(tSurf)}  ${closing >= 0 ? '↓' : '↑'}${fmtSpeed(Math.abs(closing))}${eta}`)
     const lc = craft.lastContact
     const vOrb = craft.orbitalSpeed(), vEsc = craft.escapeSpeed(), spd = craft.speed(), vIn = craft.inertialSpeed()
-    const spaceLine = rho < 1 ? `${craft.cruise ? `CRUISE  cap ${fmtSpeed(craft.cap())}  (thrust forward, / brakes)` : 'HOVER'}   SOI ${craft.ref.name}   orbit ${vOrb.toFixed(0)}   escape ${vEsc.toFixed(0)}   ${craft.cruise ? '' : vIn > vEsc ? '!! ESCAPING !!' : vIn > vOrb ? 'above orbital' : ''}   target ${tgt.body.name} (Tab)   T aim   X retro   Z planet\n` : ''
+    const apLine = orbitAP.engaged ? `AUTOPILOT ${orbitAP.phase.toUpperCase()} ${craft.ref.name}  park ${((orbitAP.parkRadius(craft) - craft.terrain.radius) / 1000).toFixed(0)} km at ${orbitAP.parkSpeed(craft).toFixed(0)} m/s  (any control releases)` : 'O orbit'
+    const spaceLine = rho < 1 ? `${craft.cruise ? `CRUISE  cap ${fmtSpeed(craft.cap())}  (thrust forward, / brakes)` : 'HOVER'}   ${apLine}   SOI ${craft.ref.name}   orbit ${vOrb.toFixed(0)}   escape ${vEsc.toFixed(0)}   ${craft.cruise ? '' : vIn > vEsc ? '!! ESCAPING !!' : vIn > vOrb ? 'above orbital' : ''}   target ${tgt.body.name} (Tab)   T aim   X retro   Z planet\n` : ''
     line = `alt ${altitude.toFixed(1).padStart(6)} m   v↑ ${vUp.toFixed(1).padStart(5)} m/s   spd ${fmtSpeed(spd).padStart(9)}   tilt ${tilt.toFixed(0).padStart(2)}°   ${craft.state.toUpperCase()}   landings ${craft.landings}  crashes ${craft.crashes}\n` + spaceLine +
       (craft.state === 'crashed' ? `contact: v↑ ${lc.vUp.toFixed(1)}  drift ${lc.vH.toFixed(1)}  tilt ${lc.tilt.toFixed(0)}°  slope ${lc.slope.toFixed(0)}°   (R to respawn)\n` : '') +
       `space thrust   shift boost   W/S tilt   A/D roll   Q/E yaw   , . side   / top   ' rear   X/Z assists   R respawn   M mute   drag orbit   wheel zoom   C reset   ${fps} fps   chunks ${refView.lod?.liveCount ?? 0}`
