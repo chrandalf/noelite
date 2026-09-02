@@ -299,9 +299,10 @@ for (const [id, start] of [['home-1', 150_000], ['home', 400_000]]) {
   const alt = c.pos.length() - rPark
   check(`autopilot parks over ${b.name} from ${start / 1000} km`, ap.phase === 'orbit' && Math.abs(alt) < 0.1 * (rPark - b.radius) && Math.abs(c.speed() - vCirc) < 0.05 * vCirc && Math.abs(radial()) < 5, `${t.toFixed(0)} s: ${(alt / 1000).toFixed(1)} km off the park radius, ${c.speed().toFixed(0)} m/s vs circular ${vCirc.toFixed(0)}, radial ${radial().toFixed(1)} m/s, ${ap.phase}`)
   const r0 = c.pos.length(), T = 2 * Math.PI * rPark / vCirc
-  let worst = 0
-  until(c, () => false, Math.min(600, T), (t, c) => { worst = Math.max(worst, Math.abs(c.pos.length() - r0)); return ap.controls(c) })
+  let worst = 0, flips = 0, wasOn = c.thrusting
+  until(c, () => false, Math.min(600, T), (t, c) => { worst = Math.max(worst, Math.abs(c.pos.length() - r0)); if (c.thrusting !== wasOn) { flips++; wasOn = c.thrusting } return ap.controls(c) })
   check(`and holds the orbit for ${Math.min(600, T).toFixed(0)} s (${(T / 60).toFixed(0)} min period)`, worst < 0.05 * (rPark - b.radius) && c.state === 'flying', `radius wandered ${(worst / 1000).toFixed(2)} km, now ${c.speed().toFixed(0)} m/s at ${(c.altitude() / 1000).toFixed(1)} km`)
+  check('without the throttle flickering', flips < 40, `${flips} thrust on/off flips in ${Math.min(600, T).toFixed(0)} s`)
 }
 
 // 22. Weather: a hovering craft is pushed by the wind, along the wind, and not without it.

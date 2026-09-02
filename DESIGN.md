@@ -402,6 +402,15 @@ Every step is playable. That's the point of the ordering.
    from 150 km in 218 s, over home from 400 km in 239 s, holds to 80 m for ten minutes.
    Any control releases it. Snow went in the same commit: a snowline at 1.8 amplitudes
    falling to the shore at the poles, feathered, and it does not stick to cliffs.
+   **Second pass, later the same day**, from Chris: "the thrusters kept flickering", "I was
+   coming in on a sideways angle", "speed it up slightly", "orbit on smaller planets needs
+   to be lower". The approach now aims along the line from the craft that grazes the
+   parking circle (`sin a = r_park / r`), so the path curves in and arrives tangential; the
+   wanted speed is circular plus gap/12 s, capped; a deadband either side of it and
+   smoothed throttle commands stop the chatter; the park height is 1.5 airs or 1.2 floors
+   plus 8% of the radius (moon 3.9 km, home 6.2 km, giant 95 km). Parks from 150 km over
+   the moon in 100 s (was 218) and from 400 km over home in 81 s (was 239). The harness
+   counts throttle flips during the hold.
 6. ~~**Weather, clouds and tides**~~ Done 2026-09-02 (`src/world/weather.ts`, `Rain.ts`,
    `Clouds.ts`). One slow seeded noise in position and time per body is the FRONT, -1
    calm to +1 storm. Wind blows along its contours (rotated gradient: divergence-free, it
