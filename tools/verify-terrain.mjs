@@ -46,7 +46,13 @@ const OTHER = { ...HOME, seed: MASTER_SEED + 1 }
     if (h < lo) lo = h; if (h > hi) hi = h
   }
   check('height() is finite over 40k samples', finite)
-  check('height() stays within 1.1 × amplitude', Math.max(-lo, hi) <= 1.1 * TERRAIN_AMPLITUDE, `range ${lo.toFixed(1)} .. ${hi.toFixed(1)} m`)
+  check('height() stays within its declared bounds', lo >= HOME.bottom * 1.05 && hi <= HOME.top * 1.05, `range ${lo.toFixed(1)} .. ${hi.toFixed(1)} m, declared ${HOME.bottom.toFixed(0)} .. ${HOME.top.toFixed(0)}`)
+  check('mountains stand well above the plains', hi > 2 * TERRAIN_AMPLITUDE, `highest ${hi.toFixed(0)} m vs amplitude ${TERRAIN_AMPLITUDE}`)
+  {
+    let sea = 0, N = 40000
+    for (let i = 0; i < N; i++) if (height(randomUnit(), SEED) < HOME.sea) sea++
+    check('between a third and two thirds of home is under the sea', sea / N > 0.33 && sea / N < 0.67, `${(100 * sea / N).toFixed(1)}% ocean`)
+  }
   // Simplex boundaries lie where two noise coordinates are equal, which on the sphere is
   // p.x = p.y and friends. With a 0.6 kernel the field jumps there; the pad sat on one.
   let crack = 0
@@ -84,18 +90,11 @@ const OTHER = { ...HOME, seed: MASTER_SEED + 1 }
   }
   check('all six faces wind outward', ok)
 }
-// 6. Seams: height is continuous across every face edge. This is the guard
-//    against anyone ever evaluating height in face space. A real seam break is
-//    a step of metres over centimetres of arc, so the test is relative: the
-//    steepest gradient found on an edge must match the steepest found anywhere.
+// 6. Seams: height is continuous across every face edge. This is the guard against
+//    anyone ever evaluating height in face space: a nanoradian either side of the edge
+//    must give the same ground to a millimetre.
 {
-  const eps = 2e-4 // ~0.4 m of arc at 2 km
-  const gradient = (edge, dir) => {
-    const l = Math.hypot(dir.x, dir.y, dir.z)
-    const a = cubeToUnit(edge.x + eps * dir.x / l, edge.y + eps * dir.y / l, edge.z + eps * dir.z / l)
-    const b = cubeToUnit(edge.x - eps * dir.x / l, edge.y - eps * dir.y / l, edge.z - eps * dir.z / l)
-    return Math.abs(height(a, SEED) - height(b, SEED)) / (dist(a, b) * PLANET_RADIUS)
-  }
+  const eps = 1e-9
   let seamWorst = 0
   for (const f of FACES) {
     const centre = faceToUnit(f, 0, 0)
@@ -104,27 +103,24 @@ const OTHER = { ...HOME, seed: MASTER_SEED + 1 }
       const u = side[0] !== 0 ? side[0] : t, v = side[1] !== 0 ? side[1] : t
       const [cx, cy, cz] = faceToCube(f, u, v)
       const edge = cubeToUnit(cx, cy, cz)
-      // Straddle the edge along the great circle through the face centre.
-      const g = gradient(edge, { x: centre.x - edge.x, y: centre.y - edge.y, z: centre.z - edge.z })
-      if (g > seamWorst) seamWorst = g
+      const dir = { x: centre.x - edge.x, y: centre.y - edge.y, z: centre.z - edge.z }
+      const l = Math.hypot(dir.x, dir.y, dir.z)
+      const a = cubeToUnit(edge.x + eps * dir.x / l, edge.y + eps * dir.y / l, edge.z + eps * dir.z / l)
+      const b = cubeToUnit(edge.x - eps * dir.x / l, edge.y - eps * dir.y / l, edge.z - eps * dir.z / l)
+      seamWorst = Math.max(seamWorst, Math.abs(height(a, SEED) - height(b, SEED)))
     }
   }
-  let interiorWorst = 0
-  for (let i = 0; i < 4824; i++) {
-    const p = randomUnit(), d = randomUnit()
-    const g = gradient(p, d)
-    if (g > interiorWorst) interiorWorst = g
-  }
-  check('height continuous across all 24 face edges', seamWorst <= 1.5 * interiorWorst,
-    `seam worst ${seamWorst.toFixed(3)}, interior worst ${interiorWorst.toFixed(3)}`)
+  check('height continuous across all 24 face edges', seamWorst < 1e-3, `worst step ${seamWorst.toExponential(1)} m`)
 }
 // 7. Landability survey. Not a pass/fail on the number so much as a promise
 //    that plains exist: DESIGN.md says you need somewhere to put it down.
 {
   const step = 1 / PLANET_RADIUS // 1 m of arc
-  let landable = 0, N = 20000, maxSlope = 0
-  for (let i = 0; i < N; i++) {
+  let landable = 0, N = 0, maxSlope = 0
+  for (let i = 0; i < 40000; i++) {
     const p = randomUnit()
+    if (height(p, SEED) < HOME.sea + 3) continue // dry land only; the sea is flat and you can put down on it anyway
+    N++
     const q = cubeToUnit(p.x + step, p.y, p.z)
     const slope = Math.abs(height(p, SEED) - height(q, SEED)) / (dist(p, q) * PLANET_RADIUS)
     if (slope < Math.tan(15 * Math.PI / 180)) landable++

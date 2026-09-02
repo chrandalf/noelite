@@ -14,7 +14,7 @@
 //   ?burn=N        full thrust for the first N seconds, for screenshots
 //   ?t=SECONDS     start the clock here, for dawn and dusk shots (tools/sun-times.mjs)
 //   ?wire=1  ?skirts=0|red  ?no=dust,shadow,flame   renderer debug
-//   ?over=home-1:300   start hanging over another body (id:altitude)
+//   ?over=home-1:300   start hanging over another body (id:altitude, optionally :x,y,z direction)
 import * as THREE from 'three'
 import { PlanetLOD } from './world/lod.ts'
 import { FlyCam } from './engine/FlyCam.ts'
@@ -27,11 +27,12 @@ import { Dust } from './engine/Dust.ts'
 import { Beeper } from './engine/Beeper.ts'
 import { Sky } from './engine/Sky.ts'
 import { NavMarkers } from './engine/NavMarkers.ts'
-import { height, HOME, terrainOf, type Terrain } from './world/height.ts'
+import { waterOf, height, HOME, terrainOf, type Terrain } from './world/height.ts'
 import { findLandable, slopeDeg } from './world/terrain.ts'
 import { atmosphereDensity, buildAtmosphereShell } from './world/atmosphere.ts'
 import { SYSTEM, body, bodyPosition, bodySpin, type Body } from './world/system.ts'
-import { terrainColour, facetJitter } from './world/palette.ts'
+import { terrainColour, facetJitter, SEA } from './world/palette.ts'
+import { Water } from './engine/Water.ts'
 import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE } from './world/config.ts'
 
 const q = new URLSearchParams(location.search)
@@ -93,7 +94,8 @@ function buildFarSphere(b: Body, t: Terrain): THREE.Mesh {
     c.normalize()
     const h = height(c, t)
     const lat = c.x * t.axis.x + c.y * t.axis.y + c.z * t.axis.z
-    const [r, gg, bb] = terrainColour(t.kind, h, 0, facetJitter(c.x * 977, c.y * 977, c.z * 977), t.amplitude ? h / t.amplitude : 0, lat)
+    const hNorm = t.amplitude ? h / t.amplitude : 0
+    const [r, gg, bb] = t.sea !== null && h < t.sea ? SEA : terrainColour(t.kind, hNorm, 0, facetJitter(c.x * 977, c.y * 977, c.z * 977), lat, t.sea === null || !t.amplitude ? hNorm : (h - t.sea) / t.amplitude)
     for (let k = 0; k < 3; k++) { col[(i + k) * 3] = r; col[(i + k) * 3 + 1] = gg; col[(i + k) * 3 + 2] = bb }
   }
   g.setAttribute('color', new THREE.BufferAttribute(col, 3))
@@ -103,9 +105,10 @@ function buildFarSphere(b: Body, t: Terrain): THREE.Mesh {
 
 const SHELL_COLOUR: Record<string, number> = { terrestrial: 0x5d9be0, hot: 0xd08050, giant: 0xd8b890 }
 type BodyView = {
-  body: Body; terrain: Terrain; group: THREE.Group; far: THREE.Mesh; lod: PlanetLOD | null
+  body: Body; terrain: Terrain; group: THREE.Group; far: THREE.Mesh; lod: PlanetLOD | null; water: PlanetLOD | null
   shellSun: THREE.Vector3 | null; rel: THREE.Vector3
 }
+const waterMat = new Water()
 const home = body('home'), sunBody = body('sun')
 const views: BodyView[] = SYSTEM.map((b) => {
   const terrain = b.id === 'home' ? HOME : terrainOf(b)
@@ -113,15 +116,16 @@ const views: BodyView[] = SYSTEM.map((b) => {
   world.add(group)
   const far = buildFarSphere(b, terrain)
   group.add(far)
-  let lod: PlanetLOD | null = null
+  let lod: PlanetLOD | null = null, water: PlanetLOD | null = null
   if (b.kind !== 'sun' && b.kind !== 'giant') { lod = new PlanetLOD(terrain, b.id === 'home' ? terrainMaterial : bodyMaterial, skirts); group.add(lod.group) }
+  if (lod && terrain.sea !== null) { water = new PlanetLOD(waterOf(terrain), waterMat.material, skirts); group.add(water.group) }
   let shellSun: THREE.Vector3 | null = null
   if (b.atmosphereHeight > 0) {
     const shell = buildAtmosphereShell(new THREE.Vector3(1, 0, 0), new THREE.Color(SHELL_COLOUR[b.kind] ?? 0x5d9be0), b.radius, b.atmosphereHeight)
     group.add(shell)
     shellSun = (shell.material as THREE.ShaderMaterial).uniforms.uSun.value as THREE.Vector3
   }
-  return { body: b, terrain, group, far, lod, shellSun, rel: new THREE.Vector3() }
+  return { body: b, terrain, group, far, lod, water, shellSun, rel: new THREE.Vector3() }
 })
 const homeView = views.find((v) => v.body === home)!
 const sunView = views.find((v) => v.body === sunBody)!
@@ -171,7 +175,11 @@ craft.spawnOn(pad, new THREE.Vector3(1, 0, 0), 'surface', home)
 // ?over=<body id>:<altitude m> starts you hanging over another body instead: over=home-1:300 is the moon.
 {
   const over = q.get('over')
-  if (over) { const [id, alt] = over.split(':'); craft.placeAbove(body(id), new THREE.Vector3(0, 0, 1), Number(alt) || 500) }
+  if (over) {
+    const [id, alt, at] = over.split(':')
+    const d = at?.split(',').map(Number)
+    craft.placeAbove(body(id), d && d.length === 3 && d.every(Number.isFinite) ? new THREE.Vector3(d[0], d[1], d[2]) : new THREE.Vector3(0, 0, 1), Number(alt) || 500)
+  }
 }
 const markers = new NavMarkers(document.body)
 
@@ -243,11 +251,13 @@ function placeBodies(t: number, frame: Body): void {
     if (v.lod) {
       const near = v.body === frame || v.rel.distanceTo(viewPos) < 40 * v.body.radius
       v.lod.group.visible = near
+      if (v.water) v.water.group.visible = near
       v.far.visible = !near
       if (near) {
         // The LOD thinks in the body's own frame: viewer relative to the body, un-spun.
         camLocal.copy(viewPos).sub(v.rel).applyQuaternion(qLocal.copy(v.group.quaternion).invert())
         v.lod.update(camLocal)
+        v.water?.update(camLocal)
       }
     }
     if (v.shellSun) v.shellSun.copy(sunView.rel).sub(v.rel).normalize()
@@ -355,6 +365,7 @@ renderer.setAnimationLoop((now) => {
   const sinApp = Sky.apparentSunElevation(dir, sunDir, altitude, ft.radius)
   const sinDip = Math.sin(Math.acos(Math.min(1, ft.radius / (ft.radius + Math.max(0, altitude)))))
   const day = sky.update(dir, sunDir, density, sinApp, sinDip)
+  waterMat.update(mode === 'fly' ? craft.time : t, sunDir, day)
   hemi.position.copy(dir) // the fill's "sky" is the local up, not scene +Y
   hemi.intensity = 0.85 * (0.2 + 0.8 * day)
   sunLight.color.lerpColors(SUN_LOW, SUN_WHITE, Math.min(1, Math.max(0, (sinApp + 0.05) / 0.25)))

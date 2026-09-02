@@ -8,14 +8,19 @@ export type RGB = [number, number, number]
 const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x)
 const mix = (a: RGB, b: RGB, t: number): RGB => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]
 
+/** Living worlds, banded by height above the sea in units of the body's amplitude. */
 const GREEN: { upTo: number; c: RGB }[] = [
-  { upTo: -45, c: [0.18, 0.42, 0.30] }, // low, dark green
-  { upTo: -10, c: [0.28, 0.60, 0.30] },
-  { upTo: 25, c: [0.37, 0.75, 0.35] }, // plains, the scaffold green
-  { upTo: 55, c: [0.58, 0.72, 0.34] }, // yellow-green upland
-  { upTo: 80, c: [0.62, 0.55, 0.36] }, // tan
-  { upTo: Infinity, c: [0.80, 0.77, 0.70] }, // pale stone
+  { upTo: -0.02, c: [0.30, 0.38, 0.32] }, // sea floor (seen only where the water is not drawn)
+  { upTo: 0.03, c: [0.80, 0.74, 0.54] }, // sand
+  { upTo: 0.35, c: [0.37, 0.75, 0.35] }, // plains, the scaffold green
+  { upTo: 0.85, c: [0.28, 0.60, 0.30] }, // lowland forest green
+  { upTo: 1.5, c: [0.58, 0.72, 0.34] }, // yellow-green upland
+  { upTo: 2.1, c: [0.62, 0.55, 0.36] }, // tan
+  { upTo: 2.6, c: [0.60, 0.57, 0.52] }, // stone
+  { upTo: Infinity, c: [0.94, 0.95, 0.97] }, // snow
 ]
+/** Deep water, for the far sphere; near the ground the water shader draws the sea. */
+export const SEA: RGB = [0.08, 0.26, 0.45]
 const LAVA: { upTo: number; c: RGB }[] = [
   { upTo: -0.3, c: [0.16, 0.05, 0.04] }, // basalt basins
   { upTo: 0.1, c: [0.42, 0.10, 0.05] },
@@ -31,14 +36,14 @@ function band(table: { upTo: number; c: RGB }[], h: number): RGB {
 }
 
 /**
- * `h` metres above datum, `slope` degrees, `jitter` in [-1, 1], `hNorm` = h / amplitude,
- * `lat` = dot(p, spin axis) in [-1, 1].
+ * `hNorm` = height / amplitude, `aboveNorm` = (height − sea) / amplitude (= hNorm on a dry
+ * body), `slope` degrees, `jitter` in [-1, 1], `lat` = dot(p, spin axis) in [-1, 1].
  */
-export function terrainColour(kind: BodyKind, h: number, slope: number, jitter: number, hNorm: number, lat: number): RGB {
+export function terrainColour(kind: BodyKind, hNorm: number, slope: number, jitter: number, lat: number, aboveNorm: number): RGB {
   const k = 1 + 0.07 * jitter
   let base: RGB
   switch (kind) {
-    case 'terrestrial': base = mix(band(GREEN, h), ROCK, clamp01((slope - 24) / 16)); break
+    case 'terrestrial': base = mix(band(GREEN, aboveNorm), ROCK, clamp01((slope - 24) / 16)); break
     case 'hot': base = mix(band(LAVA, hNorm), [0.12, 0.09, 0.09], clamp01((slope - 30) / 20)); break
     case 'giant': {
       const i = Math.floor((lat + 1) * 5.5 + jitter * 0.25) & 3

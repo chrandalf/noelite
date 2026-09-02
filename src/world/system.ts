@@ -35,6 +35,8 @@ export type Body = {
   mu: number
   /** Metres; 0 is airless. */
   atmosphereHeight: number
+  /** Metres above datum that water fills to; null for a dry body. */
+  seaLevel: number | null
   /** Seconds per rotation. */
   spinPeriod: number
   spinAxis: THREE.Vector3
@@ -63,7 +65,7 @@ export function buildSystem(seed = MASTER_SEED): Body[] {
 
   const add = (spec: {
     id: string; name: string; kind: BodyKind; radius: number; g: number; air: number
-    spin: number; parent: string | null; a: number; tilt?: number
+    spin: number; parent: string | null; a: number; tilt?: number; sea?: number
   }): Body => {
     const mu = spec.g * spec.radius * spec.radius
     const parent = spec.parent ? byId.get(spec.parent)! : null
@@ -75,6 +77,7 @@ export function buildSystem(seed = MASTER_SEED): Body[] {
       seed: spec.id === 'home' ? seed : (seed ^ Math.imul(bodies.length + 1, 0x9e3779b1)) >>> 0,
       radius: spec.radius, surfaceGravity: spec.g, mu,
       atmosphereHeight: spec.air,
+      seaLevel: spec.sea ?? null,
       // Moons are tidally locked: one rotation per orbit.
       spinPeriod: spec.kind === 'moon' && orbit ? orbit.period : spec.spin,
       spinAxis: new THREE.Vector3(Math.sin(tilt), Math.cos(tilt), 0).normalize(),
@@ -102,7 +105,7 @@ export function buildSystem(seed = MASTER_SEED): Body[] {
   // Venus: a deep, thick, hot atmosphere; nearly Earth's size and gravity.
   add({ id: 'terra-a', name: 'Marram', kind: 'terrestrial', radius: scaled(6_052_000), g: 8.87, air: 4_000, spin: 5 * DAY_LENGTH, parent: 'sun', a: scaled(108_200_000_000), tilt: 0.05 })
   // Earth, and its moon at a quarter of Earth's Hill radius, as the real one is.
-  add({ id: 'home', name: 'Vale', kind: 'terrestrial', radius: PLANET_RADIUS, g: GRAVITY, air: ATMOSPHERE_HEIGHT, spin: DAY_LENGTH, parent: 'sun', a: scaled(149_600_000_000), tilt: 0.41 })
+  add({ id: 'home', name: 'Vale', kind: 'terrestrial', radius: PLANET_RADIUS, g: GRAVITY, air: ATMOSPHERE_HEIGHT, spin: DAY_LENGTH, parent: 'sun', a: scaled(149_600_000_000), tilt: 0.41, sea: 0 })
   add({ id: 'home-1', name: 'Vale I', kind: 'moon', radius: scaled(1_737_000), g: 1.62, air: 0, spin: 0, parent: 'home', a: scaled(384_400_000) })
   // Jupiter: no surface, 24.8 g, so hover is impossible without boost. A crush line later.
   add({ id: 'giant', name: 'Bulwark', kind: 'giant', radius: scaled(69_911_000), g: 24.8, air: 40_000, spin: DAY_LENGTH / 2, parent: 'sun', a: scaled(778_500_000_000), tilt: 0.05 })

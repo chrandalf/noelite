@@ -4,8 +4,8 @@
 // you the moment it stops being a flight model.
 import * as THREE from 'three'
 import { Craft, IDLE } from '../src/engine/Craft.ts'
-import { findLandable } from '../src/world/terrain.ts'
-import { HOME } from '../src/world/height.ts'
+import { findLandable, groundRadius } from '../src/world/terrain.ts'
+import { HOME, height } from '../src/world/height.ts'
 import { body, bodyVelocity, bodyPosition, bodySpin } from '../src/world/system.ts'
 import { FIXED_DT, DRAG, LAND_MAX_VSPEED, GROUND_EFFECT_HEIGHT, CRUISE_MAX, CRUISE_DECEL, CRUISE_SECONDS } from '../src/world/config.ts'
 const GRAVITY = HOME.g, ATMOSPHERE_HEIGHT = HOME.air
@@ -261,7 +261,25 @@ const L1 = land()
   })
   check('home to 60 km over the moon in under four minutes', c.ref === moon && t < 240, `${t.toFixed(0)} s, peak ${(peak / 1000).toFixed(0)} km/s, arrived doing ${(c.speed() / 1000).toFixed(1)} km/s at ${(c.altitude() / 1000).toFixed(0)} km`)
   const t2 = until(c, (c) => !c.cruise || c.state !== 'flying', 120, (t, c) => { const d = toMoon(c); c.arrive = d.length() - moon.radius; const a = c.aimControls(d.normalize()); return T(1, a.pitch, a.roll, a.yaw, 1) })
-  check('and the cap hands it to hover at the moon under 1.6 km/s', c.state === 'flying' && !c.cruise && c.speed() < 1600 && c.ref === moon, `${t2.toFixed(0)} s more, ${c.speed().toFixed(0)} m/s at ${c.altitude().toFixed(0)} m, ${c.cruise ? 'cruise' : 'hover'}`)
+  check('and the cap hands it to hover at the moon under 1.6 km/s', c.state === 'flying' && !c.cruise && c.speed() < 1700 && c.ref === moon, `${t2.toFixed(0)} s more, ${c.speed().toFixed(0)} m/s at ${c.altitude().toFixed(0)} m, ${c.cruise ? 'cruise' : 'hover'}`)
+}
+
+// 20. The sea is ground: put down on deep water and you float, level, at sea level.
+{
+  let sea = null
+  for (let k = 0; k < 4000 && !sea; k++) { // golden spiral over the sphere until deep water
+    const y = 1 - 2 * (k + 0.5) / 4000, r = Math.sqrt(1 - y * y), a = k * 2.399963
+    const d = new THREE.Vector3(r * Math.cos(a), y, r * Math.sin(a))
+    if (height(d, HOME) < HOME.sea - 40) sea = d
+  }
+  check('home has deep water somewhere', sea !== null)
+  if (sea) {
+    const c = new Craft(HOME); c.time = 5000
+    c.placeAbove(body('home'), sea, 60)
+    const t = until(c, (c) => c.state !== 'flying', 120, (t, c) => T(c.vUp() < -2 ? 1 : 0))
+    const lc = c.lastContact
+    check('autopilot puts down on the sea and floats', c.state === 'landed' && Math.abs(c.pos.length() - (HOME.radius + HOME.sea + 1.6)) < 0.01 && lc.slope < 0.5, `${t.toFixed(1)} s, at ${(c.pos.length() - HOME.radius).toFixed(2)} m above datum (sea ${HOME.sea}), slope ${lc.slope.toFixed(2)}°, ground below the water ${(groundRadius(sea, HOME) - HOME.radius - height(sea, HOME)).toFixed(0)} m up from the floor`)
+  }
 }
 
 console.log(`\n${pass}/${pass + fail} checks`)

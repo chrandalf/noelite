@@ -22,7 +22,8 @@ export function chunkBounds(level: number, ix: number, iy: number): { u0: number
 
 /** `skirts`: true, false, or 'red' to paint them for debugging. */
 export type SkirtMode = boolean | 'red'
-export function buildChunk(f: Face, level: number, ix: number, iy: number, terrain: Terrain, skirts: SkirtMode = true): THREE.BufferGeometry {
+/** Null for a water chunk whose ground is entirely above the sea: nothing to draw there. */
+export function buildChunk(f: Face, level: number, ix: number, iy: number, terrain: Terrain, skirts: SkirtMode = true): THREE.BufferGeometry | null {
   const R = terrain.radius
   const G = CHUNK_GRID
   const { u0, v0, s } = chunkBounds(level, ix, iy)
@@ -32,10 +33,12 @@ export function buildChunk(f: Face, level: number, ix: number, iy: number, terra
   // once it is in a buffer, and at 2 km that costs nothing.
   const vx = new Float64Array(W * W * 3)
   const vh = new Float64Array(W * W)
+  let lowestLand = Infinity
   for (let j = 0; j < W; j++) {
     for (let i = 0; i < W; i++) {
       const p = faceToUnit(f, u0 + (s * i) / G, v0 + (s * j) / G)
       const h = height(p, terrain)
+      if (terrain.water && terrain.land) lowestLand = Math.min(lowestLand, height(p, terrain.land))
       const r = R + h
       const k = j * W + i
       vx[k * 3] = p.x * r
@@ -44,6 +47,9 @@ export function buildChunk(f: Face, level: number, ix: number, iy: number, terra
       vh[k] = h
     }
   }
+
+  // A water chunk over dry land is nothing. A generous margin: the land grid is coarse.
+  if (terrain.water && lowestLand > (terrain.sea ?? 0) + 2) return null
 
   // Skirt depth has to beat the worst gap between this chunk's edge and a
   // coarser neighbour's straight line across it. Generous; it is invisible anyway.
@@ -71,7 +77,8 @@ export function buildChunk(f: Face, level: number, ix: number, iy: number, terra
     const slope = isSkirt ? 0 : (Math.acos(Math.min(1, Math.max(-1, n.dot(up)))) * 180) / Math.PI
     const jitter = facetJitter(up.x * 977, up.y * 977, up.z * 977)
     const lat = up.x * terrain.axis.x + up.y * terrain.axis.y + up.z * terrain.axis.z
-    const [r, g, bl] = terrainColour(terrain.kind, hAvg, slope, jitter, terrain.amplitude ? hAvg / terrain.amplitude : 0, lat)
+    const hNorm = terrain.amplitude ? hAvg / terrain.amplitude : 0
+    const [r, g, bl] = terrainColour(terrain.kind, hNorm, slope, jitter, lat, terrain.sea === null || !terrain.amplitude ? hNorm : (hAvg - terrain.sea) / terrain.amplitude)
     const o = t * 9
     pos[o] = ax; pos[o + 1] = ay; pos[o + 2] = az
     pos[o + 3] = bx; pos[o + 4] = by; pos[o + 5] = bz

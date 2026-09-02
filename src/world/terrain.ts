@@ -3,9 +3,15 @@
 import * as THREE from 'three'
 import { height, type Terrain } from './height.ts'
 
-/** Distance from the planet centre to the ground in direction d (unit). */
+/** Distance from the planet centre to the ground in direction d (unit). Water counts as ground: you can put down on it. */
 export function groundRadius(d: THREE.Vector3, t: Terrain): number {
-  return t.radius + height(d, t)
+  const h = height(d, t)
+  return t.radius + (t.sea !== null && h < t.sea ? t.sea : h)
+}
+
+/** True where the ground is land, a few metres clear of the sea. */
+export function isDry(d: THREE.Vector3, t: Terrain): boolean {
+  return t.sea === null || height(d, t) > t.sea + 3
 }
 
 const t1 = new THREE.Vector3(), t2 = new THREE.Vector3(), ax = new THREE.Vector3()
@@ -38,7 +44,7 @@ const spiral = new THREE.Vector3(), sT1 = new THREE.Vector3(), sT2 = new THREE.V
 /** Nearest direction to `guess` whose ground is under `maxSlope` degrees: a spiral search in ~12 m steps. */
 export function findLandable(guess: THREE.Vector3, seed: Terrain, maxSlope = 8, out = new THREE.Vector3()): THREE.Vector3 {
   const d = out.copy(guess).normalize()
-  if (slopeDeg(d, seed) < maxSlope) return d
+  if (isDry(d, seed) && slopeDeg(d, seed) < maxSlope) return d
   sAx.set(Math.abs(d.x) < 0.9 ? 1 : 0, Math.abs(d.x) < 0.9 ? 0 : 1, 0)
   sT1.crossVectors(sAx, d).normalize()
   sT2.crossVectors(d, sT1)
@@ -46,7 +52,7 @@ export function findLandable(guess: THREE.Vector3, seed: Terrain, maxSlope = 8, 
   for (let k = 1; k < 400; k++) {
     const ang = k * 2.4, rad = step * Math.sqrt(k) * 2
     spiral.copy(guess).normalize().addScaledVector(sT1, Math.cos(ang) * rad).addScaledVector(sT2, Math.sin(ang) * rad).normalize()
-    if (slopeDeg(spiral, seed) < maxSlope) return out.copy(spiral)
+    if (isDry(spiral, seed) && slopeDeg(spiral, seed) < maxSlope) return out.copy(spiral)
   }
   return d
 }

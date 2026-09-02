@@ -267,13 +267,39 @@ body targeting on the HUD (Tab cycles), distance and closing speed, sphere-of-in
 readout, a lock-view camera that keeps the ship in the foreground and the target framed,
 and the escape-the-system trigger for the Elite half.
 
-## 5c. Lakes and forests (asked for 2026-09-01, not yet built)
+## 5c. Seas, mountains, canyons (built 2026-09-02); forests (not yet)
 
-On the living worlds: a sea level per body, so basins fill; a flat-shaded water sphere
-whose facets move on a time term and whose colour turns with the view angle, which is
-what "great water" means in this look; and forests as seeded low-poly cones on facets
-whose height band and slope allow. All derived, no assets, and both are new height and
-placement terms on the same interface everything else already uses.
+Chris: *"proper canyons, lakes, mountains, like a planet. SEAs, oceans."* All of it is
+terms on `height()`, still evaluated on the unit sphere and nowhere else:
+
+- **Warp.** The coordinates are bent by a slow noise before anything samples them, so
+  coastlines and ranges meander instead of looking like noise.
+- **Continents** from the shaped broad field, and a **sea level per body** (`seaLevel` in
+  the roster, home at datum). Every basin below it fills: seas, oceans, and lakes where
+  the land dips. 42% of home is under water.
+- **Mountains**: a ridged multifractal (crests on the noise's zero crossings, each octave
+  weighted by the last) in belts from a mask, standing only on land, reaching `MOUNTAIN`
+  (2.2) amplitudes above the plains. Highest point on home is 442 m.
+- **Canyons**: a thin inverted ridge line, cut `CANYON` (0.6) amplitudes into plateaus
+  away from the ranges.
+- **Water is ground.** `groundRadius` is the sea where the land is below it, so you can
+  put down on the sea and float, level. The pad search only accepts dry land.
+- **The sea is drawn by the same LOD** as the ground, with a flat height and a water
+  shader: facets ride three slow swells, the normal comes from the position derivatives so
+  the flat shading moves, the colour turns from deep to pale with the view angle, and the
+  sun glints off whichever facets face it. A water chunk whose ground is all above the
+  sea builds to nothing and is remembered as nothing.
+- **Palette** by height above the sea in units of amplitude: sea floor, sand, plains,
+  forest green, upland, tan, stone, snow. The far sphere paints the sea blue.
+
+The terrain harness holds the declared bounds, an ocean fraction between a third and
+two thirds, mountains above twice the amplitude, no cracks on simplex boundaries, and
+continuity across all 24 face edges to a millimetre at a nanoradian. The flight harness
+puts down on deep water and floats.
+
+Forests remain: seeded low-poly cones on facets whose height band and slope allow.
+Weather and tides are asked for (Chris, 2026-09-02) and go after the orbit autopilot;
+the tide is the moon bending the sea-level term, two bulges.
 
 ## 6. Instruments, before the game
 
@@ -354,8 +380,14 @@ Every step is playable. That's the point of the ordering.
    a reason to exist. The harness already shows the problem: a full-boost dive is handed
    back to hover at 1,590 m doing 1,168 m/s, into air whose drag would pull 16,000 m/s².
    DRAG (terminal velocity 29 m/s, a feather) gets reconsidered here too.
-5. Stage D's remainder: the lock-view camera, sphere-of-influence readout, the
-   escape-the-system trigger. Then lakes and forests.
+5. **Orbit autopilot** (Chris, 2026-09-02: arriving at the moon at 1.6 km/s in hover with
+   no air was "nearly impossible to crash land" without crashing). Close in, it brings the
+   ship into the hover zone and parks it in a circular orbit until you press to land or,
+   later, scan.
+6. **Weather and tides** (Chris, 2026-09-02): wind as a velocity the air carries, felt
+   through the drag that already exists; waves from the wind; rain near the craft where
+   a seeded weather field says so; the tide as the moon bending sea level, two bulges.
+7. Stage D's remainder: the lock-view camera, the escape-the-system trigger. Forests.
 
 ## 9. Deferred
 

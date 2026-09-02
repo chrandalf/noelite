@@ -16,7 +16,8 @@ type Want = { f: Face; level: number; ix: number; iy: number }
 
 export class PlanetLOD {
   readonly group = new THREE.Group()
-  private readonly live = new Map<ChunkKey, THREE.Mesh>()
+  /** Null: wanted, built, and empty (a water chunk over land). Kept so it is not rebuilt every frame. */
+  private readonly live = new Map<ChunkKey, THREE.Mesh | null>()
   private readonly queue: Want[] = []
   private readonly queued = new Set<ChunkKey>()
 
@@ -33,7 +34,7 @@ export class PlanetLOD {
     this.skirts = skirts
   }
 
-  get liveCount(): number { return this.live.size }
+  get liveCount(): number { let n = 0; for (const m of this.live.values()) if (m) n++; return n }
   get pendingCount(): number { return this.queue.length }
 
   /** Levels currently on screen, for the HUD and the harness. */
@@ -53,8 +54,7 @@ export class PlanetLOD {
 
     for (const [k, mesh] of this.live) {
       if (wanted.has(k)) continue
-      this.group.remove(mesh)
-      mesh.geometry.dispose()
+      if (mesh) { this.group.remove(mesh); mesh.geometry.dispose() }
       this.live.delete(k)
     }
     // Anything queued that is no longer wanted drops out of the queue.
@@ -77,7 +77,9 @@ export class PlanetLOD {
       const w = this.queue.shift()!
       const k = chunkKey(w.f, w.level, w.ix, w.iy)
       this.queued.delete(k)
-      const mesh = new THREE.Mesh(buildChunk(w.f, w.level, w.ix, w.iy, this.terrain, this.skirts), this.material)
+      const geometry = buildChunk(w.f, w.level, w.ix, w.iy, this.terrain, this.skirts)
+      if (!geometry) { this.live.set(k, null); built++; continue }
+      const mesh = new THREE.Mesh(geometry, this.material)
       mesh.frustumCulled = true
       this.group.add(mesh)
       this.live.set(k, mesh)
