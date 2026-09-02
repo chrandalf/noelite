@@ -15,7 +15,7 @@ const VERT = /* glsl */ `
   uniform float uWind;
   uniform float uTide;
   uniform vec3 uMoon;
-  attribute float depth;
+  attribute vec2 water; // (depth here, deepest water in this chunk)
   varying vec3 vP;
   varying float vDepth;
   varying float vFoam;
@@ -23,18 +23,23 @@ const VERT = /* glsl */ `
   void main() {
     vec3 p = position;
     vec3 up = normalize(position);
-    float ocean = smooth01(10.0, 30.0, depth);
+    float depth = water.x, basin = water.y;
+    // Under the land the sheet stays exactly still, or the beach seems to move (Chris, 2026-09-02).
+    float wet = smooth01(0.0, 0.6, depth);
+    // Only a real body of water has waves: a pond is shallow everywhere and lies flat.
+    float body = smooth01(6.0, 20.0, basin);
+    float ocean = smooth01(10.0, 30.0, depth) * body;
     // Swell: three slow crossing sets, growing with depth and with the wind.
-    float swellAmp = 0.5 * smooth01(4.0, 30.0, depth) * (0.3 + uWind / 20.0);
+    float swellAmp = 0.5 * smooth01(3.0, 25.0, depth) * body * (0.3 + uWind / 20.0);
     float w = sin(p.x * 0.031 + uTime * 0.9) + sin(p.y * 0.047 - uTime * 1.3) + sin((p.x + p.z) * 0.019 + uTime * 0.6);
     // Shore: bands parallel to the depth contours, running in toward the beach and breaking.
-    float shore = 1.0 - smooth01(0.0, 8.0, depth);
+    float shore = (1.0 - smooth01(0.0, 8.0, depth)) * body;
     float phase = sin(depth * 1.4 - uTime * 2.2);
     // Tide: the moon's two bulges, deep water only.
     float c = dot(up, uMoon);
     float tide = uTide * (1.5 * c * c - 0.5) * ocean;
-    p += normal * (swellAmp * w + 0.22 * shore * phase + tide);
-    vFoam = shore * smooth01(0.55, 1.0, phase) * (1.0 - smooth01(0.0, 3.5, depth));
+    p += normal * wet * (swellAmp * w + 0.22 * shore * phase + tide);
+    vFoam = wet * shore * smooth01(0.55, 1.0, phase) * (1.0 - smooth01(0.0, 3.5, depth));
     vDepth = depth;
     vec4 wp = modelMatrix * vec4(p, 1.0);
     vP = wp.xyz;

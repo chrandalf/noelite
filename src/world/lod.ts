@@ -6,6 +6,7 @@ import * as THREE from 'three'
 import { FACES, faceToUnit, type Face } from './cubesphere.ts'
 import { height, type Terrain } from './height.ts'
 import { buildChunk, chunkBounds, chunkKey, type ChunkKey, type SkirtMode } from './chunk.ts'
+import { buildForest } from './forest.ts'
 
 export const MAX_LEVEL = 10 // 6 on a 2 km world; four more levels for 20x the radius, ~5 m vertices on the deck
 /** A chunk splits when the camera is closer than this many chunk-widths. */
@@ -81,6 +82,8 @@ export class PlanetLOD {
       if (!geometry) { this.live.set(k, null); built++; continue }
       const mesh = new THREE.Mesh(geometry, this.material)
       mesh.frustumCulled = true
+      const forest = buildForest(w.f, w.level, w.ix, w.iy, this.terrain)
+      if (forest) mesh.add(forest)
       this.group.add(mesh)
       this.live.set(k, mesh)
       built++

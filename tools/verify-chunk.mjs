@@ -1,7 +1,10 @@
 #!/usr/bin/env node
+import * as THREE from 'three'
 // Chunk instrument: the geometry promises the LOD makes.
 import { buildChunk, CHUNK_GRID } from '../src/world/chunk.ts'
-import { HOME } from '../src/world/height.ts'
+import { HOME, waterOf } from '../src/world/height.ts'
+import { buildForest, FOREST_LEVEL } from '../src/world/forest.ts'
+import { FACES } from '../src/world/cubesphere.ts'
 
 let pass = 0, fail = 0
 const check = (name, cond, detail = '') => { if (cond) { pass++; console.log(`  ok   ${name}${detail ? '  (' + detail + ')' : ''}`) } else { fail++; console.log(`  FAIL ${name}  ${detail}`) } }
@@ -46,5 +49,33 @@ for (const [f, L, ix, iy] of [[4, 3, 3, 3], [0, 0, 0, 0], [2, 6, 17, 40]]) {
   check(`every skirt triangle carries its owner's normal and colour`, mismatch === 0, `${mismatch} mismatched`)
   check(`skirt normals are the surface's, not the radial`, radial < skirtTris / 4, `${radial} of ${skirtTris} exactly radial`)
 }
+// Forests: some chunk at the forest level has trees, the same chunk gives the same trees, and a water chunk never does.
+{
+  let found = null
+  outer: for (const f of FACES) for (let ix = 0; ix < 256 && !found; ix += 7) for (let iy = 0; iy < 256; iy += 11) {
+    const m = buildForest(f, FOREST_LEVEL, ix, iy, HOME)
+    if (m && m.count > 50) { found = { f, ix, iy, m }; break outer }
+  }
+  check('a forest-level chunk somewhere on home carries more than 50 trees', found !== null, found ? `${found.f}:${found.ix}:${found.iy} has ${found.m.count}` : 'none in the sample')
+  if (found) {
+    const again = buildForest(found.f, FOREST_LEVEL, found.ix, found.iy, HOME)
+    let same = again.count === found.m.count
+    const a = found.m.instanceMatrix.array, b = again.instanceMatrix.array
+    for (let i = 0; same && i < a.length; i++) if (a[i] !== b[i]) same = false
+    check('the same chunk grows the same trees', same)
+    // Every tree stands in the band, on land.
+    const p = new THREE.Vector3(), mm = new THREE.Matrix4()
+    let inBand = true
+    for (let i = 0; i < found.m.count; i++) {
+      found.m.getMatrixAt(i, mm); p.setFromMatrixPosition(mm)
+      const h = p.length() - HOME.radius, above = (h - HOME.sea) / HOME.amplitude
+      if (above < 0.03 || above > 0.9) inBand = false
+    }
+    check('every tree stands in the forest band above the sea', inBand)
+  }
+  check('a water chunk grows nothing', buildForest(FACES[0], FOREST_LEVEL, 100, 100, waterOf(HOME)) === null)
+  check('a coarse chunk grows nothing', buildForest(FACES[0], FOREST_LEVEL - 1, 3, 3, HOME) === null)
+}
+
 console.log(`\n${pass}/${pass + fail} checks`)
 process.exit(fail ? 1 : 0)

@@ -51,6 +51,8 @@ export function buildChunk(f: Face, level: number, ix: number, iy: number, terra
 
   // A water chunk over dry land is nothing. A generous margin: the land grid is coarse.
   if (terrain.water && lowestLand > (terrain.sea ?? 0) + 2) return null
+  // The deepest water in the chunk: a pond is shallow everywhere, so the shader keeps it flat.
+  const basin = terrain.water ? (terrain.sea ?? 0) - lowestLand : 0
 
   // Skirt depth has to beat the worst gap between this chunk's edge and a
   // coarser neighbour's straight line across it. Generous; it is invisible anyway.
@@ -61,7 +63,7 @@ export function buildChunk(f: Face, level: number, ix: number, iy: number, terra
   const pos = new Float32Array(triCount * 9)
   const nor = new Float32Array(triCount * 9)
   const col = new Float32Array(triCount * 9)
-  const dep = terrain.water ? new Float32Array(triCount * 3) : null
+  const dep = terrain.water ? new Float32Array(triCount * 6) : null // (depth, basin) per corner
   let t = 0
 
   const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3()
@@ -89,7 +91,7 @@ export function buildChunk(f: Face, level: number, ix: number, iy: number, terra
       nor[o + q * 3] = n.x; nor[o + q * 3 + 1] = n.y; nor[o + q * 3 + 2] = n.z
       col[o + q * 3] = r; col[o + q * 3 + 1] = g; col[o + q * 3 + 2] = bl
     }
-    if (dep) { dep[t * 3] = da; dep[t * 3 + 1] = db; dep[t * 3 + 2] = dc }
+    if (dep) { dep[t * 6] = da; dep[t * 6 + 2] = db; dep[t * 6 + 4] = dc; dep[t * 6 + 1] = dep[t * 6 + 3] = dep[t * 6 + 5] = basin }
     return t++
   }
   const P = (k: number) => [vx[k * 3], vx[k * 3 + 1], vx[k * 3 + 2]] as const
@@ -147,7 +149,7 @@ export function buildChunk(f: Face, level: number, ix: number, iy: number, terra
   geom.setAttribute('position', new THREE.BufferAttribute(pos, 3))
   geom.setAttribute('normal', new THREE.BufferAttribute(nor, 3))
   geom.setAttribute('color', new THREE.BufferAttribute(col, 3))
-  if (dep) geom.setAttribute('depth', new THREE.BufferAttribute(dep, 1))
+  if (dep) geom.setAttribute('water', new THREE.BufferAttribute(dep, 2))
   geom.computeBoundingSphere()
   return geom
 }

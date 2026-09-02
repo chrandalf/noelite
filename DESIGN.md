@@ -297,9 +297,21 @@ two thirds, mountains above twice the amplitude, no cracks on simplex boundaries
 continuity across all 24 face edges to a millimetre at a nanoradian. The flight harness
 puts down on deep water and floats.
 
-Forests remain: seeded low-poly cones on facets whose height band and slope allow.
-Weather and tides are asked for (Chris, 2026-09-02) and go after the orbit autopilot;
-the tide is the moon bending the sea-level term, two bulges.
+**Forests (built 2026-09-02, "like big bunches").** `src/world/forest.ts`: a chunk at LOD
+level 8 or finer on a living world gets one InstancedMesh of a shared six-sided cone on a
+trunk, placed by a seed hashed from the chunk key, one tree per 30 m² where the height
+band is forest (0.04 to 0.85 amplitudes above the sea), the slope under 22° and a clump
+mask (cells of a kilometre or two) says so. It hangs off the chunk mesh, so it appears
+and retires with the chunk and the shared geometry is never disposed. Known: forests
+start where level-8 chunks start, a few hundred metres out; further off the palette's
+forest green stands in for them. The chunk harness holds that some chunk grows more
+than fifty trees, the same chunk grows the same trees, every tree stands in the band,
+and water and coarse chunks grow nothing.
+
+**The water under the land is still.** Every water vertex carries (depth, deepest water
+in the chunk). Nothing displaces where the land is above the water, or the beach seems to
+move; swell and shore ripple need a real body of water (a chunk whose deepest point is
+past 6 m), so ponds lie flat. Chris's call, 2026-09-02.
 
 ## 6. Instruments, before the game
 
@@ -407,7 +419,9 @@ Every step is playable. That's the point of the ordering.
    against the old value would have shoved the craft at 11 m/s². The harnesses hold the
    wind tangential and bounded, the tide's range, no wind on the moon, a gale pushing a
    falling craft downwind and a calm not, and the craft floating on the tide.
-7. Stage D's remainder: the lock-view camera, the escape-the-system trigger. Forests.
+7. ~~Forests.~~ Done 2026-09-02. Next: **re-entry** (item 4), then Stage D's remainder: the
+   lock-view camera, the escape-the-system trigger. Rain streaks are faint in the murk;
+   clouds from orbit are big flat triangles (icosahedron detail 5).
 
 ## 9. Deferred
 
