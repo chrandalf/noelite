@@ -198,6 +198,9 @@ const atmosEl = document.getElementById('atmos')!
 }
 
 const dir = new THREE.Vector3(), tmp = new THREE.Vector3(), sunDir = new THREE.Vector3()
+const fmtSpeed = (v: number) => v < 10_000 ? `${v.toFixed(v < 100 ? 1 : 0)} m/s` : `${(v / 1000).toFixed(0)} km/s`
+const fmtDist = (d: number) => d < 1e6 ? `${(d / 1000).toFixed(1)} km` : d < 1e9 ? `${(d / 1e6).toFixed(0)}k km` : `${(d / 1e9).toFixed(2)}M km`
+const fmtTime = (s: number) => s < 90 ? `${s.toFixed(0)} s` : s < 5400 ? `${(s / 60).toFixed(1)} min` : `${(s / 3600).toFixed(1)} h`
 const qHome = new THREE.Quaternion(), qHomeInv = new THREE.Quaternion(), qBody = new THREE.Quaternion(), qLocal = new THREE.Quaternion()
 const pHome = new THREE.Vector3(), pBody = new THREE.Vector3(), camLocal = new THREE.Vector3()
 const viewPos = new THREE.Vector3(), viewQuat = new THREE.Quaternion()
@@ -273,6 +276,9 @@ renderer.setAnimationLoop((now) => {
       const a = craft.aimControls(target)
       c = { ...c, pitch: a.pitch, roll: a.roll, yaw: a.yaw }
     }
+    // A target within 30° of the nose caps cruise so you arrive at it; otherwise only the nearest body does.
+    tmp.set(0, 0, -1).applyQuaternion(craft.quat)
+    craft.arrive = toTarget.lengthSq() > 0 && tmp.dot(toTarget) / toTarget.length() > 0.86 ? toTarget.length() - tgt.body.radius : Infinity
     craft.step(dt, c)
     if (refView.body !== craft.ref) switchFrame()
     if (craft.state === 'crashed') { crashedAt ??= now; if (now - crashedAt > 2000) respawn() }
@@ -319,11 +325,13 @@ renderer.setAnimationLoop((now) => {
     markers.place('retro', pro.clone().negate(), camera, showNav && moving)
     const tDist = toTarget.length(), tDir = toTarget.clone().divideScalar(tDist)
     const closing = -craft.vel.dot(tDir)
-    markers.place('target', tDir, camera, showNav, `${tgt.body.name}  ${(tDist / 1000).toFixed(1)} km  ${closing >= 0 ? '↓' : '↑'}${Math.abs(closing).toFixed(0)} m/s`)
+    const tSurf = Math.max(0, tDist - tgt.body.radius)
+    const eta = closing > 1 ? `  ETA ${fmtTime(tSurf / closing)}` : ''
+    markers.place('target', tDir, camera, showNav, `${tgt.body.name}  ${fmtDist(tSurf)}  ${closing >= 0 ? '↓' : '↑'}${fmtSpeed(Math.abs(closing))}${eta}`)
     const lc = craft.lastContact
     const vOrb = craft.orbitalSpeed(), vEsc = craft.escapeSpeed(), spd = craft.speed(), vIn = craft.inertialSpeed()
-    const spaceLine = rho < 1 ? `${craft.cruise ? `CRUISE  cap ${craft.cruiseCap(craft.proximity).toFixed(0)} m/s  (thrust forward, / brakes)` : 'HOVER'}   SOI ${craft.ref.name}   orbit ${vOrb.toFixed(0)}   escape ${vEsc.toFixed(0)}   ${craft.cruise ? '' : vIn > vEsc ? '!! ESCAPING !!' : vIn > vOrb ? 'above orbital' : ''}   target ${tgt.body.name} (Tab)   T aim   X retro   Z planet\n` : ''
-    line = `alt ${altitude.toFixed(1).padStart(6)} m   v↑ ${vUp.toFixed(1).padStart(5)} m/s   spd ${spd.toFixed(1).padStart(5)} m/s   tilt ${tilt.toFixed(0).padStart(2)}°   ${craft.state.toUpperCase()}   landings ${craft.landings}  crashes ${craft.crashes}\n` + spaceLine +
+    const spaceLine = rho < 1 ? `${craft.cruise ? `CRUISE  cap ${fmtSpeed(craft.cap())}  (thrust forward, / brakes)` : 'HOVER'}   SOI ${craft.ref.name}   orbit ${vOrb.toFixed(0)}   escape ${vEsc.toFixed(0)}   ${craft.cruise ? '' : vIn > vEsc ? '!! ESCAPING !!' : vIn > vOrb ? 'above orbital' : ''}   target ${tgt.body.name} (Tab)   T aim   X retro   Z planet\n` : ''
+    line = `alt ${altitude.toFixed(1).padStart(6)} m   v↑ ${vUp.toFixed(1).padStart(5)} m/s   spd ${fmtSpeed(spd).padStart(9)}   tilt ${tilt.toFixed(0).padStart(2)}°   ${craft.state.toUpperCase()}   landings ${craft.landings}  crashes ${craft.crashes}\n` + spaceLine +
       (craft.state === 'crashed' ? `contact: v↑ ${lc.vUp.toFixed(1)}  drift ${lc.vH.toFixed(1)}  tilt ${lc.tilt.toFixed(0)}°  slope ${lc.slope.toFixed(0)}°   (R to respawn)\n` : '') +
       `space thrust   shift boost   W/S tilt   A/D roll   Q/E yaw   , . side   / top   ' rear   X/Z assists   R respawn   M mute   drag orbit   wheel zoom   C reset   ${fps} fps   chunks ${refView.lod?.liveCount ?? 0}`
   } else {

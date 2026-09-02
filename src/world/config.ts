@@ -87,14 +87,19 @@ export const CRUISE_FLOOR = 2500
 /** Seconds for velocity across the nose to bleed away: turn, and your speed comes with you. */
 export const CRUISE_ALIGN_TAU = 1.2
 /**
- * m/s, the cruise cap right next to a body. Away from bodies the cap is the speed you
- * could brake from before reaching the nearest surface: √(CRUISE_MAX² + 2·CRUISE_DECEL·d).
- * Far out that is kilometres per second; on approach the assist reels you back in.
+ * m/s, the cruise cap right next to a body. Near a body the cap is the speed you could
+ * brake from before reaching the surface, √(CRUISE_MAX² + 2·CRUISE_DECEL·d); far from
+ * anything it is d / CRUISE_SECONDS, so at full speed you are never more than a few
+ * seconds from the nearest thing and the same rule reels you in on arrival. Elite
+ * Dangerous's supercruise, which is the one that has been played for a decade. With a
+ * target ahead the rule keys off the target's surface too. The cap is a hard clamp.
  */
 export const CRUISE_MAX = 150
-/** m/s², the deceleration profile the cap is built from. The cap itself is a hard clamp. */
+/** m/s², the near-body deceleration profile. Takes over from the linear rule inside ~50 km. */
 export const CRUISE_DECEL = 500
-/** Cruise thrust grows with distance from the nearest body: × (1 + d · CRUISE_THRUST_GAIN). */
-export const CRUISE_THRUST_GAIN = 0.3e-3
+/** Seconds. Far-field cap = distance to the nearest surface / this. 7 is the ED "0:06" feel. */
+export const CRUISE_SECONDS = 7
+/** Seconds of full thrust to reach the cap, whatever the cap is. Engine never the limit. */
+export const CRUISE_SPOOL = 4
 /** Brake (the / key in cruise) as a fraction of main thrust. */
 export const CRUISE_BRAKE = 0.8

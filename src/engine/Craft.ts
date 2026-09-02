@@ -23,7 +23,7 @@ import {
   DRAG, THRUST_ACCEL, ANG_ACCEL, ANG_DAMP,
   HULL_CLEARANCE, LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE, FIXED_DT,
   BOOST_MULT, GROUND_EFFECT_HEIGHT, GROUND_EFFECT_ACCEL_G, GROUND_EFFECT_DAMP, GRAVITY_FALLOFF, RCS_ACCEL,
-  CRUISE_ENTER, CRUISE_EXIT, CRUISE_FLOOR, CRUISE_ALIGN_TAU, CRUISE_MAX, CRUISE_BRAKE, CRUISE_DECEL, CRUISE_THRUST_GAIN,
+  CRUISE_ENTER, CRUISE_EXIT, CRUISE_FLOOR, CRUISE_ALIGN_TAU, CRUISE_MAX, CRUISE_BRAKE, CRUISE_DECEL, CRUISE_SECONDS, CRUISE_SPOOL,
 } from '../world/config.ts'
 
 /**
@@ -39,6 +39,9 @@ export type CraftState = 'landed' | 'flying' | 'crashed'
 const BODY_UP = new THREE.Vector3(0, 1, 0)
 const BODY_FWD = new THREE.Vector3(0, 0, -1)
 const TWO_PI = Math.PI * 2
+
+/** 1 below CRUISE_FLOOR, 0 above twice it. See Craft.hold. */
+function holdAt(alt: number): number { return Math.min(1, Math.max(0, (2 * CRUISE_FLOOR - alt) / CRUISE_FLOOR)) }
 
 /** m/s² at distance r from the body's centre. Readouts (orbital and escape speed); the integrator sums real μ/r² from every body. */
 export function gravityAt(r: number, t: Terrain): number {
@@ -74,12 +77,23 @@ export class Craft {
   cruise = false
   /** Metres to the nearest body's surface, whichever body that is. Drives the cruise cap and thrust gain. */
   proximity = Infinity
+  /** Metres to the surface of the target ahead, set by whoever knows the target; Infinity for none. Caps cruise too, so you arrive. */
+  arrive = Infinity
   landings = 0
   crashes = 0
   /** Set by the last contact, for the HUD and the harness. */
   lastContact = { vUp: 0, vH: 0, tilt: 0, slope: 0 }
 
   private accumulator = 0
+  /**
+   * How much of the reference body's spin the local frame carries: 1 on the ground and
+   * through the air, fading to 0 by twice CRUISE_FLOOR. Drag is against co-rotating air
+   * and a landing is judged against the ground; in orbit the frame stops turning, because
+   * the sun's co-rotating frame at home's distance moves at 650 km/s and nobody wants that
+   * in a speed readout. Position never fades (the scene is drawn in the spinning frame);
+   * only what "relative velocity" means.
+   */
+  private hold = 1
   // Rest pose, body-fixed, held while landed or crashed.
   private readonly restPos = new THREE.Vector3()
   private readonly restQuat = new THREE.Quaternion()
@@ -151,8 +165,13 @@ export class Craft {
     return { pitch: -clamp(k * tz - this.angVel.x), roll: -clamp(-k * tx - this.angVel.z), yaw: 0 }
   }
 
-  /** The cruise speed allowed at distance d from the nearest surface: what you could brake from in time. */
-  cruiseCap(d: number): number { return Math.sqrt(CRUISE_MAX * CRUISE_MAX + 2 * CRUISE_DECEL * Math.max(0, d)) }
+  /** The cruise speed allowed at distance d from a surface: brakeable near it, d / CRUISE_SECONDS far from it. */
+  cruiseCap(d: number): number {
+    d = Math.max(0, d)
+    return Math.max(Math.sqrt(CRUISE_MAX * CRUISE_MAX + 2 * CRUISE_DECEL * d), d / CRUISE_SECONDS)
+  }
+  /** The cap in force now: the nearest body's, or the target's if that is tighter. */
+  cap(): number { return Math.min(this.cruiseCap(this.proximity), this.cruiseCap(this.arrive)) }
 
   /** Vertical speed, positive up, relative to the ground. */
   vUp(): number { return this.vel.dot(this.up.copy(this.pos).normalize()) }
@@ -178,6 +197,7 @@ export class Craft {
     this.angVel.set(0, 0, 0)
     this.alignTo(align === 'surface' ? surfaceNormal(this.up, this.terrain, this.n) : this.n.copy(this.up), heading)
     this.rest()
+    this.hold = 1
     this.state = 'landed'
     this.thrusting = false
     this.cruise = false
@@ -194,6 +214,7 @@ export class Craft {
     this.vel.set(0, 0, 0)
     this.angVel.set(0, 0, 0)
     this.alignTo(this.n.copy(this.up), heading)
+    this.hold = holdAt(altitude)
     this.state = 'flying'
     this.thrusting = false
     this.cruise = false
@@ -246,7 +267,8 @@ export class Craft {
     const alt = r - groundRadius(this.localDir, this.terrain)
     const rhoNow = atmosphereDensity(alt, this.terrain.air)
     if (this.cruise ? rhoNow > CRUISE_EXIT || alt < CRUISE_FLOOR : rhoNow < CRUISE_ENTER && alt > CRUISE_FLOOR * 1.2) this.cruise = !this.cruise
-    this.frameVel.copy(this.omega).cross(this.rel).add(this.bVel)
+    this.hold = holdAt(alt)
+    this.frameVelAt(this.rel, this.frameVel)
     this.vRel.copy(this.hvel).sub(this.frameVel)
 
     // Attitude. Torque in body frame, exponential damping, first-order quaternion update.
@@ -259,19 +281,19 @@ export class Craft {
     this.angVel.multiplyScalar(Math.exp(-ANG_DAMP * h))
     this.dq.set(this.angVel.x * h * 0.5, this.angVel.y * h * 0.5, this.angVel.z * h * 0.5, 1).normalize()
     this.hquat.multiply(this.dq).normalize()
-    const hold = Math.min(1, Math.max(0, (2 * CRUISE_FLOOR - alt) / CRUISE_FLOOR))
     const wh = this.omega.length()
-    if (hold > 0 && wh > 0) {
-      this.dq.setFromAxisAngle(this.tmp.copy(this.omega).divideScalar(wh), hold * wh * h)
+    if (this.hold > 0 && wh > 0) {
+      this.dq.setFromAxisAngle(this.tmp.copy(this.omega).divideScalar(wh), this.hold * wh * h)
       this.hquat.premultiply(this.dq).normalize()
     }
 
     const mainThrust = THRUST_ACCEL * c.thrust * (1 + c.boost * (BOOST_MULT - 1))
-    const d = this.proximity
+    const cap = this.cap()
     if (this.cruise) {
-      // Cruise: the engine fires along the nose, harder the further you are from anything, and / is a brake.
+      // Cruise: the engine fires along the nose, spooled so full thrust reaches whatever
+      // the cap is in about CRUISE_SPOOL seconds, and / is a brake on the same scale.
       this.nose.copy(BODY_FWD).applyQuaternion(this.hquat)
-      const gain = 1 + d * CRUISE_THRUST_GAIN
+      const gain = Math.max(1, cap / (THRUST_ACCEL * CRUISE_SPOOL))
       if (c.thrust > 0) this.acc.addScaledVector(this.nose, mainThrust * gain)
       if (c.vertical < 0) this.acc.addScaledVector(this.nose, -THRUST_ACCEL * CRUISE_BRAKE * gain)
     } else if (c.thrust > 0) {
@@ -307,9 +329,8 @@ export class Craft {
       const vPar = this.vRel.dot(this.nose)
       const bleed = 1 - Math.exp(-h / CRUISE_ALIGN_TAU)
       this.vRel.addScaledVector(this.nose, -vPar).multiplyScalar(1 - bleed).addScaledVector(this.nose, vPar)
-      // The cap is a hard clamp on speed along the nose. Thrust grows with distance and
+      // The cap is a hard clamp on speed along the nose. Thrust grows with the cap and
       // would otherwise out-muscle any gentle reel-in on a dive.
-      const cap = this.cruiseCap(d)
       if (vPar > cap) this.vRel.addScaledVector(this.nose, cap - vPar)
       this.hvel.copy(this.frameVel).add(this.vRel)
     }
@@ -324,7 +345,8 @@ export class Craft {
     this.localDir.copy(this.up).applyQuaternion(this.spinInv)
     const ground = groundRadius(this.localDir, this.terrain)
     if (r2 - ground < HULL_CLEARANCE) {
-      this.frameVel.copy(this.omega).cross(this.rel).add(this.bVel)
+      this.hold = 1
+      this.frameVelAt(this.rel, this.frameVel)
       this.vRel.copy(this.hvel).sub(this.frameVel)
       const vUp = this.vRel.dot(this.up)
       const vH = Math.sqrt(Math.max(0, this.vRel.lengthSq() - vUp * vUp))
@@ -365,11 +387,16 @@ export class Craft {
     this.omega.copy(this.ref.spinAxis).multiplyScalar(w)
   }
 
+  /** Velocity of the local frame at inertial offset `rel` from the body: orbit plus `hold` of the spin. */
+  private frameVelAt(rel: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
+    return out.copy(this.omega).cross(rel).multiplyScalar(this.hold).add(this.bVel)
+  }
+
   /** Local view from the heliocentric truth, using the frame last computed by frameAt. */
   private syncLocal(): void {
     this.rel.copy(this.hpos).sub(this.bPos)
     this.pos.copy(this.rel).applyQuaternion(this.spinInv)
-    this.frameVel.copy(this.omega).cross(this.rel).add(this.bVel)
+    this.frameVelAt(this.rel, this.frameVel)
     this.vel.copy(this.hvel).sub(this.frameVel).applyQuaternion(this.spinInv)
     this.quat.copy(this.spinInv).multiply(this.hquat)
   }
@@ -378,7 +405,7 @@ export class Craft {
   private syncHelio(): void {
     this.rel.copy(this.pos).applyQuaternion(this.spin)
     this.hpos.copy(this.bPos).add(this.rel)
-    this.frameVel.copy(this.omega).cross(this.rel).add(this.bVel)
+    this.frameVelAt(this.rel, this.frameVel)
     this.hvel.copy(this.vel).applyQuaternion(this.spin).add(this.frameVel)
     this.hquat.copy(this.spin).multiply(this.quat)
   }

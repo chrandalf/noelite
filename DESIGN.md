@@ -336,10 +336,16 @@ Every step is playable. That's the point of the ordering.
    kernel was 0.6**, the reference layout's value, which leaves the field discontinuous on
    every simplex boundary and put a 12 cm step in the ground exactly under the pad. It is
    0.5 now, the terrain harness checks for cracks, and the universe is SEED_VERSION 3.
-3. **Supercruise.** The cap `√(CRUISE_MAX² + 2·CRUISE_DECEL·d)` tops out around 10 km/s;
-   Jupiter is 4.9 million km away. Let the cap keep climbing with distance from every mass,
-   to the order of 1,000 km/s in deep space, so Vale to Bulwark is minutes and the same
-   formula reels you back to 150 m/s on arrival. Elite Dangerous's answer, and the right one.
+3. ~~**Supercruise.**~~ Done 2026-09-02. Far from anything the cap is distance to the
+   nearest surface over `CRUISE_SECONDS` (7 s), so at full speed you are always seven
+   seconds from the nearest thing and the same rule reels you in; inside ~50 km the old
+   brakeable-from formula takes over and lands you at 150 m/s. A target within 30° of the
+   nose caps the same way off its surface, so you arrive at what you aim at. Thrust spools
+   so full throttle reaches whatever the cap is in `CRUISE_SPOOL` (4 s). The rotating
+   frame's velocity fades out above 5 km (`Craft.hold`), because the sun's co-rotating
+   frame at home's distance moves at 650 km/s. Measured: home to 60 km over the moon in
+   39 s with a 169 km/s peak; 5,000 km out, 20 s of boost reaches 5,563 km/s. Elite
+   Dangerous's answer, and the right one.
 4. **Re-entry.** Heat flux is density × speed³, which the atmosphere stack can already
    supply; hull temperature integrates it minus radiation, over the limit is damage, a
    gauge on the HUD. The entry corridor emerges: steep and fast cooks you, shallow bleeds

@@ -6,8 +6,8 @@ import * as THREE from 'three'
 import { Craft, IDLE } from '../src/engine/Craft.ts'
 import { findLandable } from '../src/world/terrain.ts'
 import { HOME } from '../src/world/height.ts'
-import { body, bodyVelocity } from '../src/world/system.ts'
-import { FIXED_DT, DRAG, LAND_MAX_VSPEED, GROUND_EFFECT_HEIGHT, CRUISE_MAX, CRUISE_DECEL } from '../src/world/config.ts'
+import { body, bodyVelocity, bodyPosition, bodySpin } from '../src/world/system.ts'
+import { FIXED_DT, DRAG, LAND_MAX_VSPEED, GROUND_EFFECT_HEIGHT, CRUISE_MAX, CRUISE_DECEL, CRUISE_SECONDS } from '../src/world/config.ts'
 const GRAVITY = HOME.g, ATMOSPHERE_HEIGHT = HOME.air
 const BODY_UP = new THREE.Vector3(0, 1, 0), BODY_FWD = new THREE.Vector3(0, 0, -1)
 
@@ -185,16 +185,19 @@ const L1 = land()
 {
   const c = fresh()
   until(c, (c) => c.altitude() > 60_000, 120, () => T(1, 0, 0, 0, 1))
-  const nadir = new THREE.Vector3()
+  const nadir = new THREE.Vector3(), nose = new THREE.Vector3()
   let worst = 0
   const top = c.altitude()
   until(c, (c) => c.state !== 'flying' || !c.cruise, 400, (t, c) => {
     nadir.copy(c.pos).normalize().negate()
     const a = c.aimControls(nadir)
-    worst = Math.max(worst, c.speed() / c.cruiseCap(c.altitude()))
+    // Along the nose: that is what the cap clamps. Across it, the velocity left over from
+    // the climb bleeds away in CRUISE_ALIGN_TAU while the assist swings the nose to nadir.
+    nose.set(0, 0, -1).applyQuaternion(c.quat)
+    worst = Math.max(worst, c.vel.dot(nose) / c.cruiseCap(c.altitude()))
     return T(1, a.pitch, a.roll, a.yaw, 1)
   })
-  check('diving at full boost never exceeds the cap', worst < 1.02 && !c.cruise && c.state === 'flying', `from ${(top / 1000).toFixed(0)} km: worst ${(worst * 100).toFixed(0)}% of cap, handed back to hover at ${c.altitude().toFixed(0)} m doing ${c.speed().toFixed(0)} m/s`)
+  check('diving at full boost never exceeds the cap along the nose', worst < 1.02 && !c.cruise && c.state === 'flying', `from ${(top / 1000).toFixed(0)} km: worst ${(worst * 100).toFixed(0)}% of cap, handed back to hover at ${c.altitude().toFixed(0)} m doing ${c.speed().toFixed(0)} m/s`)
 }
 
 // 16. Stage C: the moon is a real place. Hang over it, fall, land, ride it, lift off with it.
@@ -228,6 +231,37 @@ const L1 = land()
   c.placeAbove(body('home'), dir, 20_000_000); c.substep(FIXED_DT, IDLE)
   const b = c.ref.name
   check('4,000 km up is still home; 20,000 km up is the sun', a === 'Vale' && b === 'Sol', `${a}, then ${b}`)
+}
+
+// 18. Supercruise: far from anything the cap is distance over CRUISE_SECONDS, thrust spools to it, a target ahead reels you in.
+{
+  const c = new Craft(HOME); c.time = 5000
+  c.placeAbove(body('home'), new THREE.Vector3(0, 0, 1), 5_000_000)
+  const t = until(c, () => false, 20, () => T(1, 0, 0, 0, 1))
+  const capFar = c.cruiseCap(c.proximity)
+  check('5,000 km out, 20 s of boost reaches the far-field cap', c.cruise && c.speed() > capFar * 0.95 && c.speed() <= capFar * 1.01, `${(c.speed() / 1000).toFixed(0)} km/s vs cap ${(capFar / 1000).toFixed(0)} km/s (d/${CRUISE_SECONDS} s) after ${t.toFixed(0)} s`)
+  c.arrive = 100_000
+  until(c, () => false, 3, () => T(1, 0, 0, 0, 1))
+  check('a target 100 km ahead caps the speed within 3 s', c.speed() <= c.cruiseCap(100_000) * 1.01, `${(c.speed() / 1000).toFixed(1)} km/s vs ${(c.cruiseCap(100_000) / 1000).toFixed(1)} km/s`)
+}
+// 19. The transfer: from 100 km over home, aim at the moon and boost. Pace is a design requirement.
+{
+  const moon = body('home-1')
+  const c = new Craft(HOME); c.time = 5000
+  const toward = bodyPosition(moon, c.time).sub(bodyPosition(body('home'), c.time)).applyQuaternion(bodySpin(body('home'), c.time).invert()).normalize()
+  c.placeAbove(body('home'), toward, 100_000)
+  const q = new THREE.Quaternion(), tgt = new THREE.Vector3()
+  const toMoon = (c) => { bodyPosition(moon, c.time, tgt).sub(bodyPosition(c.ref, c.time)).applyQuaternion(bodySpin(c.ref, c.time, q).invert()); return tgt.sub(c.pos) }
+  let peak = 0
+  const t = until(c, (c) => c.ref === moon && c.altitude() < 60_000, 600, (t, c) => {
+    const d = toMoon(c); c.arrive = d.length() - moon.radius
+    peak = Math.max(peak, c.speed())
+    const a = c.aimControls(d.normalize())
+    return T(1, a.pitch, a.roll, a.yaw, 1)
+  })
+  check('home to 60 km over the moon in under four minutes', c.ref === moon && t < 240, `${t.toFixed(0)} s, peak ${(peak / 1000).toFixed(0)} km/s, arrived doing ${(c.speed() / 1000).toFixed(1)} km/s at ${(c.altitude() / 1000).toFixed(0)} km`)
+  const t2 = until(c, (c) => !c.cruise || c.state !== 'flying', 120, (t, c) => { const d = toMoon(c); c.arrive = d.length() - moon.radius; const a = c.aimControls(d.normalize()); return T(1, a.pitch, a.roll, a.yaw, 1) })
+  check('and the cap hands it to hover at the moon under 1.6 km/s', c.state === 'flying' && !c.cruise && c.speed() < 1600 && c.ref === moon, `${t2.toFixed(0)} s more, ${c.speed().toFixed(0)} m/s at ${c.altitude().toFixed(0)} m, ${c.cruise ? 'cruise' : 'hover'}`)
 }
 
 console.log(`\n${pass}/${pass + fail} checks`)
