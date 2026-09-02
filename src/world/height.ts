@@ -25,8 +25,12 @@ export type Terrain = {
   readonly axis: UnitVector
 }
 
+/**
+ * Relief as a fraction of radius. Real rocky bodies sit at 0.15-0.6% (Everest, Maxwell
+ * Montes, the lunar highlands); 0.5% is the same small exaggeration home gets.
+ */
 const AMPLITUDE_BY_KIND: Record<BodyKind, number> = {
-  sun: 0, hot: 0.12, terrestrial: 0.07, tiny: 0.12, giant: 0, moon: 0.1,
+  sun: 0, hot: 0.005, terrestrial: 0.005, tiny: 0.012, giant: 0, moon: 0.005,
 }
 
 export function terrainOf(b: Body): Terrain {
@@ -46,6 +50,9 @@ function noiseFor(seed: PlanetSeed): Simplex3 {
 }
 
 /** Base terrain, metres above datum. */
+/** Metres. The coarsest cell of the deck-scale detail field. */
+const DETAIL_CELL = 600
+
 export function baseHeight(p: UnitVector, t: Terrain): number {
   if (t.amplitude === 0) return 0
   const n = noiseFor(t.seed)
@@ -53,15 +60,20 @@ export function baseHeight(p: UnitVector, t: Terrain): number {
   const broad = n.fbm(p.x * 1.6, p.y * 1.6, p.z * 1.6, 4)
   // Hills riding on top, finer and quieter. Offset so it isn't the same field scaled.
   const hills = n.fbm(p.x * 7 + 31.7, p.y * 7 + 31.7, p.z * 7 + 31.7, 3)
+  // Ground: cells of ~600 m down to ~150 m in absolute metres, whatever the radius.
+  // The two fields above scale with the body (a handful of uplands per world, as a
+  // real planet has); without this a 40 km world is a billiard ball from the deck.
+  const fd = t.radius / DETAIL_CELL
+  const detail = n.fbm(p.x * fd + 7.3, p.y * fd + 7.3, p.z * fd + 7.3, 3)
   if (t.kind === 'hot' || t.kind === 'moon' || t.kind === 'tiny') {
     // Ridged: fold the broad field so it makes crests and basins rather than rolling hills.
     const ridged = 1 - 2 * Math.abs(broad)
-    return t.amplitude * (0.75 * ridged + 0.25 * hills)
+    return t.amplitude * (0.68 * ridged + 0.22 * hills + 0.1 * detail)
   }
   // Push the broad signal toward its extremes so there are wide plains between
   // the uplands rather than uniform rolling. Somewhere to land is a design requirement.
   const shaped = Math.sign(broad) * Math.pow(Math.abs(broad), 1.4)
-  return t.amplitude * (0.8 * shaped + 0.2 * hills)
+  return t.amplitude * (0.72 * shaped + 0.18 * hills + 0.1 * detail)
 }
 
 /**

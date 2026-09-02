@@ -49,7 +49,7 @@ check('moons are tidally locked', SYSTEM.filter((b) => b.kind === 'moon').every(
 }
 // 5. Deterministic and periodic.
 {
-  const a = bodyPosition(body('giant-3'), 12345.678), b = bodyPosition(body('giant-3'), 12345.678)
+  const a = bodyPosition(body('giant'), 12345.678), b = bodyPosition(body('giant'), 12345.678)
   check('positions are bit-identical', a.x === b.x && a.y === b.y && a.z === b.z)
   const s2 = buildSystem()
   check('the system rebuilds identically from the seed', s2.every((b, i) => b.orbit?.phase0 === SYSTEM[i].orbit?.phase0 && b.spinPhase0 === SYSTEM[i].spinPhase0))
@@ -67,12 +67,12 @@ check('moons are tidally locked', SYSTEM.filter((b) => b.kind === 'moon').every(
   check('bodyVelocity matches finite-difference position', v.distanceTo(fd) < 1e-4 * v.length(), `${v.length().toFixed(1)} m/s`)
 }
 
-console.log('\n  body            a km   period    v m/s   Hill km  R m    g     air m  day s')
+console.log('\n  body                  a km    period    v m/s    Hill km    R km      g   air m   day min')
 for (const b of SYSTEM) {
   const o = b.orbit
   const v = o ? (TWO_PI * o.a / o.period).toFixed(0) : '-'
-  const T = o ? (o.period < 3600 ? (o.period / 60).toFixed(0) + ' min' : (o.period / 3600).toFixed(1) + ' h') : '-'
-  console.log(`  ${(b.name + (b.kind === 'moon' ? '' : ' (' + b.kind + ')')).padEnd(18)}${o ? km(o.a).padStart(5) : '    -'}  ${T.padStart(8)}  ${String(v).padStart(6)}  ${b.hill ? km(b.hill).padStart(7) : '      -'}  ${String(b.radius).padStart(5)}  ${b.surfaceGravity.toFixed(1).padStart(4)}  ${String(b.atmosphereHeight).padStart(5)}  ${b.spinPeriod.toFixed(0).padStart(5)}`)
+  const T = o ? (o.period < 3600 ? (o.period / 60).toFixed(0) + ' min' : o.period < 86400 * 2 ? (o.period / 3600).toFixed(1) + ' h' : (o.period / 86400).toFixed(1) + ' d') : '-'
+  console.log(`  ${(b.name + (b.kind === 'moon' ? '' : ' (' + b.kind + ')')).padEnd(18)}${o ? km(o.a).padStart(9) : '        -'}  ${T.padStart(8)}  ${String(v).padStart(7)}  ${b.hill ? km(b.hill).padStart(9) : '        -'}  ${(b.radius / 1000).toFixed(1).padStart(6)}  ${b.surfaceGravity.toFixed(1).padStart(5)}  ${String(b.atmosphereHeight).padStart(6)}  ${(b.spinPeriod / 60).toFixed(0).padStart(7)}`)
 }
 console.log(`\n${pass}/${pass + fail} checks`)
 process.exit(fail ? 1 : 0)

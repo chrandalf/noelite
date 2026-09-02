@@ -37,7 +37,7 @@ await page.waitForFunction(() => globalThis.__noelite?.ready?.() === true, { tim
 const n = (x, y, z) => { const l = Math.hypot(x, y, z); return { x: x / l, y: y / l, z: z / l } }
 const here = n(0.3, 0.2, 1), ahead = n(0.36, 0.22, 1)
 const hHere = height(here, HOME), hAhead = height(ahead, HOME)
-const profile = [3500, 2000, 1000, 500, 250, 120, 60, 25, 8, 2]
+const profile = [70000, 40000, 20000, 10000, 5000, 2400, 1200, 500, 160, 40, 8, 2] // 20x the 2 km profile; orbit to deck
 let worst = 0
 for (const alt of profile) {
   const r = R + hHere + alt

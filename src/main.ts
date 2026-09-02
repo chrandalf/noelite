@@ -52,7 +52,7 @@ const fog = new THREE.FogExp2(SKY.getHex(), 0)
 scene.fog = fog
 
 // The camera never leaves the origin. The world moves around it.
-const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.05, 2e6)
+const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.05, 1e10) // the giant is 4.9 million km out; log depth buffer copes
 const world = new THREE.Group()
 scene.add(world)
 
@@ -156,8 +156,8 @@ const free = new FlyCam(renderer.domElement)
   free.lookAt(vec(q.get('at'), new THREE.Vector3(0, 0, 0)))
 }
 const burn = Number(q.get('burn') ?? 0)
-// Default clock: mid-morning on the pad (tools/sun-times.mjs: dawn 110, noon 218, dusk 326).
-const clock0 = Number(q.get('t') ?? 160)
+// Default clock: mid-morning on the pad (tools/sun-times.mjs: dawn 103, noon 702, dusk 1301).
+const clock0 = Number(q.get('t') ?? 350)
 const markers = new NavMarkers(document.body)
 
 const hud = document.getElementById('hud')!
@@ -327,7 +327,7 @@ renderer.setAnimationLoop((now) => {
   placeBodies(t); updates++
 
   // "How day is it" uses the sun's APPARENT elevation: level elevation plus the
-  // horizon dip at this altitude. On a 2 km world the horizon drops 30° by 300 m,
+  // horizon dip at this altitude. On a 40 km world the horizon drops 7° by 300 m,
   // so the sun that set on the pad is back above the horizon once you climb.
   const density = atmosphereDensity(altitude, HOME.air)
   dir.copy(viewPos).normalize()

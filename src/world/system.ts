@@ -8,7 +8,7 @@
 //
 // Only erasable TypeScript: tools/verify-system.mjs imports this directly.
 import * as THREE from 'three'
-import { MASTER_SEED } from './config.ts'
+import { MASTER_SEED, PLANET_RADIUS, GRAVITY, ATMOSPHERE_HEIGHT, DAY_LENGTH } from './config.ts'
 import { rng } from './noise.ts'
 
 export type BodyKind = 'sun' | 'hot' | 'terrestrial' | 'tiny' | 'giant' | 'moon'
@@ -55,7 +55,7 @@ function hillRadius(a: number, mu: number, muParent: number): number {
   return a * Math.cbrt(mu / (3 * muParent))
 }
 
-/** The roster. Numbers are gameplay, not astronomy; see DESIGN.md §5b for the table. */
+/** The roster: the real inner system plus Jupiter, at 1:159. See DESIGN.md §5b. */
 export function buildSystem(seed = MASTER_SEED): Body[] {
   const next = rng(seed ^ 0x53595354)
   const bodies: Body[] = []
@@ -86,22 +86,26 @@ export function buildSystem(seed = MASTER_SEED): Body[] {
     return b
   }
 
-  // Orbits are 3x what they were: distance is what cruise is for. The sun keeps GM = 4e9
-  // whatever its radius; at 6 km it is a one-degree disc from home, bright and far.
-  add({ id: 'sun', name: 'Sol', kind: 'sun', radius: 6_000, g: 4e9 / 36e6, air: 0, spin: 2400, parent: null, a: 0, tilt: 0 })
-  add({ id: 'hot', name: 'Cinder', kind: 'hot', radius: 1_500, g: 6, air: 120, spin: 900, parent: 'sun', a: 165_000 })
-  add({ id: 'home', name: 'Vale', kind: 'terrestrial', radius: 2_000, g: 7, air: 700, spin: 480, parent: 'sun', a: 360_000, tilt: 0.2 })
-  add({ id: 'home-1', name: 'Vale I', kind: 'moon', radius: 350, g: 1.0, air: 0, spin: 0, parent: 'home', a: 5_000 })
-  add({ id: 'terra-a', name: 'Marram', kind: 'terrestrial', radius: 1_800, g: 6.5, air: 600, spin: 400, parent: 'sun', a: 540_000 })
-  add({ id: 'terra-a-1', name: 'Marram I', kind: 'moon', radius: 300, g: 0.8, air: 0, spin: 0, parent: 'terra-a', a: 6_500 })
-  add({ id: 'terra-b', name: 'Sedge', kind: 'terrestrial', radius: 2_400, g: 8, air: 800, spin: 600, parent: 'sun', a: 780_000 })
-  add({ id: 'terra-b-1', name: 'Sedge I', kind: 'moon', radius: 420, g: 1.2, air: 0, spin: 0, parent: 'terra-b', a: 7_000 })
-  add({ id: 'terra-b-2', name: 'Sedge II', kind: 'moon', radius: 260, g: 0.7, air: 0, spin: 0, parent: 'terra-b', a: 12_000 })
-  add({ id: 'giant', name: 'Bulwark', kind: 'giant', radius: 10_000, g: 8, air: 3000, spin: 300, parent: 'sun', a: 1_560_000, tilt: 0.05 })
-  for (let i = 0; i < 5; i++) {
-    add({ id: `giant-${i + 1}`, name: `Bulwark ${['I', 'II', 'III', 'IV', 'V'][i]}`, kind: 'moon', radius: 220 + i * 110, g: 0.5 + i * 0.35, air: 0, spin: 0, parent: 'giant', a: 18_000 + i * 10_500 })
-  }
-  add({ id: 'tiny', name: 'Mote', kind: 'tiny', radius: 400, g: 1.2, air: 0, spin: 120, parent: 'sun', a: 2_400_000 })
+  // The real solar system at 1:159 (Earth's radius to 40 km; Chris, 2026-09-02).
+  // Radii, semi-major axes and surface gravities are the real values through one
+  // scale factor, so angles are preserved: the sun is a half-degree disc from home,
+  // the moon the same, an eclipse is possible. Periods fall out of Kepler III and are
+  // the real ones times √(1/159): a 29-day year, a 2-day month. Spin periods are not
+  // gravitational and are gameplay numbers. Atmosphere depth cannot be to scale (it
+  // would be ~30 m); it is exaggerated about 3x, the one exception, see config.ts.
+  // Names are the fiction's; the ids say which real body each one is scaled from.
+  const K = PLANET_RADIUS / 6_371_000
+  const scaled = (metres: number) => Math.round(metres * K)
+  add({ id: 'sun', name: 'Sol', kind: 'sun', radius: scaled(696_000_000), g: 274, air: 0, spin: 4 * DAY_LENGTH, parent: null, a: 0, tilt: 0 })
+  // Mercury: airless, 3.7 g, 88-day year.
+  add({ id: 'hot', name: 'Cinder', kind: 'hot', radius: scaled(2_440_000), g: 3.7, air: 0, spin: 3 * DAY_LENGTH, parent: 'sun', a: scaled(57_900_000_000) })
+  // Venus: a deep, thick, hot atmosphere; nearly Earth's size and gravity.
+  add({ id: 'terra-a', name: 'Marram', kind: 'terrestrial', radius: scaled(6_052_000), g: 8.87, air: 4_000, spin: 5 * DAY_LENGTH, parent: 'sun', a: scaled(108_200_000_000), tilt: 0.05 })
+  // Earth, and its moon at a quarter of Earth's Hill radius, as the real one is.
+  add({ id: 'home', name: 'Vale', kind: 'terrestrial', radius: PLANET_RADIUS, g: GRAVITY, air: ATMOSPHERE_HEIGHT, spin: DAY_LENGTH, parent: 'sun', a: scaled(149_600_000_000), tilt: 0.41 })
+  add({ id: 'home-1', name: 'Vale I', kind: 'moon', radius: scaled(1_737_000), g: 1.62, air: 0, spin: 0, parent: 'home', a: scaled(384_400_000) })
+  // Jupiter: no surface, 24.8 g, so hover is impossible without boost. A crush line later.
+  add({ id: 'giant', name: 'Bulwark', kind: 'giant', radius: scaled(69_911_000), g: 24.8, air: 40_000, spin: DAY_LENGTH / 2, parent: 'sun', a: scaled(778_500_000_000), tilt: 0.05 })
   return bodies
 }
 

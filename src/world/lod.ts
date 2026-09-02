@@ -7,7 +7,7 @@ import { FACES, faceToUnit, type Face } from './cubesphere.ts'
 import { height, type Terrain } from './height.ts'
 import { buildChunk, chunkBounds, chunkKey, type ChunkKey, type SkirtMode } from './chunk.ts'
 
-export const MAX_LEVEL = 6
+export const MAX_LEVEL = 10 // 6 on a 2 km world; four more levels for 20x the radius, ~5 m vertices on the deck
 /** A chunk splits when the camera is closer than this many chunk-widths. */
 export const SPLIT_K = 2.2
 const BUILD_BUDGET = 6

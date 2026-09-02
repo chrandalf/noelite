@@ -40,7 +40,8 @@ The reference points, both David Braben:
 | Look | Flat-shaded filled polygons, Lander palette, zero textures |
 | Space↔surface | Seamless. No cut, no loading screen. |
 | Planet shape | Real sphere, circumnavigable |
-| Planet radius | **2 km to start.** A config number, not an architectural one. |
+| Planet radius | **40 km since 2026-09-02** (started at 2 km). Earth at 1:159; a config number. |
+| Scale | Everything real through one factor, except atmosphere depth and relief, each exaggerated about 3x. |
 | Gathering | From the craft. Hover, scan, scoop. |
 | Flight model | One rigid body. Gravity and drag vary with altitude. |
 | First slice | Land on one planet |
@@ -54,6 +55,29 @@ precision never runs out, and the whole world loads instantly. You still get the
 that matters, which is pitching up and watching the ground become a ball.
 
 The radius is a number in a config file. Get the machinery right small, then turn the dial.
+
+### The dial got turned: 1:159 (2026-09-02)
+
+Chris, after a day at 2 km: *"I want everything to be realistic apart from the fact that we
+can travel far to the other planets and everything is on a much smaller scale... make things
+bigger then, 20x bigger and only exaggerate a little bit with the atmosphere."* So home is
+Earth at 40 km radius and every other body is its real analogue through the same factor,
+`K = 40 km / 6371 km`. One factor means angles survive: the sun is a half-degree disc from
+home, the moon too, and an eclipse is geometrically possible. Surface gravities are the real
+ones, so `GM = g·R²` scales by K², periods by √K: a 29-day year, a 2.2-day month, Jupiter's
+year most of a real one. Home orbits at 2,360 m/s, which is why the craft has to live in the
+sun's frame (Stage C) before anything else.
+
+Two things are deliberately not to scale, and both by about 3x. **Atmosphere depth** is set
+by temperature and gravity in the real world, not by radius; scaled it would be 30 m and a
+re-entry would last two frames. Home has 2 km of air. **Relief**: Everest at 1:159 is 56 m;
+home has 200 m and the other rocky bodies 0.5% of their radius. Rotation isn't gravitational
+either, so day length is a gameplay number (40 minutes; the equator moves at 105 m/s).
+
+What it costs, honestly: the sky from home is dots, like a field in Sussex, because Venus at
+closest is one arcminute across. The spectacle is in arriving. And distances are 100x what
+the toy system had (Jupiter is 4.9 million km out), so cruise needs a supercruise-style ramp
+far from bodies or nobody ever gets there. That ramp is on the list after Stage C.
 
 ## 5. Architecture
 
@@ -211,27 +235,29 @@ the system to enter the Elite half. Two positions taken before a line is written
 What that costs: the craft's position becomes heliocentric float64 with planets moving
 under it; height queries transform into each planet's rotating frame; every body gets its
 own seed, radius, atmosphere and LOD; nearest-body logic picks which sky and which
-altimeter you get. Frontier's structure. Scale is gameplay, not astronomy: small planets,
-a sun of tens of km, orbits of hundreds of km, so a transfer is minutes at boost.
+altimeter you get. Frontier's structure.
 
-**The roster (Chris, 2026-09-01):** the home world plus five: one tiny, one gas giant, one
-super-hot, two more like home. Moons on each, many on the giant. Gravity from all of it.
+**The roster (Chris, 2026-09-02):** the real inner solar system plus Jupiter, at 1:159,
+"based on Mercury, Venus, Earth and Jupiter, and the moon on Earth". The fiction's names,
+the real numbers. The 2026-09-01 toy roster (five invented planets, nine moons at
+hundreds of km) is gone; Jupiter's Galilean moons and the rest can be added the same
+way when wanted, they are one line each.
 
-| Body | Radius | Air | Surface g | Notes |
-|---|---|---|---|---|
-| sun | 25 km | | | emissive; a point light with no decay, so every body is lit from the right side |
-| hot | 1.5 km | thin, none | 6 | closest in; lava palette; a heat mechanic later |
-| home | 2 km | 700 m | 7 | the one you are on now |
-| terrestrial ×2 | 1.8 / 2.4 km | yes | 6.5 / 8 | different seeds, different palettes |
-| tiny | 400 m | none | 1.2 | you can jump off it |
-| gas giant | 10 km | deep | 20 | no surface: below a pressure line you are crushed |
-| moons | 200–800 m | none | 0.5–2 | 1–2 per terrestrial, 4–6 on the giant, none on tiny |
+| Body | Is | Radius | Orbit | Air | Surface g | Year |
+|---|---|---|---|---|---|---|
+| Sol | the Sun | 4,370 km | | | 274 | |
+| Cinder | Mercury | 15.3 km | 364,000 km | none | 3.7 | 7 days |
+| Marram | Venus | 38 km | 679,000 km | 4 km, thick | 8.9 | 18 days |
+| Vale | Earth, home | 40 km | 939,000 km | 2 km | 9.8 | 29 days |
+| Vale I | the Moon | 10.9 km | 2,413 km from Vale | none | 1.6 | 2.2 days |
+| Bulwark | Jupiter | 439 km | 4.89 million km | 40 km, no surface | 24.8 | 344 days |
 
 **Physics-law-abiding means:** every body has `GM = g·R²`; every orbit's period comes from
-Kepler III, `T = 2π√(a³/GM_parent)`; moons sit inside a third of their planet's Hill
-radius so the craft feels the planet, not the sun, near them; nothing overlaps. The sun's
-GM is tuned down from "realistic" so the inner planets have Hill spheres big enough to
-hold moons at sensible distances. `verify-system` asserts all of it.
+Kepler III, `T = 2π√(a³/GM_parent)`; the moon sits inside a third of home's Hill radius
+(it is at a quarter, as the real one is) so the craft feels the planet, not the sun, near
+it; nothing overlaps. The sun's gravity is the real 274 m/s² at its surface; at home's
+distance it pulls at 6 mm/s², so it matters for transfers and nothing else.
+`verify-system` asserts all of it.
 
 **Stages:** A, the system model and its instrument, pure and headless. B, render every
 body with a floating origin, LOD on the near ones, plain spheres far off, the sun as a
@@ -281,17 +307,33 @@ Every step is playable. That's the point of the ordering.
   visible at any other hour. Options if it ever matters: higher `SPLIT_K` so the boundary
   is further away, or blend normals across the boundary row.
 
-## 8b. First action tomorrow (2026-09-02)
+## 8b. The order from here (agreed 2026-09-02)
 
-**Stage C: the craft in the sun's frame.** Chris flew to Vale I and could not land on it,
-because the craft's physics still lives in home's rotating frame and every other body is
-scenery. Heliocentric float64 position, gravity summed from every body, the atmosphere
-of whichever body you are in, landed means riding that body (inherit its surface velocity
-on lift-off), and the altimeter, shadow, dust and beeper follow the nearest body. Then
-`verify-flight` gets a moon landing. "Should be able to land on any planet."
-
-Then Stage D's remainder: the lock-view camera, sphere-of-influence readout, the
-escape-the-system trigger.
+1. ~~**Rescale to 1:159.**~~ Done 2026-09-02, all six instruments green (terrain 8, chunk 12,
+   flight 23, system 11, lod 16, shot). LOD went to level 10 for ~5 m vertices on the deck;
+   peak 203 chunks on the orbit-to-deck descent. A deck-scale noise octave in absolute
+   metres (600 m cells down to 150 m) keeps the ground from going billiard-ball.
+2. **Stage C: the craft in the sun's frame.** Chris flew to Vale I and could not land on it,
+   because the craft's physics still lives in home's rotating frame and every other body is
+   scenery. Heliocentric float64 position, gravity summed from every body, the atmosphere
+   of whichever body you are in, landed means riding that body (inherit its surface
+   velocity on lift-off, and home now moves at 2,360 m/s), and the altimeter, shadow, dust
+   and beeper follow the nearest body. Then `verify-flight` gets a moon landing. "Should be
+   able to land on any planet."
+3. **Supercruise.** The cap `√(CRUISE_MAX² + 2·CRUISE_DECEL·d)` tops out around 10 km/s;
+   Jupiter is 4.9 million km away. Let the cap keep climbing with distance from every mass,
+   to the order of 1,000 km/s in deep space, so Vale to Bulwark is minutes and the same
+   formula reels you back to 150 m/s on arrival. Elite Dangerous's answer, and the right one.
+4. **Re-entry.** Heat flux is density × speed³, which the atmosphere stack can already
+   supply; hull temperature integrates it minus radiation, over the limit is damage, a
+   gauge on the HUD. The entry corridor emerges: steep and fast cooks you, shallow bleeds
+   speed in thin air. Hover mode does not engage until you are below a speed and above a
+   density, so you have to flip like Starship, and that flip is the TIE-fighter morph with
+   a reason to exist. The harness already shows the problem: a full-boost dive is handed
+   back to hover at 1,590 m doing 1,168 m/s, into air whose drag would pull 16,000 m/s².
+   DRAG (terminal velocity 29 m/s, a feather) gets reconsidered here too.
+5. Stage D's remainder: the lock-view camera, sphere-of-influence readout, the
+   escape-the-system trigger. Then lakes and forests.
 
 ## 9. Deferred
 
@@ -305,7 +347,11 @@ escape-the-system trigger.
   no drag, you coast, the retro assist and the thrusters are how you stop. Elite's ships
   had a set speed and stopped when you throttled down, which is not physics but is very
   playable. Decide once there are planets to fly between; possibly a flight-assist you
-  can switch off rather than a change of model.
+  can switch off rather than a change of model. **Measured 2026-09-02:** the
+  velocity-follows-the-nose assist (`CRUISE_ALIGN_TAU` 1.2 s) already makes it Elite, not
+  Newton: the harness kills 863 m/s of escape velocity in 10.7 s with only 2.8 s of retro
+  burn, because turning the nose through 180° bleeds the old velocity away. If "realistic"
+  is the brief, that assist becomes switchable.
 
 - How interplanetary travel compresses (jump? time accel? both?)
 - Combat, or whether there is any

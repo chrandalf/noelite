@@ -8,6 +8,7 @@ import { findLandable } from '../src/world/terrain.ts'
 import { HOME } from '../src/world/height.ts'
 import { FIXED_DT, DRAG, LAND_MAX_VSPEED, GROUND_EFFECT_HEIGHT, CRUISE_MAX, CRUISE_DECEL } from '../src/world/config.ts'
 const GRAVITY = HOME.g, ATMOSPHERE_HEIGHT = HOME.air
+const BODY_UP = new THREE.Vector3(0, 1, 0), BODY_FWD = new THREE.Vector3(0, 0, -1)
 
 let pass = 0, fail = 0
 const check = (name, cond, detail = '') => { if (cond) { pass++; console.log(`  ok   ${name}${detail ? '  (' + detail + ')' : ''}`) } else { fail++; console.log(`  FAIL ${name}  ${detail}`) } }
@@ -111,26 +112,29 @@ const L1 = land()
 // 11. You can escape, and the retro assist can bring you back from it.
 {
   const c = fresh()
-  until(c, () => false, 15, () => T(1, 0, 0, 0, 1))
-  check('15 s of boost leaves the atmosphere', c.altitude() > ATMOSPHERE_HEIGHT && c.cruise, `alt ${c.altitude().toFixed(0)} m, ${c.speed().toFixed(0)} m/s`)
-  const v0 = c.speed()
-  let minV = v0, aligned = 0
-  const retro = new THREE.Vector3(), bodyUp = new THREE.Vector3()
-  const t = until(c, (c) => c.speed() < 10, 60, (t, c) => {
+  const tOut = until(c, (c) => c.cruise, 90, () => T(1, 0, 0, 0, 1))
+  check('boost straight up leaves the atmosphere', c.cruise && c.altitude() > ATMOSPHERE_HEIGHT * 0.9, `${tOut.toFixed(1)} s to ${c.altitude().toFixed(0)} m, ${c.speed().toFixed(0)} m/s`)
+  // Keep the burn on in cruise until nothing brings you back.
+  const tEsc = until(c, (c) => c.speed() > c.escapeSpeed(), 120, () => T(1, 0, 0, 0, 1))
+  const v0 = c.speed(), vEsc = c.escapeSpeed()
+  check('and keeps boosting past escape speed', v0 > vEsc, `${v0.toFixed(0)} m/s vs escape ${vEsc.toFixed(0)} at ${(c.altitude() / 1000).toFixed(1)} km, ${tEsc.toFixed(1)} s more`)
+  // In cruise the assist steers the nose, and the nose is where the engine points.
+  let aligned = 0
+  const retro = new THREE.Vector3(), nose = new THREE.Vector3()
+  const t = until(c, (c) => c.speed() < 10, 120, (t, c) => {
     retro.copy(c.vel).normalize().negate()
-    bodyUp.set(0, 1, 0).applyQuaternion(c.quat)
+    nose.set(0, 0, -1).applyQuaternion(c.quat)
     const a = c.aimControls(retro)
-    const ok = bodyUp.dot(retro) > 0.98
+    const ok = nose.dot(retro) > 0.98
     if (ok) aligned++
-    minV = Math.min(minV, c.speed())
-    return { ...T(ok ? 1 : 0, a.pitch, a.roll, 0, 1) }
+    return T(ok ? 1 : 0, a.pitch, a.roll, a.yaw, 1)
   })
   check('retro assist + boost kills escape velocity', c.speed() < 10, `${v0.toFixed(0)} → ${c.speed().toFixed(1)} m/s in ${t.toFixed(1)} s, aligned ${(aligned * FIXED_DT).toFixed(1)} s of it`)
-  // 12. Nadir assist points the thrust axis at the planet.
-  const nadir = new THREE.Vector3()
-  until(c, () => false, 6, (t, c) => { nadir.copy(c.pos).normalize().negate(); const a = c.aimControls(nadir); return T(0, a.pitch, a.roll) })
-  bodyUp.set(0, 1, 0).applyQuaternion(c.quat)
-  check('nadir assist points thrust at the planet', bodyUp.dot(nadir) > 0.95, `dot ${bodyUp.dot(nadir).toFixed(3)}`)
+  // 12. Nadir assist points the engine at the planet: the nose in cruise, the thrust axis in air.
+  const nadir = new THREE.Vector3(), axis = new THREE.Vector3()
+  until(c, () => false, 6, (t, c) => { nadir.copy(c.pos).normalize().negate(); const a = c.aimControls(nadir); return T(0, a.pitch, a.roll, a.yaw) })
+  axis.copy(c.cruise ? BODY_FWD : BODY_UP).applyQuaternion(c.quat)
+  check('nadir assist points the engine at the planet', axis.dot(nadir) > 0.95, `dot ${axis.dot(nadir).toFixed(3)}, ${c.cruise ? 'cruise' : 'air'}`)
 }
 // 13. RCS translates without tilting, and the top thruster brakes a climb.
 {
