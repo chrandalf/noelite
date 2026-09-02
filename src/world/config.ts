@@ -31,8 +31,12 @@ export const GRAVITY = 9.81
  * scaled it would be 30 m. This is about 3x the Kármán line at 1:159.
  */
 export const ATMOSPHERE_HEIGHT = 2000
-/** Quadratic drag per metre at sea level. Terminal velocity ≈ √(g/DRAG) ≈ 24 m/s. */
-export const DRAG = 0.012
+/**
+ * Quadratic drag per metre at sea level. Terminal velocity ≈ √(g/DRAG) ≈ 50 m/s, which is a
+ * vehicle rather than a feather (0.012 gave 29 m/s, a 53 s climb out of the air, and would
+ * have made a 30 m/s wind shove the craft at 11 m/s²; weather made it show, 2026-09-02).
+ */
+export const DRAG = 0.004
 /** m/s² along the craft's own up-axis. Thrust-to-weight ≈ 1.83 at Earth g. */
 export const THRUST_ACCEL = 18
 /** rad/s² from full stick, and the 1/s damping that stops it when you let go. */

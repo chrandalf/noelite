@@ -8,6 +8,9 @@ import { height, HOME } from '../src/world/height.ts'
 import { FACES, faceToUnit, faceToCube, cubeToUnit, cubeToFace } from '../src/world/cubesphere.ts'
 import { TERRAIN_AMPLITUDE, PLANET_RADIUS, MASTER_SEED } from '../src/world/config.ts'
 import { rng } from '../src/world/noise.ts'
+import { wind, front, tide, WIND_CALM, WIND_STORM, TIDE_AMPLITUDE } from '../src/world/weather.ts'
+import { terrainOf } from '../src/world/height.ts'
+import { body } from '../src/world/system.ts'
 
 let pass = 0, fail = 0
 function check(name, cond, detail = '') {
@@ -128,6 +131,25 @@ const OTHER = { ...HOME, seed: MASTER_SEED + 1 }
   }
   const frac = landable / N
   check('at least 30% of the surface is under 15°', frac >= 0.3, `${(100 * frac).toFixed(1)}% landable, steepest ${(Math.atan(maxSlope) * 180 / Math.PI).toFixed(1)}°`)
+}
+
+// 8. Weather: wind is tangential and bounded, the front is bounded, the tide is two bulges of the right size.
+{
+  let tangential = true, lo = Infinity, hi = 0, fLo = 1, fHi = -1, tLo = Infinity, tHi = -Infinity
+  const w = new THREE.Vector3()
+  for (let i = 0; i < 2000; i++) {
+    const p = randomUnit(), d = new THREE.Vector3(p.x, p.y, p.z), t = i * 37
+    wind(d, HOME, t, w)
+    if (Math.abs(w.dot(d)) > 1e-6 * w.length()) tangential = false
+    lo = Math.min(lo, w.length()); hi = Math.max(hi, w.length())
+    const f = front(d, HOME, t); fLo = Math.min(fLo, f); fHi = Math.max(fHi, f)
+    const td = tide(d, HOME, t); tLo = Math.min(tLo, td); tHi = Math.max(tHi, td)
+  }
+  check('wind is tangential to the ground', tangential)
+  check('wind stays between a breeze and a storm', lo >= WIND_CALM * 0.7 && hi <= WIND_STORM * 1.3, `${lo.toFixed(1)} .. ${hi.toFixed(1)} m/s`)
+  check('the front stays in [-1, 1] and actually varies', fLo >= -1 && fHi <= 1 && fHi - fLo > 0.8, `${fLo.toFixed(2)} .. ${fHi.toFixed(2)}`)
+  check('the tide runs from a trough to a bulge of TIDE_AMPLITUDE', tLo < -0.4 * TIDE_AMPLITUDE && tHi > 0.9 * TIDE_AMPLITUDE && tHi <= TIDE_AMPLITUDE + 1e-9, `${tLo.toFixed(2)} .. ${tHi.toFixed(2)} m`)
+  check('an airless body has no wind', wind(new THREE.Vector3(0, 0, 1), terrainOf(body('home-1')), 100, w).length() === 0)
 }
 
 console.log(`\n${pass}/${pass + fail} checks`)

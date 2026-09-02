@@ -34,6 +34,10 @@ import { SYSTEM, body, bodyPosition, bodySpin, type Body } from './world/system.
 import { terrainColour, facetJitter, SEA } from './world/palette.ts'
 import { Water } from './engine/Water.ts'
 import { OrbitAutopilot } from './engine/Autopilot.ts'
+import { Rain } from './engine/Rain.ts'
+import { Clouds } from './engine/Clouds.ts'
+import { front, rainOf, cloudOf, moonDirection, TIDE_AMPLITUDE } from './world/weather.ts'
+import { setGroundClock } from './world/terrain.ts'
 import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE } from './world/config.ts'
 
 const q = new URLSearchParams(location.search)
@@ -64,7 +68,8 @@ scene.add(world)
 const sunLight = new THREE.PointLight(0xfff2dc, 2.4, 0, 0)
 const hemi = new THREE.HemisphereLight(0x9ec5ff, 0x3f5f2e, 0.85)
 scene.add(sunLight, hemi)
-const SUN_WHITE = new THREE.Color(0xfff2dc), SUN_LOW = new THREE.Color(0xffa060)
+const SUN_WHITE = new THREE.Color(0xfff2dc), SUN_LOW = new THREE.Color(0xffa060), GREY = new THREE.Color(0.58, 0.61, 0.65)
+let weatherFront = -1, rainNow = 0, cloudNow = 0, windNow = 0
 
 // flatShading is deliberately OFF. With it on, Three ignores the normal
 // attribute and derives normals from screen-space derivatives, which lit every
@@ -106,7 +111,7 @@ function buildFarSphere(b: Body, t: Terrain): THREE.Mesh {
 
 const SHELL_COLOUR: Record<string, number> = { terrestrial: 0x5d9be0, hot: 0xd08050, giant: 0xd8b890 }
 type BodyView = {
-  body: Body; terrain: Terrain; group: THREE.Group; far: THREE.Mesh; lod: PlanetLOD | null; water: PlanetLOD | null
+  body: Body; terrain: Terrain; group: THREE.Group; far: THREE.Mesh; lod: PlanetLOD | null; water: PlanetLOD | null; clouds: Clouds | null
   shellSun: THREE.Vector3 | null; rel: THREE.Vector3
 }
 const waterMat = new Water()
@@ -120,13 +125,15 @@ const views: BodyView[] = SYSTEM.map((b) => {
   let lod: PlanetLOD | null = null, water: PlanetLOD | null = null
   if (b.kind !== 'sun' && b.kind !== 'giant') { lod = new PlanetLOD(terrain, b.id === 'home' ? terrainMaterial : bodyMaterial, skirts); group.add(lod.group) }
   if (lod && terrain.sea !== null) { water = new PlanetLOD(waterOf(terrain), waterMat.material, skirts); group.add(water.group) }
+  let clouds: Clouds | null = null
+  if (lod && terrain.air > 0) { clouds = new Clouds(terrain, terrain.air * 0.6); group.add(clouds.mesh) }
   let shellSun: THREE.Vector3 | null = null
   if (b.atmosphereHeight > 0) {
     const shell = buildAtmosphereShell(new THREE.Vector3(1, 0, 0), new THREE.Color(SHELL_COLOUR[b.kind] ?? 0x5d9be0), b.radius, b.atmosphereHeight)
     group.add(shell)
     shellSun = (shell.material as THREE.ShaderMaterial).uniforms.uSun.value as THREE.Vector3
   }
-  return { body: b, terrain, group, far, lod, water, shellSun, rel: new THREE.Vector3() }
+  return { body: b, terrain, group, far, lod, water, clouds, shellSun, rel: new THREE.Vector3() }
 })
 const homeView = views.find((v) => v.body === home)!
 const sunView = views.find((v) => v.body === sunBody)!
@@ -147,14 +154,15 @@ ship.visible = mode === 'fly'
 const pad = findLandable(new THREE.Vector3(0, 0, 1), HOME)
 const shadow = new GroundShadow(HOME)
 const dust = new Dust(HOME)
+const rain = new Rain()
 const beeper = new Beeper()
-homeView.group.add(shadow.mesh, dust.points)
+homeView.group.add(shadow.mesh, dust.points, rain.lines)
 shadow.mesh.visible = dust.points.visible = mode === 'fly'
 /** The view whose frame the scene is drawn in: the craft's reference body. Ship, shadow and dust live in it. */
 let refView = homeView
 function switchFrame(): void {
   refView = views.find((v) => v.body === craft.ref)!
-  refView.group.add(ship, shadow.mesh, dust.points)
+  refView.group.add(ship, shadow.mesh, dust.points, rain.lines)
   shadow.terrain = dust.terrain = chase.terrain = craft.terrain
   chase.snap()
 }
@@ -255,6 +263,7 @@ function placeBodies(t: number, frame: Body): void {
       const near = v.body === frame || v.rel.distanceTo(viewPos) < 40 * v.body.radius
       v.lod.group.visible = near
       if (v.water) v.water.group.visible = near
+      if (v.clouds) v.clouds.mesh.visible = near
       v.far.visible = !near
       if (near) {
         // The LOD thinks in the body's own frame: viewer relative to the body, un-spun.
@@ -312,6 +321,13 @@ renderer.setAnimationLoop((now) => {
     if (Math.abs(altitude) < 0.05) altitude = 0
     if (!off.has('shadow')) shadow.update(craft)
     if (!off.has('dust')) dust.update(dt, craft.pos, altitude, flame.visible)
+    // Weather at the craft.
+    dir.copy(craft.pos).normalize()
+    weatherFront = front(dir, craft.terrain, craft.time)
+    rainNow = craft.atmosphere() > 0 ? rainOf(weatherFront) : 0
+    cloudNow = craft.atmosphere() > 0 ? cloudOf(weatherFront) : 0
+    windNow = craft.wind.length()
+    if (!off.has('rain')) rain.update(dt, craft.pos, craft.wind, rainNow, craft.atmosphere())
     if (off.has('flame')) flame.visible = false
     beeper.update(now / 1000, altitude, flying)
 
@@ -330,7 +346,7 @@ renderer.setAnimationLoop((now) => {
     light(lights.s, `SLOPE ${slope.toFixed(0)}°`, slope < LAND_MAX_SLOPE, armed)
     altState.textContent = craft.state === 'landed' ? 'DOWN' : craft.state === 'crashed' ? 'CRASHED' : ''
     const rho = craft.atmosphere()
-    atmosEl.textContent = rho > 0 ? `ATMOS ${(rho * 100).toFixed(0)}%` : 'VACUUM'
+    atmosEl.textContent = rho > 0 ? `ATMOS ${(rho * 100).toFixed(0)}%   WIND ${windNow.toFixed(0)} m/s${rainNow > 0 ? `   RAIN ${(rainNow * 100).toFixed(0)}%` : cloudNow > 0.5 ? '   OVERCAST' : ''}` : 'VACUUM'
     atmosEl.className = rho > 0 ? '' : 'vacuum'
     // Nav markers once the ground stops being the obvious reference.
     const showNav = flying && (altitude > 80 || rho < 0.5)
@@ -352,6 +368,8 @@ renderer.setAnimationLoop((now) => {
       (craft.state === 'crashed' ? `contact: v↑ ${lc.vUp.toFixed(1)}  drift ${lc.vH.toFixed(1)}  tilt ${lc.tilt.toFixed(0)}°  slope ${lc.slope.toFixed(0)}°   (R to respawn)\n` : '') +
       `space thrust   shift boost   W/S tilt   A/D roll   Q/E yaw   , . side   / top   ' rear   X/Z assists   R respawn   M mute   drag orbit   wheel zoom   C reset   ${fps} fps   chunks ${refView.lod?.liveCount ?? 0}`
   } else {
+    setGroundClock(t)
+    weatherFront = -1; rainNow = 0; cloudNow = 0; windNow = 4
     dir.copy(free.pos).normalize()
     altitude = free.pos.length() - HOME.radius - height(dir, HOME)
     const speed = free.update(dt, altitude)
@@ -372,12 +390,18 @@ renderer.setAnimationLoop((now) => {
   const sinApp = Sky.apparentSunElevation(dir, sunDir, altitude, ft.radius)
   const sinDip = Math.sin(Math.acos(Math.min(1, ft.radius / (ft.radius + Math.max(0, altitude)))))
   const day = sky.update(dir, sunDir, density, sinApp, sinDip)
-  waterMat.update(mode === 'fly' ? craft.time : t, sunDir, day)
+  const simTime = mode === 'fly' ? craft.time : t
+  const hasMoon = mode === 'fly' && moonDirection(craft.terrain, craft.time, tmp)
+  waterMat.update(simTime, sunDir, day, windNow, hasMoon ? tmp : null, TIDE_AMPLITUDE)
+  if (mode === 'fly') refView.clouds?.update(craft.time, sunDir, day)
+  // Under cloud the light goes flat and grey; in rain the air thickens.
+  const overcast = cloudNow * density
   hemi.position.copy(dir) // the fill's "sky" is the local up, not scene +Y
-  hemi.intensity = 0.85 * (0.2 + 0.8 * day)
+  hemi.intensity = 0.85 * (0.2 + 0.8 * day) * (1 - 0.3 * overcast)
+  sunLight.intensity = 2.4 * (1 - 0.65 * overcast)
   sunLight.color.lerpColors(SUN_LOW, SUN_WHITE, Math.min(1, Math.max(0, (sinApp + 0.05) / 0.25)))
-  fog.color.copy(sky.horizon)
-  fog.density = 0.00055 * density
+  fog.color.copy(sky.horizon).lerp(GREY, overcast * 0.7)
+  fog.density = 0.00055 * density * (1 + 2.5 * rainNow + 0.8 * overcast)
 
   camera.quaternion.copy(viewQuat)
   renderer.render(scene, camera)

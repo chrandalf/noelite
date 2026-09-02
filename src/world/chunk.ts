@@ -33,12 +33,13 @@ export function buildChunk(f: Face, level: number, ix: number, iy: number, terra
   // once it is in a buffer, and at 2 km that costs nothing.
   const vx = new Float64Array(W * W * 3)
   const vh = new Float64Array(W * W)
+  const vd = new Float64Array(W * W) // water depth at the vertex, water chunks only
   let lowestLand = Infinity
   for (let j = 0; j < W; j++) {
     for (let i = 0; i < W; i++) {
       const p = faceToUnit(f, u0 + (s * i) / G, v0 + (s * j) / G)
       const h = height(p, terrain)
-      if (terrain.water && terrain.land) lowestLand = Math.min(lowestLand, height(p, terrain.land))
+      if (terrain.water && terrain.land) { const l = height(p, terrain.land); lowestLand = Math.min(lowestLand, l); vd[j * W + i] = h - l }
       const r = R + h
       const k = j * W + i
       vx[k * 3] = p.x * r
@@ -60,13 +61,14 @@ export function buildChunk(f: Face, level: number, ix: number, iy: number, terra
   const pos = new Float32Array(triCount * 9)
   const nor = new Float32Array(triCount * 9)
   const col = new Float32Array(triCount * 9)
+  const dep = terrain.water ? new Float32Array(triCount * 3) : null
   let t = 0
 
   const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3()
   const ab = new THREE.Vector3(), ac = new THREE.Vector3(), n = new THREE.Vector3(), up = new THREE.Vector3()
 
   // Emit one triangle from three planet-local points. `hAvg` colours it.
-  function tri(ax: number, ay: number, az: number, bx: number, by: number, bz: number, cx: number, cy: number, cz: number, hAvg: number, isSkirt: boolean) {
+  function tri(ax: number, ay: number, az: number, bx: number, by: number, bz: number, cx: number, cy: number, cz: number, hAvg: number, isSkirt: boolean, da = 0, db = 0, dc = 0) {
     a.set(ax, ay, az); b.set(bx, by, bz); c.set(cx, cy, cz)
     ab.subVectors(b, a); ac.subVectors(c, a)
     n.crossVectors(ab, ac).normalize()
@@ -87,6 +89,7 @@ export function buildChunk(f: Face, level: number, ix: number, iy: number, terra
       nor[o + q * 3] = n.x; nor[o + q * 3 + 1] = n.y; nor[o + q * 3 + 2] = n.z
       col[o + q * 3] = r; col[o + q * 3 + 1] = g; col[o + q * 3 + 2] = bl
     }
+    if (dep) { dep[t * 3] = da; dep[t * 3 + 1] = db; dep[t * 3 + 2] = dc }
     return t++
   }
   const P = (k: number) => [vx[k * 3], vx[k * 3 + 1], vx[k * 3 + 2]] as const
@@ -103,13 +106,13 @@ export function buildChunk(f: Face, level: number, ix: number, iy: number, terra
       const [p00, p10, p01, p11] = [P(k00), P(k10), P(k01), P(k11)]
       let t1: number, t2: number
       if ((i + j) % 2 === 0) {
-        t1 = tri(...p00, ...p10, ...p11, (vh[k00] + vh[k10] + vh[k11]) / 3, false)
-        t2 = tri(...p00, ...p11, ...p01, (vh[k00] + vh[k11] + vh[k01]) / 3, false)
+        t1 = tri(...p00, ...p10, ...p11, (vh[k00] + vh[k10] + vh[k11]) / 3, false, vd[k00], vd[k10], vd[k11])
+        t2 = tri(...p00, ...p11, ...p01, (vh[k00] + vh[k11] + vh[k01]) / 3, false, vd[k00], vd[k11], vd[k01])
         if (i === 0) edgeOwner.set(edgeKey(k00, k01), t2)
         if (i === G - 1) edgeOwner.set(edgeKey(k10, k11), t1)
       } else {
-        t1 = tri(...p00, ...p10, ...p01, (vh[k00] + vh[k10] + vh[k01]) / 3, false)
-        t2 = tri(...p10, ...p11, ...p01, (vh[k10] + vh[k11] + vh[k01]) / 3, false)
+        t1 = tri(...p00, ...p10, ...p01, (vh[k00] + vh[k10] + vh[k01]) / 3, false, vd[k00], vd[k10], vd[k01])
+        t2 = tri(...p10, ...p11, ...p01, (vh[k10] + vh[k11] + vh[k01]) / 3, false, vd[k10], vd[k11], vd[k01])
         if (i === 0) edgeOwner.set(edgeKey(k00, k01), t1)
         if (i === G - 1) edgeOwner.set(edgeKey(k10, k11), t2)
       }
@@ -126,8 +129,8 @@ export function buildChunk(f: Face, level: number, ix: number, iy: number, terra
       const ra = Math.hypot(ax, ay, az), rb = Math.hypot(bx, by, bz)
       const fa = (ra - skirtDepth) / ra, fb = (rb - skirtDepth) / rb
       const hAvg = (vh[kA] + vh[kB]) / 2
-      const s1 = tri(ax, ay, az, bx, by, bz, ax * fa, ay * fa, az * fa, hAvg, true)
-      const s2 = tri(bx, by, bz, bx * fb, by * fb, bz * fb, ax * fa, ay * fa, az * fa, hAvg, true)
+      const s1 = tri(ax, ay, az, bx, by, bz, ax * fa, ay * fa, az * fa, hAvg, true, vd[kA], vd[kB], vd[kA])
+      const s2 = tri(bx, by, bz, bx * fb, by * fb, bz * fb, ax * fa, ay * fa, az * fa, hAvg, true, vd[kB], vd[kB], vd[kA])
       const owner = edgeOwner.get(edgeKey(kA, kB))
       if (owner !== undefined) for (const st of [s1, s2]) {
         for (let q = 0; q < 9; q++) { nor[st * 9 + q] = nor[owner * 9 + (q % 3)]; col[st * 9 + q] = col[owner * 9 + (q % 3)] }
@@ -144,6 +147,7 @@ export function buildChunk(f: Face, level: number, ix: number, iy: number, terra
   geom.setAttribute('position', new THREE.BufferAttribute(pos, 3))
   geom.setAttribute('normal', new THREE.BufferAttribute(nor, 3))
   geom.setAttribute('color', new THREE.BufferAttribute(col, 3))
+  if (dep) geom.setAttribute('depth', new THREE.BufferAttribute(dep, 1))
   geom.computeBoundingSphere()
   return geom
 }

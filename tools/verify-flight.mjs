@@ -8,6 +8,7 @@ import { OrbitAutopilot } from '../src/engine/Autopilot.ts'
 import { findLandable, groundRadius } from '../src/world/terrain.ts'
 import { HOME, height } from '../src/world/height.ts'
 import { body, bodyVelocity, bodyPosition, bodySpin } from '../src/world/system.ts'
+import { wind } from '../src/world/weather.ts'
 import { FIXED_DT, DRAG, LAND_MAX_VSPEED, GROUND_EFFECT_HEIGHT, CRUISE_MAX, CRUISE_DECEL, CRUISE_SECONDS } from '../src/world/config.ts'
 const GRAVITY = HOME.g, ATMOSPHERE_HEIGHT = HOME.air
 const BODY_UP = new THREE.Vector3(0, 1, 0), BODY_FWD = new THREE.Vector3(0, 0, -1)
@@ -20,7 +21,8 @@ const T = (thrust, pitch = 0, roll = 0, yaw = 0, boost = 0, lateral = 0, vertica
 const pad = findLandable(new THREE.Vector3(0, 0, 1), HOME)
 // Level spawn: thrust is then exactly radial, so a no-steer autopilot comes back
 // down on the pad it left. The game spawns aligned to the slope, on purpose.
-const fresh = () => { const c = new Craft(HOME); c.spawnOn(pad, new THREE.Vector3(1, 0, 0), 'radial'); return c }
+// Weather off: these are flight tests. Test 22 turns it on.
+const fresh = () => { const c = new Craft(HOME); c.windy = false; c.spawnOn(pad, new THREE.Vector3(1, 0, 0), 'radial'); return c }
 /** Run until pred(craft) or maxSeconds. controller(t, craft) → Controls. Returns seconds elapsed. */
 function until(craft, pred, maxSeconds, controller) {
   let t = 0
@@ -204,7 +206,7 @@ const L1 = land()
 // 16. Stage C: the moon is a real place. Hang over it, fall, land, ride it, lift off with it.
 {
   const moon = body('home-1')
-  const c = new Craft(HOME); c.time = 5000
+  const c = new Craft(HOME); c.windy = false; c.time = 5000
   c.placeAbove(moon, new THREE.Vector3(0.2, 1, 0.3), 120)
   c.substep(FIXED_DT, IDLE)
   check('over the moon, the moon is the reference body', c.ref === moon && Math.abs(c.altitude() - 120) < 2, `${c.ref.name}, alt ${c.altitude().toFixed(1)} m`)
@@ -225,7 +227,7 @@ const L1 = land()
 }
 // 17. The reference body follows the sphere of influence.
 {
-  const c = new Craft(HOME); c.time = 5000
+  const c = new Craft(HOME); c.windy = false; c.time = 5000
   const dir = new THREE.Vector3(0, 0, 1)
   c.placeAbove(body('home'), dir, 4_000_000); c.substep(FIXED_DT, IDLE)
   const a = c.ref.name
@@ -236,7 +238,7 @@ const L1 = land()
 
 // 18. Supercruise: far from anything the cap is distance over CRUISE_SECONDS, thrust spools to it, a target ahead reels you in.
 {
-  const c = new Craft(HOME); c.time = 5000
+  const c = new Craft(HOME); c.windy = false; c.time = 5000
   c.placeAbove(body('home'), new THREE.Vector3(0, 0, 1), 5_000_000)
   const t = until(c, () => false, 20, () => T(1, 0, 0, 0, 1))
   const capFar = c.cruiseCap(c.proximity)
@@ -248,7 +250,7 @@ const L1 = land()
 // 19. The transfer: from 100 km over home, aim at the moon and boost. Pace is a design requirement.
 {
   const moon = body('home-1')
-  const c = new Craft(HOME); c.time = 5000
+  const c = new Craft(HOME); c.windy = false; c.time = 5000
   const toward = bodyPosition(moon, c.time).sub(bodyPosition(body('home'), c.time)).applyQuaternion(bodySpin(body('home'), c.time).invert()).normalize()
   c.placeAbove(body('home'), toward, 100_000)
   const q = new THREE.Quaternion(), tgt = new THREE.Vector3()
@@ -275,18 +277,19 @@ const L1 = land()
   }
   check('home has deep water somewhere', sea !== null)
   if (sea) {
-    const c = new Craft(HOME); c.time = 5000
+    const c = new Craft(HOME); c.windy = false; c.time = 5000
     c.placeAbove(body('home'), sea, 60)
     const t = until(c, (c) => c.state !== 'flying', 120, (t, c) => T(c.vUp() < -2 ? 1 : 0))
     const lc = c.lastContact
-    check('autopilot puts down on the sea and floats', c.state === 'landed' && Math.abs(c.pos.length() - (HOME.radius + HOME.sea + 1.6)) < 0.01 && lc.slope < 0.5, `${t.toFixed(1)} s, at ${(c.pos.length() - HOME.radius).toFixed(2)} m above datum (sea ${HOME.sea}), slope ${lc.slope.toFixed(2)}°, ground below the water ${(groundRadius(sea, HOME) - HOME.radius - height(sea, HOME)).toFixed(0)} m up from the floor`)
+    const surface = groundRadius(sea, HOME) - HOME.radius // sea level plus the tide at the craft's clock
+    check('autopilot puts down on the sea and floats on the tide', c.state === 'landed' && Math.abs(c.pos.length() - (HOME.radius + surface + 1.6)) < 0.01 && lc.slope < 0.5 && surface !== HOME.sea, `${t.toFixed(1)} s, floating at ${(c.pos.length() - HOME.radius - 1.6).toFixed(2)} m above datum, the tide there ${(surface - HOME.sea).toFixed(2)} m, ${(surface - height(sea, HOME)).toFixed(0)} m of water under it`)
   }
 }
 
 // 21. The orbit autopilot: from 150 km over the moon, park in a circular orbit and stay there.
 for (const [id, start] of [['home-1', 150_000], ['home', 400_000]]) {
   const b = body(id)
-  const c = new Craft(HOME); c.time = 5000
+  const c = new Craft(HOME); c.windy = false; c.time = 5000
   c.placeAbove(b, new THREE.Vector3(0.3, 0.5, 0.8), start)
   const ap = new OrbitAutopilot()
   const rPark = ap.parkRadius(c), vCirc = ap.parkSpeed(c)
@@ -298,6 +301,31 @@ for (const [id, start] of [['home-1', 150_000], ['home', 400_000]]) {
   let worst = 0
   until(c, () => false, Math.min(600, T), (t, c) => { worst = Math.max(worst, Math.abs(c.pos.length() - r0)); return ap.controls(c) })
   check(`and holds the orbit for ${Math.min(600, T).toFixed(0)} s (${(T / 60).toFixed(0)} min period)`, worst < 0.05 * (rPark - b.radius) && c.state === 'flying', `radius wandered ${(worst / 1000).toFixed(2)} km, now ${c.speed().toFixed(0)} m/s at ${(c.altitude() / 1000).toFixed(1)} km`)
+}
+
+// 22. Weather: a hovering craft is pushed by the wind, along the wind, and not without it.
+{
+  // The windiest spot on home at t = 5000, from a spiral of samples.
+  let best = { s: 0, d: null }
+  const w = new THREE.Vector3()
+  for (let k = 0; k < 3000; k++) {
+    const y = 1 - 2 * (k + 0.5) / 3000, r = Math.sqrt(1 - y * y), a = k * 2.399963
+    const d = new THREE.Vector3(r * Math.cos(a), y, r * Math.sin(a))
+    if (height(d, HOME) < HOME.sea + 3) continue
+    wind(d, HOME, 5000, w)
+    if (w.length() > best.s) best = { s: w.length(), d }
+  }
+  check('somewhere on home it is blowing a gale', best.s > 20, `${best.s.toFixed(1)} m/s`)
+  const run = (windy) => {
+    const c = new Craft(HOME); c.windy = windy; c.time = 5000
+    c.placeAbove(body('home'), best.d, 40)
+    until(c, () => false, 3, () => IDLE)
+    const vUp = c.vUp(), drift = new THREE.Vector3().copy(c.vel).addScaledVector(c.pos.clone().normalize(), -vUp)
+    return { c, drift }
+  }
+  const calm = run(false), gale = run(true)
+  const along = gale.drift.clone().normalize().dot(gale.c.wind.clone().normalize())
+  check('the wind pushes a falling craft downwind', gale.drift.length() > 1 && along > 0.9 && calm.drift.length() < 0.05, `drift ${gale.drift.length().toFixed(2)} m/s in 3 s (calm: ${calm.drift.length().toFixed(2)}), cos to wind ${along.toFixed(2)}, wind ${gale.c.wind.length().toFixed(1)} m/s`)
 }
 
 console.log(`\n${pass}/${pass + fail} checks`)

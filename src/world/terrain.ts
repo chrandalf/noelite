@@ -2,11 +2,23 @@
 // is a second source of truth about the surface.
 import * as THREE from 'three'
 import { height, type Terrain } from './height.ts'
+import { tide, oceanFade } from './weather.ts'
+
+/** Simulation time the ground queries use for the tide. The craft sets it every substep; main sets it every frame. */
+let clock = 0
+export function setGroundClock(t: number): void { clock = t }
+
+/** Height of the water surface above datum at d: sea level plus the tide, which only the deep water feels. */
+export function seaSurface(d: THREE.Vector3, t: Terrain, landHeight: number): number {
+  const sea = t.sea ?? 0
+  return sea + tide(d, t, clock) * oceanFade(sea - landHeight)
+}
 
 /** Distance from the planet centre to the ground in direction d (unit). Water counts as ground: you can put down on it. */
 export function groundRadius(d: THREE.Vector3, t: Terrain): number {
   const h = height(d, t)
-  return t.radius + (t.sea !== null && h < t.sea ? t.sea : h)
+  if (t.sea !== null && h < t.sea) return t.radius + seaSurface(d, t, h)
+  return t.radius + h
 }
 
 /** True where the ground is land, a few metres clear of the sea. */

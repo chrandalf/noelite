@@ -390,9 +390,23 @@ Every step is playable. That's the point of the ordering.
    from 150 km in 218 s, over home from 400 km in 239 s, holds to 80 m for ten minutes.
    Any control releases it. Snow went in the same commit: a snowline at 1.8 amplitudes
    falling to the shore at the poles, feathered, and it does not stick to cliffs.
-6. **Weather and tides** (Chris, 2026-09-02): wind as a velocity the air carries, felt
-   through the drag that already exists; waves from the wind; rain near the craft where
-   a seeded weather field says so; the tide as the moon bending sea level, two bulges.
+6. ~~**Weather, clouds and tides**~~ Done 2026-09-02 (`src/world/weather.ts`, `Rain.ts`,
+   `Clouds.ts`). One slow seeded noise in position and time per body is the FRONT, -1
+   calm to +1 storm. Wind blows along its contours (rotated gradient: divergence-free, it
+   swirls round systems) at 4 to 30 m/s with gusts, and the craft feels it through drag
+   against the moving air. Rain is streaks in a box round the craft where the front is
+   high; clouds are a shell at 0.6 airs whose faces take cover from the same front,
+   refreshed 256 faces a frame, so what is overhead is what is falling; under cloud the
+   sun dims, the fill greys, the fog thickens. The tide is the moon's two bulges, 2.5 m
+   (the real equilibrium tide at 1:159 is three millimetres), in the physics through
+   `seaSurface` with a ground clock the craft sets, and in the water shader. Chris's
+   correction held: every water vertex carries its depth, the swell only builds past
+   4 m and the tide past 10 m of water, so ponds and lakes lie flat; the shallows get a
+   short ripple running in toward the beach that breaks into foam. DRAG went from 0.012
+   to 0.004 (a 50 m/s terminal velocity, a vehicle rather than a feather) because a gale
+   against the old value would have shoved the craft at 11 m/s². The harnesses hold the
+   wind tangential and bounded, the tide's range, no wind on the moon, a gale pushing a
+   falling craft downwind and a calm not, and the craft floating on the tide.
 7. Stage D's remainder: the lock-view camera, the escape-the-system trigger. Forests.
 
 ## 9. Deferred

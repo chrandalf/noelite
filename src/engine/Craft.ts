@@ -16,7 +16,8 @@
 import * as THREE from 'three'
 import type { Terrain } from '../world/height.ts'
 import { terrainOf } from '../world/height.ts'
-import { groundRadius, surfaceNormal, slopeDeg } from '../world/terrain.ts'
+import { groundRadius, surfaceNormal, slopeDeg, setGroundClock } from '../world/terrain.ts'
+import { wind } from '../world/weather.ts'
 import { atmosphereDensity } from '../world/atmosphere.ts'
 import { SYSTEM, body, bodyPosition, bodyVelocity, bodySpin, type Body } from '../world/system.ts'
 import {
@@ -79,6 +80,10 @@ export class Craft {
   proximity = Infinity
   /** Metres to the surface of the target ahead, set by whoever knows the target; Infinity for none. Caps cruise too, so you arrive. */
   arrive = Infinity
+  /** Weather on. The harness turns it off for tests that are not about weather. */
+  windy = true
+  /** The wind at the craft, m/s, local frame. Zero in vacuum. */
+  readonly wind = new THREE.Vector3()
   landings = 0
   crashes = 0
   /** Set by the last contact, for the HUD and the harness. */
@@ -235,6 +240,7 @@ export class Craft {
   substep(h: number, c: Controls): void {
     this.thrusting = c.thrust > 0
     this.refChanged = false
+    setGroundClock(this.time)
     if (this.state !== 'flying') {
       if (this.state === 'landed' && (c.thrust > 0 || c.vertical > 0)) this.state = 'flying'
       else {
@@ -316,9 +322,14 @@ export class Craft {
       const vUp = this.vRel.dot(this.up)
       if (vUp < 0) this.acc.addScaledVector(this.up, -vUp * GROUND_EFFECT_DAMP * k)
     }
-    // Drag, against the air, which rides the body.
-    const speed = this.vRel.length()
-    if (rhoNow > 0 && speed > 0) this.acc.addScaledVector(this.vRel, -DRAG * rhoNow * speed)
+    // Drag, against the air, which rides the body and carries the wind.
+    if (rhoNow > 0) {
+      if (this.windy) wind(this.localDir, this.terrain, this.time, this.wind); else this.wind.set(0, 0, 0)
+      this.tmp.copy(this.wind).applyQuaternion(this.spin)
+      this.tmp.subVectors(this.vRel, this.tmp)
+      const speed = this.tmp.length()
+      if (speed > 0) this.acc.addScaledVector(this.tmp, -DRAG * rhoNow * speed)
+    } else this.wind.set(0, 0, 0)
 
     this.hvel.addScaledVector(this.acc, h)
     if (this.cruise) {
