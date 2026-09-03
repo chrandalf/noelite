@@ -99,13 +99,17 @@ export class Sound {
     if (!this.muted && ((this.lastGear < 0.97 && gear >= 0.97) || (this.lastGear > 0.06 && gear <= 0.06))) this.clunk()
     this.lastGear = gear; this.lastMorph = morph
     const throttle = on ? c.thrust * (1 + 0.6 * c.boost) : 0
+    // No air, no sound outside: as you climb, the engine drops toward what the hull alone
+    // carries into the cockpit, about half, and the filter above takes its top end.
+    // Chris, 2026-09-03: "once you get into space there would be no sound right?"
+    const airK = 0.45 + 0.55 * Math.min(1, rho * 3)
     // Hover engine only while hovering; cruise drive only in cruise. Both idle quietly when flying.
     const hover = on && !craft.cruise, cruise = on && craft.cruise
-    ramp(this.hoverGain!.gain, hover ? 0.05 + 0.32 * throttle : 0)
+    ramp(this.hoverGain!.gain, hover ? (0.05 + 0.32 * throttle) * airK : 0)
     ramp(this.hoverFilter!.frequency, 180 + 700 * throttle, 0.2)
-    ramp(this.subGain!.gain, hover ? 0.05 + 0.14 * throttle : 0)
+    ramp(this.subGain!.gain, hover ? (0.05 + 0.14 * throttle) * airK : 0)
     ramp(this.sub!.frequency, 48 + 26 * throttle, 0.3)
-    ramp(this.cruiseGain!.gain, cruise ? 0.03 + 0.09 * throttle : 0, 0.25)
+    ramp(this.cruiseGain!.gain, cruise ? (0.03 + 0.09 * throttle) * airK : 0, 0.25)
     ramp(this.cruiseA!.frequency, 82 + 30 * throttle, 0.4)
     ramp(this.cruiseB!.frequency, 123.5 + 45 * throttle, 0.4)
     // Wind: airspeed through air, in a slow band. Nothing in vacuum.
@@ -113,7 +117,7 @@ export class Sound {
     ramp(this.windGain!.gain, 0.25 * air * air, 0.2)
     ramp(this.windFilter!.frequency, 300 + 900 * air, 0.3)
     // RCS hiss.
-    const rcs = on && (c.lateral !== 0 || c.fore !== 0 || (c.vertical !== 0 && !craft.cruise)) ? 0.06 : 0
+    const rcs = on && (c.lateral !== 0 || c.fore !== 0 || (c.vertical !== 0 && !craft.cruise)) ? 0.06 * airK : 0
     ramp(this.rcsGain!.gain, rcs, 0.03)
     // The altimeter: a soft sine blip, only descending, under 60 m, quickening as the ground comes up.
     const descending = on && craft.vUp() < -1 && !craft.cruise
