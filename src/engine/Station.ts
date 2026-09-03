@@ -5,7 +5,7 @@
 import * as THREE from 'three'
 import { stationOf, PAD_RADIUS, STATION_RADIUS, type Terrain, type Station } from '../world/height.ts'
 
-export type StationView = { station: Station; group: THREE.Group; beacon: THREE.MeshLambertMaterial }
+export type StationView = { station: Station; group: THREE.Group; beacon: THREE.MeshLambertMaterial; lamps: THREE.MeshBasicMaterial; beam: THREE.Mesh }
 
 export function buildStation(t: Terrain): StationView | null {
   const st = stationOf(t)
@@ -77,10 +77,25 @@ export function buildStation(t: Terrain): StationView | null {
   const top = new THREE.Mesh(new THREE.SphereGeometry(2.4, 8, 6), beacon)
   top.position.set(towerAt.x, 31.5, towerAt.z)
   g.add(tower, top)
-  return { station: st, group: g, beacon }
+  // The beacon's beam: a long faint cone sweeping round like a lighthouse, apex at the lamp.
+  const beamGeo = new THREE.ConeGeometry(9, 260, 10, 1, true)
+  beamGeo.rotateZ(Math.PI / 2)        // apex at -x
+  beamGeo.translate(130, 0, 0)        // apex at the origin, base 260 m out along +x
+  beamGeo.rotateZ(-0.06)              // a touch downward
+  const beamMat = new THREE.MeshBasicMaterial({ color: 0xff5a4a, transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })
+  beamMat.name = 'beam'
+  const beam = new THREE.Mesh(beamGeo, beamMat)
+  beam.position.copy(top.position)
+  g.add(beam)
+  return { station: st, group: g, beacon, lamps: lampMat, beam }
 }
 
-/** Pulse the beacon: on for a fifth of every second and a half. */
-export function updateStation(v: StationView, t: number): void {
+const LAMP_DAY = new THREE.Color(0x5a5548), LAMP_NIGHT = new THREE.Color(0xfff1c0)
+/** Pulse the beacon, sweep the beam, and bring the lamps up as the day goes (`day` 1 noon, 0 night). */
+export function updateStation(v: StationView, t: number, day = 1): void {
   v.beacon.emissiveIntensity = (t % 1.5) < 0.3 ? 1.6 : 0.25
+  const night = 1 - Math.min(1, Math.max(0, (day - 0.15) / 0.35))
+  v.lamps.color.lerpColors(LAMP_DAY, LAMP_NIGHT, night)
+  v.beam.rotation.y = t * 0.9
+  ;(v.beam.material as THREE.MeshBasicMaterial).opacity = 0.04 + 0.26 * night
 }

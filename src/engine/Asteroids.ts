@@ -3,7 +3,7 @@
 // sprinkle of points so you can find it. Plus the gun's tracer, the burst when a
 // rock breaks, and the streak of fuel coming home from an ice rock.
 import * as THREE from 'three'
-import { ROCKS, rockPosition, fieldVelocity, type Rock } from '../world/asteroids.ts'
+import { ROCKS, FIELDS, rockPosition, fieldVelocity, type Rock } from '../world/asteroids.ts'
 import type { Bolt, BoltHit } from './Craft.ts'
 import { rng } from '../world/noise.ts'
 
@@ -175,15 +175,14 @@ export class Asteroids {
     const counts = new Array<number>(this.meshes.length).fill(0)
     let np = 0
     let overflow = 0
-    for (const r of ROCKS) {
+    for (const f of FIELDS) for (const r of f.rocks) {
       if (r.hp <= 0) continue
       rockPosition(r, t, this.p)
       const d = this.p.distanceTo(helio)
       if (d > POINT_RANGE) continue
       this.p.sub(frame).applyQuaternion(qInv).sub(viewPos)
       if (d > MESH_RANGE) {
-        this.pointPos[np * 3] = this.p.x; this.pointPos[np * 3 + 1] = this.p.y; this.pointPos[np * 3 + 2] = this.p.z
-        np++
+        if (np < ROCKS.length) { this.pointPos[np * 3] = this.p.x; this.pointPos[np * 3 + 1] = this.p.y; this.pointPos[np * 3 + 2] = this.p.z; np++ }
         continue
       }
       const k = r.shape * 2 + (r.ice ? 1 : 0)

@@ -20,7 +20,7 @@ import { groundRadius, surfaceNormal, slopeDeg, setGroundClock } from '../world/
 import { wind } from '../world/weather.ts'
 import { atmosphereDensity } from '../world/atmosphere.ts'
 import { SYSTEM, body, bodyPosition, bodyVelocity, bodySpin, type Body } from '../world/system.ts'
-import { nearestRock, sweep, fuelYield, fieldPosition, fieldVelocity, rockPosition, type Nearest, type Hit, type Rock } from '../world/asteroids.ts'
+import { nearestRock, sweep, fuelYield, breakRock, fieldPosition, fieldVelocity, rockPosition, type Nearest, type Hit, type Rock } from '../world/asteroids.ts'
 import {
   DRAG, THRUST_ACCEL, ANG_ACCEL, ANG_DAMP,
   HULL_CLEARANCE, LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE, FIXED_DT,
@@ -573,6 +573,7 @@ export class Craft {
           broke = true
           const reach = rockPosition(hit.rock, this.time, this.tmp).distanceTo(this.hpos)
           if (reach <= ICE_REACH) { fuel = Math.min(fuelYield(hit.rock), FUEL_TANK - this.fuel); this.fuel += fuel }
+          breakRock(hit.rock)
         }
         this.hits.push({ hit, broke, fuel })
         continue

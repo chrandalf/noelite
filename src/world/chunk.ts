@@ -6,6 +6,8 @@ import * as THREE from 'three'
 import { faceToUnit, type Face } from './cubesphere.ts'
 import { height, type Terrain } from './height.ts'
 import { terrainColour, facetJitter } from './palette.ts'
+/** Metres above the sea that stay wet between tides (the tide is 2.5 m). */
+const WET_BAND = 3.2
 
 export const CHUNK_GRID = 16
 
@@ -82,7 +84,12 @@ export function buildChunk(f: Face, level: number, ix: number, iy: number, terra
     const jitter = facetJitter(up.x * 977, up.y * 977, up.z * 977)
     const lat = up.x * terrain.axis.x + up.y * terrain.axis.y + up.z * terrain.axis.z
     const hNorm = terrain.amplitude ? hAvg / terrain.amplitude : 0
-    const [r, g, bl] = terrainColour(terrain.kind, hNorm, slope, jitter, lat, terrain.sea === null || !terrain.amplitude ? hNorm : (hAvg - terrain.sea) / terrain.amplitude)
+    let [r, g, bl] = terrainColour(terrain.kind, hNorm, slope, jitter, lat, terrain.sea === null || !terrain.amplitude ? hNorm : (hAvg - terrain.sea) / terrain.amplitude)
+    // The tide line: ground within the tide's reach of the sea is wet, and wet sand is dark.
+    if (terrain.sea !== null && !terrain.water) {
+      const wet = 1 - Math.min(1, Math.max(0, (hAvg - terrain.sea - 0.5) / WET_BAND))
+      if (wet > 0) { const k = 1 - 0.28 * wet; r *= k; g *= k; bl *= k }
+    }
     const o = t * 9
     pos[o] = ax; pos[o + 1] = ay; pos[o + 2] = az
     pos[o + 3] = bx; pos[o + 4] = by; pos[o + 5] = bz

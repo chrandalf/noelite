@@ -33,13 +33,23 @@ export class Dust {
     this.points.renderOrder = 3
   }
 
+  /** A one-off puff off the ground under the craft: touchdown, lift-off. */
+  burst(craftPos: THREE.Vector3, count: number): void { this.emit(count, craftPos, 1) }
+
   /** Call every frame. Emits while `burning` within `reach` metres of the ground under `craftPos`. */
   update(dt: number, craftPos: THREE.Vector3, feetAltitude: number, burning: boolean, reach = 14): void {
     if (burning && feetAltitude < reach) {
       const k = 1 - Math.max(0, feetAltitude) / reach
       this.carry += 110 * k * dt
       const count = Math.floor(this.carry); this.carry -= count
-      if (count) {
+      if (count) this.emit(count, craftPos, k)
+    }
+    this.settle(dt)
+  }
+
+  private emit(count: number, craftPos: THREE.Vector3, k: number): void {
+    {
+      {
         this.dir.copy(craftPos).normalize()
         this.ax.set(Math.abs(this.dir.x) < 0.9 ? 1 : 0, Math.abs(this.dir.x) < 0.9 ? 0 : 1, 0)
         this.t1.crossVectors(this.ax, this.dir).normalize()
@@ -57,6 +67,9 @@ export class Dust {
         }
       }
     }
+  }
+
+  private settle(dt: number): void {
     const damp = Math.exp(-2.2 * dt)
     for (let j = 0; j < N; j++) {
       if (this.life[j] <= 0) continue

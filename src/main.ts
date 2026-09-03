@@ -30,6 +30,7 @@ import { ChaseCam } from './engine/ChaseCam.ts'
 import { buildCraftMesh } from './engine/craftMesh.ts'
 import { GroundShadow } from './engine/GroundShadow.ts'
 import { Dust } from './engine/Dust.ts'
+import { Marks } from './engine/Marks.ts'
 import { Sound } from './engine/Sound.ts'
 import { Sky } from './engine/Sky.ts'
 import { NavMarkers } from './engine/NavMarkers.ts'
@@ -49,7 +50,7 @@ import { Clouds } from './engine/Clouds.ts'
 import { CloudPuffs } from './engine/CloudPuffs.ts'
 import { front, rainOf, cloudOf, moonDirection, TIDE_AMPLITUDE } from './world/weather.ts'
 import { setGroundClock } from './world/terrain.ts'
-import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE , FUEL_TANK, HULL_LIMIT, HULL_WARN, HULL_GLOW, CLOUD_BASE_FRAC } from './world/config.ts'
+import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE , FUEL_TANK, HULL_CLEARANCE, HULL_LIMIT, HULL_WARN, HULL_GLOW, CLOUD_BASE_FRAC } from './world/config.ts'
 
 const q = new URLSearchParams(location.search)
 const mode: 'fly' | 'free' = q.get('mode') === 'free' ? 'free' : 'fly'
@@ -81,6 +82,8 @@ const hemi = new THREE.HemisphereLight(0x9ec5ff, 0x3f5f2e, 0.85)
 scene.add(sunLight, hemi)
 const SUN_WHITE = new THREE.Color(0xfff2dc), SUN_LOW = new THREE.Color(0xffa060), GREY = new THREE.Color(0.58, 0.61, 0.65)
 let weatherFront = -1, rainNow = 0, cloudNow = 0, windNow = 0
+/** Last frame's daylight at the viewer, 1 noon, 0 night. */
+let dayNow = 1
 
 // flatShading is deliberately OFF. With it on, Three ignores the normal
 // attribute and derives normals from screen-space derivatives, which lit every
@@ -146,6 +149,11 @@ const views: BodyView[] = SYSTEM.map((b) => {
   }
   return { body: b, terrain, group, far, lod, water, clouds, shellSun, rel: new THREE.Vector3() }
 })
+// Far spheres (the moon in the sky, the planets) are lit by the sun alone: the hemisphere
+// fill is the local sky and would light the moon's night side. Layer 1 has the sun and no fill.
+for (const v of views) if (v.body.kind !== 'sun') v.far.layers.set(1)
+sunLight.layers.enable(1)
+camera.layers.enable(1)
 const homeView = views.find((v) => v.body === home)!
 const sunView = views.find((v) => v.body === sunBody)!
 /** Home's LOD, for the harness and the HUD. */
@@ -159,7 +167,7 @@ chase.orbitPitch = Math.min(ChaseCam.MAX_PITCH, Math.max(-ChaseCam.MAX_PITCH, Nu
 chase.orbitYaw = Number(q.get('yaw') ?? 0)
 const shipMaterial = new THREE.MeshLambertMaterial({ vertexColors: true })
 shipMaterial.name = 'ship'
-const { root: ship, flame, rcs, gear, morph, strobe } = buildCraftMesh(shipMaterial)
+const { root: ship, flame, rcs, gear, morph, strobe, glowMats, plasma, haze } = buildCraftMesh(shipMaterial)
 /** 0 dart, 1 TIE. Follows the craft's cruise flag over about a second and a half. */
 let morphed = 0
 /** 1 down, 0 up. Goes up above GEAR_ALT over the ground, down below it, over about a second. */
@@ -178,16 +186,19 @@ const pad = new THREE.Vector3(padSite.dir.x, padSite.dir.y, padSite.dir.z)
 { const padMesh = buildPad(HOME); if (padMesh) homeView.group.add(padMesh) }
 const shadow = new GroundShadow(HOME)
 const dust = new Dust(HOME)
+const marks = new Marks()
+/** Last frame's state, for the touchdown and lift-off moments. */
+let lastState: 'landed' | 'flying' | 'crashed' = 'landed'
 const rain = new Rain()
 const puffs = new CloudPuffs()
 const sound = new Sound()
-homeView.group.add(shadow.mesh, dust.points, rain.lines, puffs.mesh)
+homeView.group.add(shadow.mesh, dust.points, rain.lines, puffs.mesh, puffs.shadows, marks.group)
 shadow.mesh.visible = dust.points.visible = mode === 'fly'
 /** The view whose frame the scene is drawn in: the craft's reference body. Ship, shadow and dust live in it. */
 let refView = homeView
 function switchFrame(): void {
   refView = views.find((v) => v.body === craft.ref)!
-  refView.group.add(shadow.mesh, dust.points, rain.lines, puffs.mesh)
+  refView.group.add(shadow.mesh, dust.points, rain.lines, puffs.mesh, puffs.shadows, marks.group)
   shadow.terrain = dust.terrain = chase.terrain = craft.terrain
   chase.snap()
 }
@@ -362,7 +373,7 @@ function placeBodies(t: number, frame: Body): void {
       tg.rel.set(st.site.dir.x, st.site.dir.y, st.site.dir.z).multiplyScalar(view.body.radius + st.site.h).applyQuaternion(view.group.quaternion).add(view.rel)
     }
   }
-  for (const s of stationViews) updateStation(s.sv, t)
+  for (const s of stationViews) updateStation(s.sv, t, dayNow)
   // The sun, from the viewer.
   sunDir.copy(sunView.rel).sub(viewPos).normalize()
   sunLight.position.copy(sunView.rel).sub(viewPos)
@@ -426,6 +437,13 @@ renderer.setAnimationLoop((now) => {
     if (Math.abs(altitude) < 0.05) altitude = 0
     if (!off.has('shadow')) shadow.update(craft)
     if (!off.has('dust')) dust.update(dt, craft.pos, altitude, flame.visible)
+    // Touchdown: a puff and a scuff. Lift-off: a puff.
+    if (craft.state !== lastState) {
+      if (craft.state === 'landed' && craft.atmosphere() >= 0 && !craft.hitRock) { dust.burst(craft.pos, 70); marks.add(craft.pos.clone().addScaledVector(dir.copy(craft.pos).normalize(), -HULL_CLEARANCE), dir, now / 1000) }
+      if (craft.state === 'flying' && lastState === 'landed') dust.burst(craft.pos, 40)
+      lastState = craft.state
+    }
+    marks.update(now / 1000)
     // Weather at the craft.
     dir.copy(craft.pos).normalize()
     weatherFront = front(dir, craft.terrain, craft.time)
@@ -470,6 +488,17 @@ renderer.setAnimationLoop((now) => {
       hullEl.className = 'atmos ' + (over > 1 ? 'dry' : over > HULL_WARN ? 'low' : '')
       const glow = Math.min(1, Math.max(0, (over - HULL_GLOW) / (HULL_WARN - HULL_GLOW)))
       shipMaterial.emissive.copy(GLOW).multiplyScalar(glow * 0.9)
+      for (const m of glowMats) m.emissive.copy(GLOW).multiplyScalar(glow * 0.7)
+      // The plasma streak: behind the ship, longer and brighter with the glow, flickering.
+      plasma.visible = glow > 0.02 && flying
+      if (plasma.visible) {
+        const len = (25 + 70 * glow) * (0.9 + 0.2 * Math.random())
+        plasma.scale.set(2.2 + 2 * glow, 2.2 + 2 * glow, len)
+        ;(plasma.material as THREE.MeshBasicMaterial).opacity = 0.25 * glow + 0.15 * glow * Math.random()
+      }
+      // Hot exhaust under the hover engine, near the ground.
+      haze.visible = flame.visible && altitude < 40
+      if (haze.visible) haze.scale.set(0.9 + 0.3 * Math.random(), 0.8 + 0.5 * Math.random(), 0.9 + 0.3 * Math.random())
     }
     // Nav markers once the ground stops being the obvious reference.
     const showNav = flying && (altitude > 80 || rho < 0.5)
@@ -529,6 +558,7 @@ renderer.setAnimationLoop((now) => {
   const sinApp = ft.kind === 'sun' ? 1 : Sky.apparentSunElevation(dir, sunDir, altitude, ft.radius)
   const sinDip = Math.sin(Math.acos(Math.min(1, ft.radius / (ft.radius + Math.max(0, altitude)))))
   const day = sky.update(dir, sunDir, density, sinApp, sinDip)
+  dayNow = day
   const simTime = mode === 'fly' ? craft.time : t
   const hasMoon = mode === 'fly' && moonDirection(craft.terrain, craft.time, tmp)
   waterMat.update(simTime, sunDir, day, windNow, hasMoon ? tmp : null, TIDE_AMPLITUDE)

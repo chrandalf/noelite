@@ -8,6 +8,7 @@
 // you move. The shell (Clouds.ts) carries the cover at a distance and fades out near.
 import * as THREE from 'three'
 import { CLOUD_BASE_FRAC } from '../world/config.ts'
+import { groundRadius } from '../world/terrain.ts'
 import type { Terrain } from '../world/height.ts'
 import { cubeToFace, faceToUnit } from '../world/cubesphere.ts'
 import { cloudCover } from '../world/weather.ts'
@@ -16,6 +17,7 @@ import { rng } from '../world/noise.ts'
 const CELL_LEVEL = 6 // cells of ~500 m on a 40 km world
 const REACH = 7500 // metres round the camera
 const SITES = 3
+const MAX_SITES = 400
 const MAX = 9000
 const SQUASH = 0.42
 
@@ -62,6 +64,9 @@ export class CloudPuffs {
   private readonly s2 = new THREE.Vector3()
   private readonly Y = new THREE.Vector3(0, 1, 0)
 
+  /** One dark disc on the ground under each cloudy site: the cluster's shadow. */
+  readonly shadows: THREE.InstancedMesh
+
   constructor() {
     const mat = new THREE.MeshLambertMaterial({ vertexColors: true })
     mat.name = 'cloud'
@@ -69,14 +74,27 @@ export class CloudPuffs {
     this.mesh.count = 0
     this.mesh.frustumCulled = false
     this.mesh.renderOrder = 1
+    const shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })
+    shadowMat.name = 'cloud-shadow'
+    const disc = new THREE.CircleGeometry(1, 14)
+    disc.rotateX(-Math.PI / 2)          // flat, facing +y, so the site's up quaternion lays it on the ground
+    this.shadows = new THREE.InstancedMesh(disc, shadowMat, MAX_SITES)
+    this.shadows.count = 0
+    this.shadows.frustumCulled = false
+    this.shadows.renderOrder = 1
   }
+  private readonly sq = new THREE.Quaternion()
+  private readonly ss = new THREE.Vector3()
+  private readonly sp = new THREE.Vector3()
 
   /** `at`: viewer in the body's frame. Rebuilds when you have moved 300 m, the body changed, or two seconds passed. */
   update(at: THREE.Vector3, t: Terrain, time: number): void {
-    if (t.air <= 0) { this.mesh.count = 0; this.mesh.visible = false; return }
+    if (t.air <= 0) { this.mesh.count = 0; this.mesh.visible = false; this.shadows.count = 0; this.shadows.visible = false; return }
     if (t.id === this.lastId && at.distanceTo(this.lastAt) < 300 && time - this.lastTime < 2) return
     this.lastAt.copy(at); this.lastTime = time; this.lastId = t.id
     this.mesh.visible = true
+    this.shadows.visible = true
+    let nShadow = 0
     const base = t.radius + t.air * CLOUD_BASE_FRAC
     this.up.copy(at).normalize()
     this.ax.set(Math.abs(this.up.x) < 0.9 ? 1 : 0, Math.abs(this.up.x) < 0.9 ? 0 : 1, 0)
@@ -112,6 +130,14 @@ export class CloudPuffs {
         const lobes = 4 + Math.round(8 * grow)
         const spread = 90 + 220 * grow
         const big = 95 + 120 * grow
+        // The shadow: a disc the size of the deck, on the ground straight under the site.
+        if (nShadow < MAX_SITES) {
+          this.sp.copy(this.site).multiplyScalar(groundRadius(this.site, t) + 2.5)
+          this.sq.setFromUnitVectors(this.Y, this.site)
+          const rad = (spread + big * 0.6) * (0.9 + 0.3 * grow)
+          this.ss.set(rad * (1 + 0.5 * Math.abs(Math.cos(seedC * Math.PI))), 1, rad * (1 + 0.5 * Math.abs(Math.sin(seedC * Math.PI))))
+          this.shadows.setMatrixAt(nShadow++, this.m.compose(this.sp, this.sq, this.ss))
+        }
         const local = rng((seedA * 4294967296) >>> 0 ^ Math.floor(seedB * 65536))
         const street = seedC * Math.PI // clusters stretch along one heading, the way streets do
         for (let l = 0; l < lobes && count < MAX; l++) {
@@ -132,5 +158,7 @@ export class CloudPuffs {
     }
     this.mesh.count = count
     this.mesh.instanceMatrix.needsUpdate = true
+    this.shadows.count = nShadow
+    this.shadows.instanceMatrix.needsUpdate = true
   }
 }

@@ -86,7 +86,7 @@ export type Gear = THREE.Group[]
 export type Morph = { set: (m: number) => void; cruiseFlames: THREE.Mesh[] }
 
 /** Ship plus an engine flame that shows while thrusting, and four small RCS puffs. */
-export function buildCraftMesh(material: THREE.Material): { root: THREE.Group; flame: THREE.Mesh; rcs: Rcs; gear: Gear; morph: Morph; strobe: THREE.Mesh } {
+export function buildCraftMesh(material: THREE.Material): { root: THREE.Group; flame: THREE.Mesh; rcs: Rcs; gear: Gear; morph: Morph; strobe: THREE.Mesh; glowMats: THREE.MeshLambertMaterial[]; plasma: THREE.Mesh; haze: THREE.Mesh } {
   const root = new THREE.Group()
   root.add(new THREE.Mesh(buildCraftGeometry(), material))
   // Trim: two engine nozzles on the back face and the navigation lights on the wingtips.
@@ -205,5 +205,27 @@ export function buildCraftMesh(material: THREE.Material): { root: THREE.Group; f
     },
   }
   morph.set(0)
-  return { root, flame, rcs, gear, morph, strobe }
+  // Re-entry: the hull glow spreads to the panels, spars, nozzles and legs (main drives
+  // emissive on all of these), and a plasma streak trails behind the ship.
+  const glowMats = [panelMat, sparMat, metal, legMat]
+  const plasmaGeo = new THREE.ConeGeometry(1, 1, 8, 1, true)
+  plasmaGeo.rotateX(Math.PI / 2)      // apex backwards (+z); base at the hull
+  plasmaGeo.translate(0, 0, 0.5)
+  const plasmaMat = new THREE.MeshBasicMaterial({ color: 0xff7a2a, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })
+  plasmaMat.name = 'plasma'
+  const plasma = new THREE.Mesh(plasmaGeo, plasmaMat)
+  plasma.position.set(0, 0.2, 2.2)
+  plasma.visible = false
+  root.add(plasma)
+  // Hot exhaust under the hover engine: a faint additive cone that flickers. Not a true
+  // shimmer (that needs a distortion pass), but it reads as hot air.
+  const hazeGeo = new THREE.ConeGeometry(2.4, 9, 8, 1, true)
+  hazeGeo.translate(0, -4.5, 0)       // apex at the nozzle, opening downward
+  const hazeMat = new THREE.MeshBasicMaterial({ color: 0xffc890, transparent: true, opacity: 0.07, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })
+  hazeMat.name = 'haze'
+  const haze = new THREE.Mesh(hazeGeo, hazeMat)
+  haze.position.set(0, -0.9, 0.9)
+  haze.visible = false
+  root.add(haze)
+  return { root, flame, rcs, gear, morph, strobe, glowMats, plasma, haze }
 }

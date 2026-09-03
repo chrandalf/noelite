@@ -50,6 +50,8 @@ export type Rock = {
   shape: number
   spinAxis: THREE.Vector3
   spinRate: number
+  /** True for a piece of a broken rock. Chunks do not split again, and resetRocks removes them. */
+  chunk?: boolean
 }
 
 const TWO_PI = Math.PI * 2
@@ -254,6 +256,31 @@ export function sweep(p: THREE.Vector3, v: THREE.Vector3, h: number, t: number):
   return best
 }
 
+let nextChunkId = 1_000_000
+const chunkRng = rng(0x4348554e)
+
+/**
+ * A rock breaks into pieces: three to five chunks of a quarter to a half its radius,
+ * scattered a radius or two out, still in the field's frame, shootable in turn. Chris,
+ * 2026-09-03: "rock breaks should leave a few large tumbling chunks ... shootable."
+ * Rocks under 20 m just go to dust.
+ */
+export function breakRock(r: Rock): Rock[] {
+  const out: Rock[] = []
+  if (r.radius < 20) return out
+  const n = 3 + Math.floor(chunkRng() * 3)
+  for (let i = 0; i < n; i++) {
+    const d = new THREE.Vector3(chunkRng() - 0.5, chunkRng() - 0.5, chunkRng() - 0.5).normalize()
+    const radius = r.radius * (0.25 + 0.2 * chunkRng())
+    const off = r.offset.clone().addScaledVector(d, r.radius * (1.3 + 1.2 * chunkRng()))
+    const ax = new THREE.Vector3(chunkRng() - 0.5, chunkRng() - 0.5, chunkRng() - 0.5).normalize()
+    const c: Rock = { id: nextChunkId++, field: r.field, offset: off, radius, ice: r.ice, hp: 1, shape: Math.floor(chunkRng() * 3), spinAxis: ax, spinRate: (0.3 + 0.6 * chunkRng()) * (chunkRng() < 0.5 ? -1 : 1), chunk: true }
+    r.field.rocks.push(c)
+    out.push(c)
+  }
+  return out
+}
+
 /** Units of fuel an ice rock gives up when it breaks. Stone gives nothing (ore, later). */
 export function fuelYield(r: Rock): number {
   return r.ice ? Math.min(ICE_FUEL_MAX, r.radius * ICE_FUEL_PER_METRE) : 0
@@ -261,7 +288,7 @@ export function fuelYield(r: Rock): number {
 
 /** Everything back to unbroken. The harness uses it between tests. */
 export function resetRocks(): void {
-  for (const r of ROCKS) r.hp = 1 + Math.floor(r.radius * ROCK_HP_PER_METRE)
+  for (const f of FIELDS) { f.rocks = f.rocks.filter((r) => !r.chunk); for (const r of f.rocks) r.hp = 1 + Math.floor(r.radius * ROCK_HP_PER_METRE) }
 }
 
 export function fieldOf(id: string): Field { const f = FIELDS.find((x) => x.id === id); if (!f) throw new Error(`no field ${id}`); return f }
