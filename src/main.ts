@@ -150,7 +150,9 @@ const chase = new ChaseCam(HOME)
 chase.orbitPitch = Math.min(ChaseCam.MAX_PITCH, Math.max(-ChaseCam.MAX_PITCH, Number(q.get('pitch') ?? 0)))
 const shipMaterial = new THREE.MeshLambertMaterial({ vertexColors: true })
 shipMaterial.name = 'ship'
-const { root: ship, flame, rcs, gear } = buildCraftMesh(shipMaterial)
+const { root: ship, flame, rcs, gear, morph } = buildCraftMesh(shipMaterial)
+/** 0 dart, 1 TIE. Follows the craft's cruise flag over about a second and a half. */
+let morphed = 0
 /** 1 down, 0 up. Goes up above GEAR_ALT over the ground, down below it, over about a second. */
 let gearDown = 1
 const GEAR_ALT = 100
@@ -319,8 +321,12 @@ renderer.setAnimationLoop((now) => {
     if (craft.state === 'crashed') { crashedAt ??= now; if (now - crashedAt > 2000) respawn() }
     ship.position.copy(craft.pos)
     ship.quaternion.copy(craft.quat)
-    flame.visible = craft.thrusting && craft.state === 'flying'
     const flying = craft.state === 'flying'
+    morphed += ((craft.cruise ? 1 : 0) - morphed) * Math.min(1, dt / 0.5)
+    morph.set(morphed)
+    // The hover engine fires down; in cruise the boosters fire back. Hand over halfway through the morph.
+    flame.visible = craft.thrusting && flying && morphed < 0.5
+    for (const f of morph.cruiseFlames) f.visible = craft.thrusting && flying && morphed >= 0.5
     rcs.right.visible = flying && c.lateral < 0
     rcs.left.visible = flying && c.lateral > 0
     rcs.top.visible = flying && c.vertical < 0
@@ -345,7 +351,7 @@ renderer.setAnimationLoop((now) => {
     windNow = craft.wind.length()
     if (!off.has('rain')) rain.update(dt, craft.pos, craft.wind, rainNow, craft.atmosphere())
     if (!off.has('clouds')) puffs.update(craft.pos, craft.terrain, craft.time)
-    if (off.has('flame')) flame.visible = false
+    if (off.has('flame')) { flame.visible = false; for (const f of morph.cruiseFlames) f.visible = false }
     beeper.update(now / 1000, altitude, flying)
 
     // Altimeter and the four landing lights. They arm below 60 m so they mean something.

@@ -76,9 +76,17 @@ export function buildCraftGeometry(): THREE.BufferGeometry {
 export type Rcs = { left: THREE.Mesh; right: THREE.Mesh; top: THREE.Mesh; rear: THREE.Mesh }
 /** Three landing legs, each a group hinged at the hull; scale.y is how far down it is (1 down, ~0 up). */
 export type Gear = THREE.Group[]
+/**
+ * The TIE morph. Chris, 2026-09-03: "the ship should morph into a different shape when it
+ * goes into space, more like a tie fighter." Four wing panels hinged at the wingtips (an
+ * upper and a lower each side) lie folded into the wing in air and swing out to vertical
+ * in cruise; two boosters slide out of the back and carry the cruise flame. main drives
+ * `set(morph)` from the craft's cruise flag, 0 dart, 1 TIE.
+ */
+export type Morph = { set: (m: number) => void; cruiseFlames: THREE.Mesh[] }
 
 /** Ship plus an engine flame that shows while thrusting, and four small RCS puffs. */
-export function buildCraftMesh(material: THREE.Material): { root: THREE.Group; flame: THREE.Mesh; rcs: Rcs; gear: Gear } {
+export function buildCraftMesh(material: THREE.Material): { root: THREE.Group; flame: THREE.Mesh; rcs: Rcs; gear: Gear; morph: Morph } {
   const root = new THREE.Group()
   root.add(new THREE.Mesh(buildCraftGeometry(), material))
   // Trim: two engine nozzles on the back face and the navigation lights on the wingtips.
@@ -135,5 +143,61 @@ export function buildCraftMesh(material: THREE.Material): { root: THREE.Group; f
     top: puff(0, 1.8, 0.9, 0, 0, 0),                // fires up, pushes down
     rear: puff(0, 0, 3.3, Math.PI / 2, 0, 0),       // fires backward, pushes forward
   }
-  return { root, flame, rcs, gear }
+  // Wing panels. Each is a hexagonal plate on a hinge at the wingtip, extending along
+  // its own +y (upper) or -y (lower). Folded, it is rotated flat into the wing and scaled
+  // to a stub so the dart stays a dart; unfolded, it stands vertical and full size.
+  const panelMat = new THREE.MeshLambertMaterial({ color: 0x23262d })
+  panelMat.name = 'panel'
+  const sparMat = new THREE.MeshLambertMaterial({ color: 0x5a5e68 })
+  sparMat.name = 'spar'
+  const panels: { g: THREE.Group; fold: number }[] = []
+  const panel = (x: number, dir: 1 | -1) => {
+    const g = new THREE.Group()
+    g.position.set(x, 0.05, 1.7)
+    const hex = new THREE.CylinderGeometry(1.55, 1.55, 0.12, 6)
+    hex.rotateZ(Math.PI / 2)                             // hexagon in the y-z plane, thin along x
+    hex.rotateX(Math.PI / 6)                             // a point up and down, flats fore and aft
+    const plate = new THREE.Mesh(hex, panelMat)
+    plate.position.y = dir * 1.75
+    const spar = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.13, 3.3, 5), sparMat)
+    spar.position.set(dir * 0.0, dir * 1.65, 0)
+    const rib = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 2.9), sparMat)
+    rib.position.y = dir * 1.75
+    g.add(plate, spar, rib)
+    root.add(g)
+    // Fold: swing the panel's own axis (±y) inward to lie along the wing (toward x = 0).
+    const inward = x < 0 ? 1 : -1                       // +x for the left tip, -x for the right
+    const fold = -dir * inward * Math.PI / 2
+    panels.push({ g, fold })
+  }
+  panel(-3.3, 1); panel(-3.3, -1); panel(3.3, 1); panel(3.3, -1)
+  // Boosters: two drums that live inside the tail and slide out the back in cruise.
+  const boosters: THREE.Mesh[] = []
+  const cruiseFlames: THREE.Mesh[] = []
+  for (const x of [-1.0, 1.0]) {
+    const b = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.36, 1.5, 6), metal)
+    b.position.set(x, 0.2, 1.85); b.rotation.x = Math.PI / 2
+    root.add(b); boosters.push(b)
+    const f = new THREE.Mesh(new THREE.ConeGeometry(0.42, 3.2, 6), flameMat)
+    f.rotation.x = Math.PI / 2                           // apex backwards, out of the nozzle
+    f.visible = false
+    root.add(f); cruiseFlames.push(f)
+  }
+  const morph: Morph = {
+    cruiseFlames,
+    set: (m: number) => {
+      const t = Math.min(1, Math.max(0, m))
+      for (const { g, fold } of panels) {
+        g.rotation.z = fold * (1 - t)
+        g.scale.y = 0.05 + 0.95 * t
+        g.scale.z = 0.25 + 0.75 * t
+      }
+      for (let i = 0; i < boosters.length; i++) {
+        boosters[i].position.z = 1.85 + 1.55 * t
+        cruiseFlames[i].position.set(boosters[i].position.x, 0.2, boosters[i].position.z + 0.75 + 1.6)
+      }
+    },
+  }
+  morph.set(0)
+  return { root, flame, rcs, gear, morph }
 }
