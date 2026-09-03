@@ -636,6 +636,18 @@ Every step is playable. That's the point of the ordering.
    the ship 65° into the ground; and the assist was firing the engine after the dry-tank
    gate. Falling with the assist off is still fatal (harness 3), which is the wreck
    crashes will want.
+15. ~~**The outpost.**~~ Done 2026-09-03 (`engine/Base.ts`, `BASE_RADIUS`). Chris: "put a
+   base around the starting landing pad, make it look quite densely populated and to
+   scale based on the size of the ship." The pad's flat ground is now a 130 m apron with
+   a 40 m ramp (the site search asks for flat over 40 m and looks three times further).
+   On it, seeded from the body: a ring road and an outer road with six radial paths, two
+   hangars with barrel roofs and 12 m doors toward the pad (the dart is 6.6 m across),
+   thirty habitat blocks stacked one to three storeys with lit panes, seven domes, four
+   fuel tanks on a walkway with orange bands, a 34 m comms mast with a turning dish and a
+   blinking red light, lamp masts round both roads, approach lights round the pad, a
+   perimeter fence with gaps for the road, pipe runs on trestles, seventy crates. Lamps
+   and windows come up at night. Every body with a pad gets one. `?over=home:230` now
+   hangs you over the pad, so it is the base from the air.
    Next: crashes with debris and a repair bill, then cargo.
 
 ## 9. Deferred

@@ -37,6 +37,7 @@ import { NavMarkers } from './engine/NavMarkers.ts'
 import { waterOf, height, HOME, terrainOf, padOf, stationOf, type Terrain, type Station } from './world/height.ts'
 import { buildPad } from './engine/Pad.ts'
 import { buildStation, updateStation, type StationView } from './engine/Station.ts'
+import { buildBase, updateBase, type BaseView } from './engine/Base.ts'
 import { slopeDeg } from './world/terrain.ts'
 import { atmosphereDensity, buildAtmosphereShell } from './world/atmosphere.ts'
 import { SYSTEM, body, bodyPosition, bodySpin, type Body } from './world/system.ts'
@@ -262,7 +263,9 @@ if (q.get('fuel') !== null) craft.fuel = Math.max(0, Math.min(FUEL_TANK, Number(
   if (over) {
     const [id, alt, at] = over.split(':')
     const d = at?.split(',').map(Number)
-    craft.placeAbove(body(id), d && d.length === 3 && d.every(Number.isFinite) ? new THREE.Vector3(d[0], d[1], d[2]) : new THREE.Vector3(0, 0, 1), Number(alt) || 500)
+    // No direction given: over the body's pad if it has one, so ?over=home:200 is the base from the air.
+    const site = padOf(terrainOf(body(id)))
+    craft.placeAbove(body(id), d && d.length === 3 && d.every(Number.isFinite) ? new THREE.Vector3(d[0], d[1], d[2]) : site ? new THREE.Vector3(site.dir.x, site.dir.y, site.dir.z) : new THREE.Vector3(0, 0, 1), Number(alt) || 500)
   }
 }
 const markers = new NavMarkers(document.body)
@@ -320,6 +323,9 @@ type Target = { name: string; rel: THREE.Vector3; radius: number; field: Field |
 // Stations: one per terrestrial body, drawn in its group, a target after the bodies.
 const stationViews: { view: BodyView; sv: StationView }[] = []
 for (const v of views) { const sv = buildStation(v.terrain); if (sv) { v.group.add(sv.group); stationViews.push({ view: v, sv }) } }
+// The outpost round each pad.
+const baseViews: BaseView[] = []
+for (const v of views) { const bv = buildBase(v.terrain); if (bv) { v.group.add(bv.group); baseViews.push(bv) } }
 // Tab cycles the bodies and stations; V cycles the nearest rock clusters (Chris, 2026-09-03:
 // "the tabbing should be on planets ... select the clusters but not mixing them").
 const bodyTargets: Target[] = [
@@ -401,6 +407,7 @@ function placeBodies(t: number, frame: Body): void {
     }
   }
   for (const s of stationViews) updateStation(s.sv, t, dayNow)
+  for (const b of baseViews) updateBase(b, t, dayNow)
   // The sun, from the viewer.
   sunDir.copy(sunView.rel).sub(viewPos).normalize()
   sunLight.position.copy(sunView.rel).sub(viewPos)

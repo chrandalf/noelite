@@ -146,9 +146,12 @@ export const CLUMP_EDGE = 0.05
 
 // ---- The landing pad: the one authored shape so far. Chris, 2026-09-02: "make sure I
 // spawn on a landing pad somewhere with reasonable height, I just spawned in the trees."
-/** Metres of dead-flat disc, and metres of ramp beyond it back to the ground. */
+/** Metres of the pad's painted disc. */
 export const PAD_RADIUS = 22
 export const PAD_BLEND = 18
+/** The outpost round the pad: a flat apron this wide, ramping back over BASE_BLEND. Chris, 2026-09-03: "put a base around the starting landing pad, quite densely populated and to scale based on the size of the ship." */
+export const BASE_RADIUS = 130
+export const BASE_BLEND = 40
 /** Metres above the sea a pad wants to sit: enough for a view, not a mountain. */
 const PAD_MIN = 25, PAD_MAX = 140
 
@@ -169,7 +172,7 @@ export const STATION_MIN_FROM_PAD = 15_000
 export function padOf(t: Terrain): PadSite | null {
   if (t.water || t.kind !== 'terrestrial' || !t.amplitude) return null
   let p = pads.get(t.id)
-  if (p === undefined) { p = findSite(t, { x: 0, y: 0, z: 1 }, 3, PAD_RADIUS, PAD_BLEND, null, 5, 1.5); pads.set(t.id, p) }
+  if (p === undefined) { p = findSite(t, { x: 0, y: 0, z: 1 }, 40, BASE_RADIUS, BASE_BLEND, null, 4, 1.5, 3); pads.set(t.id, p) }
   return p
 }
 
