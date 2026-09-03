@@ -8,10 +8,25 @@
       html, body { margin: 0; height: 100%; overflow: hidden; background: #0a0a12; }
       canvas { display: block; }
       #hud {
-        position: fixed; left: 12px; bottom: 10px;
-        font: 12px ui-monospace, Menlo, Consolas, monospace;
-        color: #9fe3a0; letter-spacing: 0.06em; pointer-events: none; white-space: pre;
+        position: fixed; left: 12px; bottom: 10px; padding: 6px 10px;
+        font: 14px ui-monospace, Menlo, Consolas, monospace;
+        color: #b8f0b8; letter-spacing: 0.06em; pointer-events: none; white-space: pre;
+        background: #000a; border-radius: 4px; text-shadow: 0 0 3px #000;
       }
+      #hud:empty { display: none; }
+      #menu {
+        position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center;
+        background: #060810cc; color: #b8f0b8; font: 13px ui-monospace, Menlo, Consolas, monospace; letter-spacing: 0.04em;
+      }
+      #menu[hidden] { display: none; }
+      #menu .card { display: flex; flex-wrap: wrap; gap: 14px 36px; max-width: 92vw; max-height: 92vh; overflow: auto; box-sizing: border-box; padding: 22px 30px; border: 1px solid #9fe3a066; background: #0a0d18ee; border-radius: 6px; }
+      #menu h1 { flex-basis: 100%; margin: 0; font-size: 20px; font-weight: normal; letter-spacing: 0.3em; color: #fff; }
+      #menu h2 { margin: 0 0 8px; font-size: 13px; letter-spacing: 0.25em; color: #ffd56a; font-weight: normal; }
+      #menu .card > div { flex: 0 1 auto; }
+      #menu table { border-collapse: collapse; }
+      #menu td { padding: 2px 10px 2px 0; white-space: nowrap; vertical-align: top; }
+      #menu td:first-child { color: #fff; text-align: right; min-width: 90px; }
+      #menu .foot { flex-basis: 100%; opacity: 0.7; }
       #altimeter {
         position: fixed; right: 18px; top: 50%; transform: translateY(-50%);
         display: flex; gap: 10px; align-items: stretch; pointer-events: none;
@@ -56,6 +71,45 @@
   </head>
   <body>
     <div id="hud"></div>
+    <div id="menu" hidden>
+      <div class="card">
+        <h1>PAUSED</h1>
+        <div><h2>FLIGHT</h2><table>
+          <tr><td>Space</td><td>thrust: up in hover, along the nose in cruise</td></tr>
+          <tr><td>Shift</td><td>boost</td></tr>
+          <tr><td>W / S  ↑ / ↓</td><td>pitch</td></tr>
+          <tr><td>A / D  ← / →</td><td>roll</td></tr>
+          <tr><td>Q / E</td><td>yaw</td></tr>
+          <tr><td>,  .</td><td>side thrusters</td></tr>
+          <tr><td>/</td><td>top thruster, pushes down; brake in cruise</td></tr>
+          <tr><td>'</td><td>rear thruster, pushes forward</td></tr>
+        </table></div>
+        <div><h2>ASSISTS</h2><table>
+          <tr><td>X</td><td>retro: point against your velocity</td></tr>
+          <tr><td>Z</td><td>point at the ground</td></tr>
+          <tr><td>T</td><td>point at the target</td></tr>
+          <tr><td>O</td><td>orbit autopilot; any control releases it</td></tr>
+          <tr><td>Tab</td><td>next target</td></tr>
+        </table>
+        <h2 style="margin-top:14px">SHIP</h2><table>
+          <tr><td>hover</td><td>in air or under 2.5 km: thrust up, tilt to move</td></tr>
+          <tr><td>cruise</td><td>in vacuum: wings out, you go where you point</td></tr>
+          <tr><td>gear</td><td>drops itself under 100 m</td></tr>
+          <tr><td>fuel</td><td>any pad refills you; on the ground the sun trickles</td></tr>
+        </table></div>
+        <div><h2>CAMERA</h2><table>
+          <tr><td>drag</td><td>orbit the ship</td></tr>
+          <tr><td>wheel</td><td>zoom</td></tr>
+          <tr><td>C</td><td>reset the camera</td></tr>
+        </table>
+        <h2 style="margin-top:14px">OTHER</h2><table>
+          <tr><td>R</td><td>respawn on the pad</td></tr>
+          <tr><td>M</td><td>mute the beeper</td></tr>
+          <tr><td>Esc</td><td>pause, and this menu</td></tr>
+        </table></div>
+        <div class="foot">Esc to fly</div>
+      </div>
+    </div>
     <div id="altimeter" hidden>
       <div class="scale"><div class="fill"></div><div class="marker"></div>
         <div class="ticks"><span style="bottom:0">0</span><span style="bottom:12.5%">15</span><span style="bottom:41.6%">50</span><span style="bottom:83.3%">100</span></div>

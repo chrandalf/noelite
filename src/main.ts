@@ -16,6 +16,7 @@
 //   ?wire=1  ?skirts=0|red  ?no=dust,shadow,flame   renderer debug
 //   ?over=home-1:300   start hanging over another body (id:altitude, optionally :x,y,z direction)
 //   ?pitch=-1.2        chase camera orbit pitch in radians (negative looks up from under the ship)
+//   ?menu=1            start paused with the menu up (for shots)
 import * as THREE from 'three'
 import { PlanetLOD } from './world/lod.ts'
 import { FlyCam } from './engine/FlyCam.ts'
@@ -206,6 +207,10 @@ const markers = new NavMarkers(document.body)
 const orbitAP = new OrbitAutopilot()
 
 const hud = document.getElementById('hud')!
+const menu = document.getElementById('menu')!
+/** Escape. The sim stops, the picture stays, the menu shows the controls. */
+let paused = q.get('menu') === '1'
+menu.hidden = !paused
 const altimeter = document.getElementById('altimeter')!
 const altFill = altimeter.querySelector<HTMLElement>('.fill')!, altMarker = altimeter.querySelector<HTMLElement>('.marker')!
 const altNum = document.getElementById('alt-num')!, altState = document.getElementById('alt-state')!
@@ -246,7 +251,8 @@ let targetIndex = 0
 const toTarget = new THREE.Vector3()
 addEventListener('keydown', (e) => {
   beeper.arm()
-  if (mode !== 'fly') return
+  if (e.code === 'Escape') { paused = !paused; menu.hidden = !paused; return }
+  if (mode !== 'fly' || paused) return
   if (e.code === 'KeyR') respawn()
   if (e.code === 'KeyM') beeper.muted = !beeper.muted
   if (e.code === 'KeyC') chase.reset()
@@ -293,7 +299,7 @@ function placeBodies(t: number, frame: Body): void {
 }
 
 renderer.setAnimationLoop((now) => {
-  const dt = Math.min(0.1, (now - last) / 1000); last = now; elapsed += dt
+  const dt = paused ? 0 : Math.min(0.1, (now - last) / 1000); last = now; elapsed += dt
   const t = clock0 + elapsed
   let altitude: number, line: string
 
@@ -394,11 +400,11 @@ renderer.setAnimationLoop((now) => {
     markers.place('target', tDir, camera, showNav, `${tgt.body.name}  ${fmtDist(tSurf)}  ${closing >= 0 ? '↓' : '↑'}${fmtSpeed(Math.abs(closing))}${eta}`)
     const lc = craft.lastContact
     const vOrb = craft.orbitalSpeed(), vEsc = craft.escapeSpeed(), spd = craft.speed(), vIn = craft.inertialSpeed()
-    const apLine = orbitAP.engaged ? `AUTOPILOT ${orbitAP.phase.toUpperCase()} ${craft.ref.name}  park ${((orbitAP.parkRadius(craft) - craft.terrain.radius) / 1000).toFixed(0)} km at ${orbitAP.parkSpeed(craft).toFixed(0)} m/s  (any control releases)` : 'O orbit'
-    const spaceLine = rho < 1 ? `${craft.cruise ? `CRUISE  cap ${fmtSpeed(craft.cap())}  (thrust forward, / brakes)` : 'HOVER'}   ${apLine}   SOI ${craft.ref.name}   orbit ${vOrb.toFixed(0)}   escape ${vEsc.toFixed(0)}   ${craft.cruise ? '' : vIn > vEsc ? '!! ESCAPING !!' : vIn > vOrb ? 'above orbital' : ''}   target ${tgt.body.name} (Tab)   T aim   X retro   Z planet\n` : ''
+    const apLine = orbitAP.engaged ? `   AUTOPILOT ${orbitAP.phase.toUpperCase()} ${craft.ref.name}  park ${((orbitAP.parkRadius(craft) - craft.terrain.radius) / 1000).toFixed(0)} km at ${orbitAP.parkSpeed(craft).toFixed(0)} m/s` : ''
+    const spaceLine = rho < 1 ? `${craft.cruise ? `CRUISE  cap ${fmtSpeed(craft.cap())}` : 'HOVER'}${apLine}   SOI ${craft.ref.name}   orbit ${vOrb.toFixed(0)}   escape ${vEsc.toFixed(0)}   ${craft.cruise ? '' : vIn > vEsc ? '!! ESCAPING !!' : vIn > vOrb ? 'above orbital' : ''}   target ${tgt.body.name}\n` : ''
     line = `alt ${altitude.toFixed(1).padStart(6)} m   v↑ ${vUp.toFixed(1).padStart(5)} m/s   spd ${fmtSpeed(spd).padStart(9)}   tilt ${tilt.toFixed(0).padStart(2)}°   ${craft.state.toUpperCase()}   landings ${craft.landings}  crashes ${craft.crashes}\n` + spaceLine +
-      (craft.state === 'crashed' ? `contact: v↑ ${lc.vUp.toFixed(1)}  drift ${lc.vH.toFixed(1)}  tilt ${lc.tilt.toFixed(0)}°  slope ${lc.slope.toFixed(0)}°   (R to respawn)\n` : '') +
-      `space thrust   shift boost   W/S tilt   A/D roll   Q/E yaw   , . side   / top   ' rear   X/Z assists   R respawn   M mute   drag orbit   wheel zoom   C reset   ${fps} fps   chunks ${refView.lod?.liveCount ?? 0}`
+      (craft.state === 'crashed' ? `contact: v↑ ${lc.vUp.toFixed(1)}  drift ${lc.vH.toFixed(1)}  tilt ${lc.tilt.toFixed(0)}°  slope ${lc.slope.toFixed(0)}°   R to respawn\n` : '') +
+      `Esc  menu and controls   ${fps} fps   chunks ${refView.lod?.liveCount ?? 0}`
   } else {
     setGroundClock(t)
     weatherFront = -1; rainNow = 0; cloudNow = 0; windNow = 4
