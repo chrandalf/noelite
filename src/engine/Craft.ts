@@ -93,6 +93,8 @@ export class Craft {
   arrive = Infinity
   /** True when `arrive` is a body with a hover floor (the floor profile applies), false for a rock field or a station in space. */
   arriveFloor = true
+  /** The opening holds you to hover until dawn: cruise will not engage while this is set. */
+  cruiseLocked = false
   /** Weather on. The harness turns it off for tests that are not about weather. */
   windy = true
   /** The wind at the craft, m/s, local frame. Zero in vacuum. */
@@ -402,7 +404,7 @@ export class Craft {
     // Into hover on density or the floor, but only once you are slow enough: above
     // HOVER_MAX_SPEED you are still re-entering, in cruise, with the air dragging and the
     // hull heating, and the way out is to flip and brake (DESIGN §8b item 4).
-    if (this.cruise ? (rhoNow > CRUISE_EXIT || alt < CRUISE_FLOOR) && (rhoNow <= 0 || this.vRel.length() < HOVER_MAX_SPEED) : rhoNow < CRUISE_ENTER && alt > CRUISE_FLOOR * 1.2) this.cruise = !this.cruise
+    if (this.cruise ? (rhoNow > CRUISE_EXIT || alt < CRUISE_FLOOR) && (rhoNow <= 0 || this.vRel.length() < HOVER_MAX_SPEED) : rhoNow < CRUISE_ENTER && alt > CRUISE_FLOOR * 1.2 && !this.cruiseLocked) this.cruise = !this.cruise
     this.hold = holdAt(alt)
     this.frameVelAt(this.rel, this.frameVel)
     this.vRel.copy(this.hvel).sub(this.frameVel)

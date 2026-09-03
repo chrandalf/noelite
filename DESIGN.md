@@ -580,8 +580,39 @@ Every step is playable. That's the point of the ordering.
    Home's is 38 km from the pad. Every terrestrial body with land gets one. ?station=N
    starts you on pad N (0 hangs you over the dome). **Not yet:** the shop (fuel for
    money, tank II, the heat shield), repair, cargo, the Coriolis in orbit.
-   Next: **re-entry** (item 4), then Stage D's remainder: the lock-view camera, the
-   escape-the-system trigger.
+13. ~~**Sound, and Dawn Shift.**~~ Done 2026-09-03. Chris: "the noise of the ship is
+   annoying" (it was a square-wave altimeter blip under 80 m whenever you flew), then "I
+   want the game to feel more epic, No Man's Sky has some great intro moments ... an epic
+   explore", then "when I zoom in and out with the camera, we need the sound effects to
+   go up and down", "once you get into space there would be no sound right?". **Sound**
+   (`engine/Sound.ts`, all Web Audio nodes, no files): brown and pink noise through a
+   lowpass that opens with the throttle plus a sub tone for hover; two detuned tones for
+   cruise; wind by airspeed and air; RCS hiss; rain patter; servo whir and a clunk for the
+   gear and the wings; a falling zap per bolt, a crunch on a strike, a bigger one on a
+   break, a chime when fuel arrives; a thud on touchdown; a sine altimeter only on the way
+   down. The camera is the ear (volume by zoom), a lowpass closes down in vacuum and the
+   engine falls to half there. The research report (`research/sound-and-opening-*.md`,
+   40 sources) backed the approach: ZzFX for one-shots if we want them, Kenney CC0 as the
+   reference to tune against, pink and brown noise through a throttled lowpass as most of
+   a spaceship. **Dawn Shift**, the opening the report proposed and Chris chose, on by
+   default on a plain start (`?intro=0` skips it): clock at 0, 103 s before the pad's
+   sunrise. Black to a cold ship on the pad, no HUD, the camera drifting, one line: PAD 01
+   . LOCAL 00:00 . SUNRISE 01:01. Any key: the reactor spins up (a four-second sweep under
+   a thump) and the HUD boots element by element with a click each (attitude, altitude,
+   fuel, state). Hover only, cruise locked, a drone note under everything. When the sun
+   clears the apparent horizon the pad music adds a fifth; forty seconds later the octave,
+   the filter opens, the station becomes the target, the marker appears for the first time
+   with STATION . 6,000 KM, and the HUD is whole. To make the night a night, the local sun
+   is now a light that sets (a point light has no planet in the way and lit the pad from
+   under the horizon) while a second sun on the far bodies' layer keeps the moon's phase;
+   the fill's floor is 7%. Also that evening: **fuel lasts four times as long** (Chris ran
+   dry at the moon: burn rates quartered, 49 minutes of hover), and **distances to other
+   places read at the model's scale**, ×159, so the moon is 384,000 km away and the sun
+   149 million, while altitude and speed stay honest ("scale realism without the actual
+   size"). The cannons deploy with the wings and fire only in cruise; the orbital cloud
+   shell is drawn per pixel by noise. **Not yet:** the fall from 40 km as the payoff of the
+   first flight out (the report's candidate B), a music cue on first orbit, ZzFX one-shots.
+   Next: crashes with debris and a repair bill, then cargo.
 
 ## 9. Deferred
 

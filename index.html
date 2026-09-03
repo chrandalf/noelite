@@ -14,6 +14,13 @@
         background: #000a; border-radius: 4px; text-shadow: 0 0 3px #000;
       }
       #hud:empty { display: none; }
+      #intro {
+        position: fixed; left: 14px; bottom: 14px; font: 13px ui-monospace, Menlo, Consolas, monospace;
+        color: #8fcf8f; letter-spacing: 0.28em; opacity: 0.8; pointer-events: none; text-shadow: 0 0 4px #000;
+        transition: opacity 1.2s;
+      }
+      #intro[hidden] { display: none; }
+      #altimeter .boot { visibility: hidden; }
       #menu {
         position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center;
         background: #060810cc; color: #b8f0b8; font: 13px ui-monospace, Menlo, Consolas, monospace; letter-spacing: 0.04em;
@@ -71,6 +78,7 @@
   </head>
   <body>
     <div id="hud"></div>
+    <div id="intro" hidden></div>
     <div id="menu" hidden>
       <div class="card">
         <h1>PAUSED</h1>
@@ -111,6 +119,7 @@
           <tr><td>R</td><td>respawn on the pad</td></tr>
           <tr><td>M</td><td>mute the sound</td></tr>
           <tr><td>Esc</td><td>pause, and this menu</td></tr>
+          <tr><td>?intro=0</td><td>in the address bar skips the opening</td></tr>
         </table></div>
         <div class="foot">Esc to fly</div>
       </div>

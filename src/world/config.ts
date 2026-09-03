@@ -126,12 +126,12 @@ export const CRUISE_BRAKE = 0.8
  * the HUD shows endurance and shouts before the tank does.
  */
 export const FUEL_TANK = 100
-/** Units per second at full hover thrust, no boost. 400 s of full thrust; hovering at home (g / THRUST_ACCEL) is over twelve minutes. */
-export const FUEL_HOVER_BURN = 0.25
+/** Units per second at full hover thrust, no boost. Chris, 2026-09-03, after running dry at the moon: "need fuel to last 4 times as long." 1,600 s of full thrust; hovering at home is 49 minutes. */
+export const FUEL_HOVER_BURN = 0.0625
 /** Units per second at full cruise throttle. The cap is reached in CRUISE_SPOOL seconds and coasting is free, so a trip is a few seconds of burn. */
-export const FUEL_CRUISE_BURN = 0.4
+export const FUEL_CRUISE_BURN = 0.1
 /** Units per second per unit of RCS input. */
-export const FUEL_RCS_BURN = 0.02
+export const FUEL_RCS_BURN = 0.005
 /** Units per second refilled while landed on a pad. A full tank in 20 s. */
 export const FUEL_PAD_REFILL = 5
 /** Units per second from the solar cells, only while landed and only off the pad. A dry tank gets 40 s of full thrust after 100 s on the ground. */
@@ -187,3 +187,11 @@ export const CLOUD_BASE_FRAC = 0.38
 
 /** Where the bolts leave the ship, body frame, for the right-hand cannon (mirror x for the left). Only in cruise, when the cannons are out. */
 export const GUN_MUZZLE = { x: 2.2, y: -0.35, z: -3.4 }
+
+/**
+ * The readouts for distances to other places are multiplied by this, the model's scale
+ * (1:159), so the moon reads 384,000 km away and the sun 149 million, while altitude,
+ * speed and anything near the ship stay honest metres. Chris, 2026-09-03: "can the distant
+ * numbers appear to be real ... it's about scale realism without the actual size."
+ */
+export const DISPLAY_SCALE = 159

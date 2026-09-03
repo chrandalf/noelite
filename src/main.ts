@@ -50,10 +50,13 @@ import { Clouds } from './engine/Clouds.ts'
 import { CloudPuffs } from './engine/CloudPuffs.ts'
 import { front, rainOf, cloudOf, moonDirection, TIDE_AMPLITUDE } from './world/weather.ts'
 import { setGroundClock } from './world/terrain.ts'
-import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE , FUEL_TANK, HULL_CLEARANCE, HULL_LIMIT, HULL_WARN, HULL_GLOW, CLOUD_BASE_FRAC } from './world/config.ts'
+import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE , FUEL_TANK, HULL_CLEARANCE, HULL_LIMIT, HULL_WARN, HULL_GLOW, CLOUD_BASE_FRAC, DISPLAY_SCALE } from './world/config.ts'
 
 const q = new URLSearchParams(location.search)
 const mode: 'fly' | 'free' = q.get('mode') === 'free' ? 'free' : 'fly'
+// Dawn Shift: the opening. On by default on a plain start (no URL parameters), ?intro=1 forces
+// it, ?intro=0 skips it. Cold open on the pad in the dark, 103 s before sunrise (tools/sun-times).
+const intro = q.get('intro') === '1' || (q.get('intro') !== '0' && location.search === '' && mode === 'fly')
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true })
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
@@ -78,8 +81,13 @@ scene.add(world)
 // The sun is a body; it lights as a point light with no falloff, so every
 // planet is lit from its own side of the sky. Plus a hemisphere fill.
 const sunLight = new THREE.PointLight(0xfff2dc, 2.4, 0, 0)
+// A point light has no planet in the way, so at night it lit the pad from below the horizon.
+// The local sun (layer 0) follows the daylight at the viewer; the far sun (layer 1) lights
+// the other bodies at full, so the moon keeps its phase.
+const farSun = new THREE.PointLight(0xfff2dc, 2.4, 0, 0)
+farSun.layers.set(1)
 const hemi = new THREE.HemisphereLight(0x9ec5ff, 0x3f5f2e, 0.85)
-scene.add(sunLight, hemi)
+scene.add(sunLight, farSun, hemi)
 const SUN_WHITE = new THREE.Color(0xfff2dc), SUN_LOW = new THREE.Color(0xffa060), GREY = new THREE.Color(0.58, 0.61, 0.65)
 let weatherFront = -1, rainNow = 0, cloudNow = 0, windNow = 0
 /** Last frame's daylight at the viewer, 1 noon, 0 night. */
@@ -152,7 +160,6 @@ const views: BodyView[] = SYSTEM.map((b) => {
 // Far spheres (the moon in the sky, the planets) are lit by the sun alone: the hemisphere
 // fill is the local sky and would light the moon's night side. Layer 1 has the sun and no fill.
 for (const v of views) if (v.body.kind !== 'sun') v.far.layers.set(1)
-sunLight.layers.enable(1)
 camera.layers.enable(1)
 const homeView = views.find((v) => v.body === home)!
 const sunView = views.find((v) => v.body === sunBody)!
@@ -189,6 +196,15 @@ const pad = new THREE.Vector3(padSite.dir.x, padSite.dir.y, padSite.dir.z)
 const shadow = new GroundShadow(HOME)
 const dust = new Dust(HOME)
 const marks = new Marks()
+/** The opening's phase. 'off' is a normal start. */
+let phase: 'off' | 'dark' | 'boot' | 'hover' | 'dawn' | 'done' = intro ? 'dark' : 'off'
+let phaseAt = 0
+let bootStage = 0
+let idleSince = 0
+let sinAppNow = 1
+const SUNRISE_T = 103
+const bootParts: HTMLElement[][] = []
+const localTime = (t: number) => { const h = ((t % 2400) + 2400) % 2400 / 100; const hh = Math.floor(h), mm = Math.floor((h - hh) * 60); return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}` }
 /** Last frame's state, for the touchdown and lift-off moments. */
 let lastState: 'landed' | 'flying' | 'crashed' = 'landed'
 const rain = new Rain()
@@ -216,7 +232,7 @@ const free = new FlyCam(renderer.domElement)
 }
 const burn = Number(q.get('burn') ?? 0)
 // Default clock: mid-morning on the pad (tools/sun-times.mjs: dawn 103, noon 702, dusk 1301).
-const clock0 = Number(q.get('t') ?? 350)
+let clock0 = Number(q.get('t') ?? (intro ? 0 : 350))
 craft.time = clock0
 craft.spawnOn(pad, new THREE.Vector3(1, 0, 0), 'surface', home)
 // ?field=<field id>:<gap m>[:<rock index>] starts you in cruise off a rock in a field, nose on it: field=home-l4:2000
@@ -254,6 +270,7 @@ const orbitAP = new OrbitAutopilot()
 
 const hud = document.getElementById('hud')!
 const menu = document.getElementById('menu')!
+const introEl = document.getElementById('intro')!
 /** Escape. The sim stops, the picture stays, the menu shows the controls. */
 let paused = q.get('menu') === '1'
 menu.hidden = !paused
@@ -262,6 +279,11 @@ const altFill = altimeter.querySelector<HTMLElement>('.fill')!, altMarker = alti
 const altNum = document.getElementById('alt-num')!, altState = document.getElementById('alt-state')!
 const lights = { v: document.getElementById('l-v')!, d: document.getElementById('l-d')!, t: document.getElementById('l-t')!, s: document.getElementById('l-s')! }
 altimeter.hidden = mode !== 'fly'
+{
+  const part = (sel: string) => Array.from(altimeter.querySelectorAll<HTMLElement>(sel))
+  bootParts.push(part('.lights'), part('.scale, .readout'), part('#fuel'), part('.state, .atmos:not(#fuel)'))
+  if (intro) for (const ps of bootParts) for (const e of ps) e.style.visibility = 'hidden'
+}
 const light = (el: HTMLElement, text: string, ok: boolean, armed: boolean) => { el.textContent = text; el.className = armed ? (ok ? 'ok' : 'bad') : '' }
 const atmosEl = document.getElementById('atmos')!
 const fuelEl = document.getElementById('fuel')!
@@ -327,6 +349,9 @@ addEventListener('keydown', (e) => {
   sound.arm()
   if (e.code === 'Escape') { paused = !paused; menu.hidden = !paused; return }
   if (mode !== 'fly' || paused) return
+  if (phase === 'dark' && elapsed > 1) { phase = 'boot'; phaseAt = elapsed; sound.standby = false; sound.reactor(); return }
+  if (phase === 'dark' || phase === 'boot') return
+  idleSince = elapsed
   if (e.code === 'KeyR') respawn()
   if (e.code === 'KeyM') sound.muted = !sound.muted
   if (e.code === 'KeyC') chase.reset()
@@ -379,6 +404,7 @@ function placeBodies(t: number, frame: Body): void {
   // The sun, from the viewer.
   sunDir.copy(sunView.rel).sub(viewPos).normalize()
   sunLight.position.copy(sunView.rel).sub(viewPos)
+  farSun.position.copy(sunLight.position)
 }
 
 renderer.setAnimationLoop((now) => {
@@ -388,6 +414,32 @@ renderer.setAnimationLoop((now) => {
 
   if (mode === 'fly') {
     let c: Controls = input.read()
+    // Dawn Shift.
+    if (phase !== 'off') {
+      const ph = elapsed - phaseAt
+      craft.cruiseLocked = phase !== 'done'
+      if (phase === 'dark' || phase === 'boot') c = { ...c, thrust: 0, boost: 0, vertical: 0, lateral: 0, fore: 0, pitch: 0, roll: 0, yaw: 0 }
+      if (phase === 'dark') { chase.orbitYaw += 0.012 * dt; sound.standby = true; introEl.hidden = false; introEl.textContent = `PAD 01  .  LOCAL ${localTime(craft.time)}  .  SUNRISE ${localTime(SUNRISE_T)}` }
+      if (phase === 'boot') {
+        // The HUD boots element by element in the order the ship powers them, a click each.
+        const at = [0.8, 2.2, 3.6, 5.0]
+        while (bootStage < at.length && ph > at[bootStage]) { for (const e of bootParts[bootStage]) e.style.visibility = ''; sound.click(); bootStage++ }
+        if (ph > 5.6) { phase = 'hover'; phaseAt = elapsed; idleSince = elapsed; sound.pad(1) }
+      }
+      if (phase === 'hover') {
+        introEl.textContent = elapsed - idleSince > 20 && craft.state === 'landed' ? 'HOLD 20 M' : `PAD 01  .  LOCAL ${localTime(craft.time)}  .  SUNRISE ${localTime(SUNRISE_T)}`
+        if (sinAppNow > 0) { phase = 'dawn'; phaseAt = elapsed; sound.pad(2); introEl.textContent = '' }
+      }
+      if (phase === 'dawn' && ph > 40) {
+        phase = 'done'; phaseAt = elapsed
+        sound.pad(3)
+        const st = bodyTargets.find((t) => t.station && t.station.view.body === home)
+        if (st) { target = st; targetIndex = bodyTargets.indexOf(st) }
+        introEl.textContent = st ? `STATION  .  ${fmtDist(st.rel.distanceTo(craft.pos) * DISPLAY_SCALE)}` : ''
+        setTimeout(() => sound.pad(0), 45000)
+      }
+      if (phase === 'done' && ph > 10) introEl.hidden = true
+    }
     if (burn > 0 && elapsed < burn) c = { ...c, thrust: 1 }
     // The orbit autopilot flies until you touch anything.
     if (orbitAP.engaged && (c.thrust || c.pitch || c.roll || c.yaw || c.vertical || c.lateral || c.fore || craft.state !== 'flying')) orbitAP.engaged = false
@@ -504,7 +556,7 @@ renderer.setAnimationLoop((now) => {
       if (haze.visible) haze.scale.set(0.9 + 0.3 * Math.random(), 0.8 + 0.5 * Math.random(), 0.9 + 0.3 * Math.random())
     }
     // Nav markers once the ground stops being the obvious reference.
-    const showNav = flying && (altitude > 80 || rho < 0.5)
+    const showNav = flying && (altitude > 80 || rho < 0.5) && (phase === 'off' || phase === 'done')
     markers.place('planet', dir.clone().negate(), camera, showNav)
     const moving = craft.speed() > 2
     const pro = craft.vel.clone().normalize()
@@ -525,7 +577,7 @@ renderer.setAnimationLoop((now) => {
       cleared = `  cleared pad ${bestN}`
     }
     const eta = closing > 1 && tSurf / closing < 86400 ? `  ETA ${fmtTime(tSurf / closing)}` : ''
-    markers.place('target', tDir, camera, showNav || cleared !== '', `${tgt.name}  ${fmtDist(tSurf)}  ${closing >= 0 ? '↓' : '↑'}${fmtSpeed(Math.abs(closing))}${eta}${cleared}`)
+    markers.place('target', tDir, camera, showNav || cleared !== '', `${tgt.name}  ${fmtDist(tSurf * DISPLAY_SCALE)}  ${closing >= 0 ? '↓' : '↑'}${fmtSpeed(Math.abs(closing))}${eta}${cleared}`)
     const lc = craft.lastContact
     const vOrb = craft.orbitalSpeed(), vEsc = craft.escapeSpeed(), spd = craft.speed(), vIn = craft.inertialSpeed()
     const apLine = orbitAP.engaged ? `   AUTOPILOT ${orbitAP.phase.toUpperCase()} ${craft.ref.name}  park ${((orbitAP.parkRadius(craft) - craft.terrain.radius) / 1000).toFixed(0)} km at ${orbitAP.parkSpeed(craft).toFixed(0)} m/s` : ''
@@ -562,6 +614,7 @@ renderer.setAnimationLoop((now) => {
   const sinDip = Math.sin(Math.acos(Math.min(1, ft.radius / (ft.radius + Math.max(0, altitude)))))
   const day = sky.update(dir, sunDir, density, sinApp, sinDip)
   dayNow = day
+  sinAppNow = sinApp
   const simTime = mode === 'fly' ? craft.time : t
   const hasMoon = mode === 'fly' && moonDirection(craft.terrain, craft.time, tmp)
   waterMat.update(simTime, sunDir, day, windNow, hasMoon ? tmp : null, TIDE_AMPLITUDE)
@@ -570,8 +623,12 @@ renderer.setAnimationLoop((now) => {
   // Under cloud the light goes flat and grey; in rain the air thickens.
   const overcast = cloudNow * density
   hemi.position.copy(dir) // the fill's "sky" is the local up, not scene +Y
-  hemi.intensity = 0.85 * (0.2 + 0.8 * day) * (1 - 0.3 * overcast)
-  sunLight.intensity = 2.4 * (1 - 0.65 * overcast)
+  hemi.intensity = 0.85 * (0.07 + 0.93 * day) * (1 - 0.3 * overcast)
+  // The local sun sets: below the apparent horizon it is gone, with a twilight ramp.
+  const sunUp = Math.min(1, Math.max(0, (sinApp + 0.04) / 0.12))
+  sunLight.intensity = 2.4 * (1 - 0.65 * overcast) * sunUp
+  // Cumulus are Lambert and would take the sun through the planet: dim them with the day.
+  ;(puffs.mesh.material as THREE.MeshLambertMaterial).color.setScalar(0.05 + 0.95 * Math.max(day * day, sunUp * 0.5))
   sunLight.color.lerpColors(SUN_LOW, SUN_WHITE, Math.min(1, Math.max(0, (sinApp + 0.05) / 0.25)))
   fog.color.copy(sky.horizon).lerp(GREY, overcast * 0.7)
   fog.density = 0.00055 * density * (1 + 2.5 * rainNow + 0.8 * overcast)
@@ -581,7 +638,7 @@ renderer.setAnimationLoop((now) => {
 
   frames++
   if (now - fpsAt > 500) { fps = Math.round((frames * 1000) / (now - fpsAt)); frames = 0; fpsAt = now }
-  hud.textContent = line
+  hud.textContent = phase === 'off' || phase === 'done' ? line : ''
 })
 void tmp
 

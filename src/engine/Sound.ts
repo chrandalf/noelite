@@ -20,6 +20,26 @@ function brownNoise(ctx: AudioContext): AudioBuffer {
   return buf
 }
 
+/** Pink noise, Voss-McCartney with the classic coefficients (after zacharydenton/noise.js, MIT). Two seconds, looped. */
+function pinkNoise(ctx: AudioContext): AudioBuffer {
+  const n = ctx.sampleRate * 2
+  const buf = ctx.createBuffer(1, n, ctx.sampleRate)
+  const d = buf.getChannelData(0)
+  let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0
+  for (let i = 0; i < n; i++) {
+    const w = Math.random() * 2 - 1
+    b0 = 0.99886 * b0 + w * 0.0555179
+    b1 = 0.99332 * b1 + w * 0.0750759
+    b2 = 0.96900 * b2 + w * 0.1538520
+    b3 = 0.86650 * b3 + w * 0.3104856
+    b4 = 0.55000 * b4 + w * 0.5329522
+    b5 = -0.7616 * b5 - w * 0.0168980
+    d[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.11
+    b6 = w * 0.115926
+  }
+  return buf
+}
+
 export class Sound {
   muted = false
   private ctx: AudioContext | null = null
@@ -37,6 +57,14 @@ export class Sound {
   private rainGain: GainNode | null = null
   private servoGain: GainNode | null = null
   private muffle: BiquadFilterNode | null = null
+  private pinkGain: GainNode | null = null
+  private padGain: GainNode | null = null
+  private padFilter: BiquadFilterNode | null = null
+  private padVoices: { osc: OscillatorNode; gain: GainNode; ratio: number }[] = []
+  private padLevel = 0
+  /** Standby: the ship asleep on the pad, one quiet tick a second and a quarter. */
+  standby = false
+  private nextTick = 0
   private nextBlip = 0
   private wasLanded = true
   private lastGear = 1
@@ -60,8 +88,28 @@ export class Sound {
       s.connect(f).connect(g).connect(master); s.start()
       return { f, g }
     }
-    // Hover engine: brown noise through a lowpass that opens with the throttle, and a sub tone that rises with it.
+    // Hover engine: brown noise through a lowpass that opens with the throttle, a pink layer
+    // for the mid-band grain (the research report: pink and brown through a throttled
+    // lowpass is most of a spaceship), and a sub tone that rises with it.
     { const { f, g } = src('hover'); this.hoverFilter = f; this.hoverGain = g; f.frequency.value = 180; f.Q.value = 0.7 }
+    {
+      const s = ctx.createBufferSource(); s.buffer = pinkNoise(ctx); s.loop = true
+      const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 520; f.Q.value = 0.6
+      const g = (this.pinkGain = ctx.createGain()); g.gain.value = 0
+      s.connect(f).connect(g).connect(master); s.start()
+    }
+    // The pad: six detuned voices through a slow lowpass. Level 0 silent, 1 a drone, 2 adds
+    // the fifth, 3 the octave and an opening filter. The music of Dawn Shift.
+    this.padFilter = ctx.createBiquadFilter(); this.padFilter.type = 'lowpass'; this.padFilter.frequency.value = 240; this.padFilter.Q.value = 0.4
+    this.padGain = ctx.createGain(); this.padGain.gain.value = 0
+    this.padFilter.connect(this.padGain).connect(master)
+    for (const [ratio, type, detune] of [[1, 'sawtooth', -6], [1, 'triangle', 5], [1.5, 'sawtooth', 4], [1.5, 'triangle', -7], [2, 'triangle', 3], [2, 'sine', 0]] as [number, OscillatorType, number][]) {
+      const osc = ctx.createOscillator(); osc.type = type; osc.frequency.value = 55 * ratio; osc.detune.value = detune
+      const gain = ctx.createGain(); gain.gain.value = 0
+      osc.connect(gain).connect(this.padFilter); osc.start()
+      this.padVoices.push({ osc, gain, ratio })
+    }
+    if (this.padLevel > 0) this.pad(this.padLevel)
     this.sub = ctx.createOscillator(); this.sub.type = 'sine'; this.sub.frequency.value = 50
     this.subGain = ctx.createGain(); this.subGain.gain.value = 0
     this.sub.connect(this.subGain).connect(master); this.sub.start()
@@ -106,6 +154,9 @@ export class Sound {
     // Hover engine only while hovering; cruise drive only in cruise. Both idle quietly when flying.
     const hover = on && !craft.cruise, cruise = on && craft.cruise
     ramp(this.hoverGain!.gain, hover ? (0.05 + 0.32 * throttle) * airK : 0)
+    ramp(this.pinkGain!.gain, hover ? (0.02 + 0.16 * throttle) * airK : cruise ? 0.03 * throttle * airK : 0)
+    // Standby tick.
+    if (this.standby && !this.muted && now >= this.nextTick) { this.nextTick = now + 1.25; this.blip(1800, 0.012, 0.02) }
     ramp(this.hoverFilter!.frequency, 180 + 700 * throttle, 0.2)
     ramp(this.subGain!.gain, hover ? (0.05 + 0.14 * throttle) * airK : 0)
     ramp(this.sub!.frequency, 48 + 26 * throttle, 0.3)
@@ -130,6 +181,48 @@ export class Sound {
     const landed = craft.state === 'landed'
     if (landed && !this.wasLanded && !this.muted) this.thud()
     this.wasLanded = landed || craft.state === 'crashed'
+  }
+
+  /** The pad's level: 0 silent, 1 drone, 2 drone and fifth, 3 the octave too with the filter opening. Slow ramps. */
+  pad(level: number): void {
+    this.padLevel = level
+    if (!this.ctx || !this.padGain || !this.padFilter) return
+    const t = this.ctx.currentTime
+    this.padGain.gain.setTargetAtTime(level > 0 ? 0.11 : 0, t, level > 0 ? 3 : 6)
+    for (const v of this.padVoices) {
+      const on = level >= (v.ratio === 1 ? 1 : v.ratio === 1.5 ? 2 : 3)
+      v.gain.gain.setTargetAtTime(on ? (v.ratio === 1 ? 0.5 : 0.35) : 0, t, on ? 4 : 5)
+    }
+    this.padFilter.frequency.setTargetAtTime(level >= 3 ? 1400 : level >= 2 ? 520 : 240, t, 8)
+  }
+
+  /** Reactor spin-up: four seconds of noise sweeping up under a body thump. Dawn Shift's first sound. */
+  reactor(): void {
+    if (!this.ctx || !this.master || this.muted) return
+    const t = this.ctx.currentTime
+    const s = this.ctx.createBufferSource(); s.buffer = brownNoise(this.ctx); s.loop = true
+    const f = this.ctx.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 1.2
+    f.frequency.setValueAtTime(120, t); f.frequency.exponentialRampToValueAtTime(700, t + 4)
+    const g = this.ctx.createGain()
+    g.gain.setValueAtTime(0.001, t); g.gain.exponentialRampToValueAtTime(0.35, t + 3.2); g.gain.exponentialRampToValueAtTime(0.001, t + 5.5)
+    s.connect(f).connect(g).connect(this.master); s.start(t); s.stop(t + 5.6)
+    const o = this.ctx.createOscillator(), og = this.ctx.createGain()
+    o.type = 'sine'; o.frequency.setValueAtTime(40, t); o.frequency.exponentialRampToValueAtTime(70, t + 4)
+    og.gain.setValueAtTime(0.001, t); og.gain.exponentialRampToValueAtTime(0.2, t + 3); og.gain.exponentialRampToValueAtTime(0.001, t + 5.5)
+    o.connect(og).connect(this.master); o.start(t); o.stop(t + 5.6)
+  }
+
+  /** A switch click, for each HUD element as it boots. */
+  click(): void {
+    if (!this.ctx || !this.master || this.muted) return
+    const t = this.ctx.currentTime
+    const o = this.ctx.createOscillator(), g = this.ctx.createGain()
+    o.type = 'square'; o.frequency.value = 2400
+    g.gain.setValueAtTime(0.05, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.03)
+    o.connect(g).connect(this.master); o.start(t); o.stop(t + 0.035)
+    const s = this.ctx.createBufferSource(); s.buffer = brownNoise(this.ctx)
+    const sg = this.ctx.createGain(); sg.gain.setValueAtTime(0.08, t); sg.gain.exponentialRampToValueAtTime(0.001, t + 0.05)
+    s.connect(sg).connect(this.master); s.start(t); s.stop(t + 0.06)
   }
 
   private blip(freq: number, gain: number, len: number): void {
