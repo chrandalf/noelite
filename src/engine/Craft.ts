@@ -20,12 +20,14 @@ import { groundRadius, surfaceNormal, slopeDeg, setGroundClock } from '../world/
 import { wind } from '../world/weather.ts'
 import { atmosphereDensity } from '../world/atmosphere.ts'
 import { SYSTEM, body, bodyPosition, bodyVelocity, bodySpin, type Body } from '../world/system.ts'
+import { nearestRock, castRay, fuelYield, fieldPosition, fieldVelocity, rockPosition, type Nearest, type Hit, type Rock } from '../world/asteroids.ts'
 import {
   DRAG, THRUST_ACCEL, ANG_ACCEL, ANG_DAMP,
   HULL_CLEARANCE, LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE, FIXED_DT,
   BOOST_MULT, GROUND_EFFECT_HEIGHT, GROUND_EFFECT_ACCEL_G, GROUND_EFFECT_DAMP, GRAVITY_FALLOFF, RCS_ACCEL,
   CRUISE_ENTER, CRUISE_EXIT, CRUISE_FLOOR, CRUISE_ALIGN_TAU, CRUISE_MAX, CRUISE_BRAKE, CRUISE_DECEL, CRUISE_SECONDS, CRUISE_SPOOL,
   FUEL_TANK, FUEL_HOVER_BURN, FUEL_CRUISE_BURN, FUEL_RCS_BURN, FUEL_PAD_REFILL, FUEL_SOLAR_TRICKLE, FUEL_RELIGHT, PAD_RADIUS,
+  GUN_RANGE, GUN_COOLDOWN, ICE_REACH,
 } from '../world/config.ts'
 
 /**
@@ -91,6 +93,22 @@ export class Craft {
   fuel = FUEL_TANK
   /** Units per second going out of the tank this substep, for the endurance readout. */
   burn = 0
+  /** The nearest surviving rock, refreshed every substep: surface distance and position (heliocentric). */
+  readonly rockNear: Nearest = { rock: null, dist: Infinity, pos: new THREE.Vector3() }
+  /** The rock you hit, if the last contact was a rock. */
+  hitRock: Rock | null = null
+  /** The last shot: where it went and what it did, for the tracer. Cleared by whoever draws it. */
+  lastShot: { from: THREE.Vector3; to: THREE.Vector3; hit: Hit | null; broke: boolean; fuel: number } | null = null
+  private gunReady = 0
+  /**
+   * A field is a frame too. Between the sun (whose frame is at rest) and a Trojan
+   * cluster doing 1.6 km/s, "relative velocity" would otherwise mean the rocks stream
+   * past you and the cruise assist bleeds your orbital speed away. Within three
+   * spreads of a field's centre its velocity blends into the frame's, so arriving at
+   * a field matches you to it. Only in the sun's sphere; near a body the body wins.
+   */
+  private fieldWeight = 0
+  private readonly fieldVel = new THREE.Vector3()
   /** Set by the last contact, for the HUD and the harness. */
   lastContact = { vUp: 0, vH: 0, tilt: 0, slope: 0 }
 
@@ -224,6 +242,7 @@ export class Craft {
     this.cruise = false
     this.fuel = FUEL_TANK
     this.burn = 0
+    this.hitRock = null
     this.accumulator = 0
     this.frameAt(this.time)
     this.syncHelio()
@@ -244,6 +263,29 @@ export class Craft {
     this.accumulator = 0
     this.frameAt(this.time)
     this.syncHelio()
+  }
+
+  /**
+   * Put it in cruise `gap` metres off rock `r`, nose on it, at rest with its field.
+   * The sun is the reference (fields live in its sphere). For ?field= and the harness.
+   */
+  placeNearRock(r: Rock, gap: number): void {
+    this.setRef(body('sun'))
+    this.frameAt(this.time)
+    rockPosition(r, this.time, this.hpos)
+    this.hpos.z += r.radius + gap
+    fieldVelocity(r.field, this.time, this.hvel)
+    this.hquat.identity()
+    this.angVel.set(0, 0, 0)
+    this.hold = 0
+    this.state = 'flying'
+    this.thrusting = false
+    this.cruise = true
+    this.hitRock = null
+    this.accumulator = 0
+    this.fieldWeight = 1
+    fieldVelocity(r.field, this.time, this.fieldVel)
+    this.syncLocal()
   }
 
   /** Advance by real time; integrates in FIXED_DT substeps. Returns substeps taken. */
@@ -287,7 +329,23 @@ export class Craft {
       this.acc.addScaledVector(this.tmp, b.mu / (r2 * r))
       nearest = Math.min(nearest, r - b.radius)
     }
+    nearestRock(this.hpos, this.time, this.rockNear)
+    nearest = Math.min(nearest, this.rockNear.dist)
+    this.fieldWeight = 0
+    if (this.rockNear.rock && this.ref.kind === 'sun') {
+      const f = this.rockNear.rock.field
+      const dc = fieldPosition(f, this.time, this.tmp).distanceTo(this.hpos)
+      this.fieldWeight = Math.min(1, Math.max(0, (3 * f.spread - dc) / f.spread))
+      if (this.fieldWeight > 0) fieldVelocity(f, this.time, this.fieldVel)
+    }
     this.proximity = Math.max(0, nearest)
+    // A rock is a wall. Inside its surface (plus the hull) you are wreckage; the cap
+    // brings you in gently if you aim at one, but nothing stops you flying into it.
+    if (this.rockNear.rock && this.rockNear.dist < HULL_CLEARANCE) {
+      this.hitRock = this.rockNear.rock
+      this.crashOn(this.rockNear.rock, this.rockNear.pos)
+      return
+    }
 
     // Where we are relative to the reference body: altitude, air, the frame's velocity.
     this.rel.copy(this.hpos).sub(this.bPos)
@@ -416,6 +474,48 @@ export class Craft {
     this.pickRef()
   }
 
+  /**
+   * The gun. Fires along the nose, hitscan to GUN_RANGE, one shot per GUN_COOLDOWN.
+   * A rock loses a hit; at zero it breaks, and if it was ice and within ICE_REACH
+   * its fuel comes to the tank. Returns what happened, or null if not ready.
+   */
+  fire(): { hit: Hit | null; broke: boolean; fuel: number } | null {
+    if (this.state !== 'flying' || this.time < this.gunReady) return null
+    this.gunReady = this.time + GUN_COOLDOWN
+    this.nose.copy(BODY_FWD).applyQuaternion(this.hquat)
+    const hit = castRay(this.hpos, this.nose, GUN_RANGE, this.time)
+    let broke = false, fuel = 0
+    if (hit) {
+      hit.rock.hp--
+      if (hit.rock.hp <= 0) {
+        broke = true
+        if (hit.dist <= ICE_REACH) { fuel = Math.min(fuelYield(hit.rock), FUEL_TANK - this.fuel); this.fuel += fuel }
+      }
+    }
+    const to = hit ? hit.point.clone() : this.hpos.clone().addScaledVector(this.nose, GUN_RANGE)
+    this.lastShot = { from: this.hpos.clone(), to, hit, broke, fuel }
+    return { hit, broke, fuel }
+  }
+
+  /** Wreckage against a rock: stop where you are in the reference frame, record the contact, count it. */
+  private crashOn(r: Rock, at: THREE.Vector3): void {
+    this.frameVelAt(this.rel, this.frameVel)
+    this.vRel.copy(this.hvel).sub(this.frameVel)
+    const speed = this.vRel.length()
+    this.tmp.copy(this.hpos).sub(at).normalize()
+    // Sit on the rock's surface, so the wreck is on the rock and not in it.
+    this.hpos.copy(at).addScaledVector(this.tmp, r.radius + HULL_CLEARANCE)
+    this.lastContact = { vUp: -speed, vH: 0, tilt: 0, slope: 0 }
+    this.hvel.copy(this.frameVel)
+    this.angVel.set(0, 0, 0)
+    this.syncLocal()
+    this.vel.set(0, 0, 0)
+    this.state = 'crashed'
+    this.crashes++
+    this.rest()
+    this.syncHelio()
+  }
+
   // ---- Frames ----
 
   /** The reference body's centre, velocity, spin and angular velocity at time t. */
@@ -430,7 +530,9 @@ export class Craft {
 
   /** Velocity of the local frame at inertial offset `rel` from the body: orbit plus `hold` of the spin. */
   private frameVelAt(rel: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
-    return out.copy(this.omega).cross(rel).multiplyScalar(this.hold).add(this.bVel)
+    out.copy(this.omega).cross(rel).multiplyScalar(this.hold).add(this.bVel)
+    if (this.fieldWeight > 0) out.addScaledVector(this.fieldVel, this.fieldWeight)
+    return out
   }
 
   /** Local view from the heliocentric truth, using the frame last computed by frameAt. */

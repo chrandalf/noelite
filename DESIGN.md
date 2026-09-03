@@ -476,6 +476,34 @@ Every step is playable. That's the point of the ordering.
    the HUD shows the tank, the endurance at the current burn, LOW under 20% and DRY.
    Respawn is a full tank. **Not yet:** the point-of-no-return beeper, the nearest-refuel
    nav marker, a tank you can buy bigger, night stopping the trickle, and stations.
+11. ~~**Asteroids and the gun.**~~ Done 2026-09-03 (`src/world/asteroids.ts`,
+   `src/engine/Asteroids.ts`, `Craft.fire/rockNear/placeNearRock`, system harness 8,
+   flight harness 24). Chris: "in No Man's Sky you could fill up by destroying asteroids,
+   can we have asteroids that we destroy too, make it a bit more challenging to find what
+   you need, cos we'll have fuel stations as well." Twelve fields as a function of the
+   seed, riding Kepler orbits like the bodies: home's and Marram's Trojan clusters at L4
+   and L5 (60° ahead and behind on the planet's own orbit, 70 rocks in 40 km, where real
+   Trojans sit) and eight clumps of 150 in a main belt at 2.1 to 3.2 of home's distance.
+   Every rock has a fixed offset in its field's orbiting frame, so a cluster keeps its
+   shape; rocks are sparse (nothing within eight radii of another). Ice is a minority
+   (22% at home's Trojans, 45% in the belt) and reads as ice only up close: pale and
+   faintly lit against stone, and the HUD names it inside 2 km. A rock is a surface to
+   the cruise cap and a wall to the hull: fly into one and you are wreckage on it. **The
+   gun** (F, hitscan to 3 km, four shots a second) takes one hit off a rock per shot, one
+   plus a hit per 40 m of radius; when a rock breaks its facets burst outward and, if it
+   was ice and within 3 km, half a unit of fuel per metre of radius streaks to the tank
+   (a 100 m ice rock is half a tank). Stone gives nothing yet; that is ore, later. Broken
+   rocks stay broken for the session. Fields are Tab targets after the bodies. **Three
+   things the build caught:** a field is a frame (in the sun's sphere its velocity blends
+   into the frame's within three spreads, or the cruise assist bleeds your co-orbital
+   speed and the rocks stream past at 1.6 km/s); the ship cannot be a child of the
+   reference body's group in the sun's frame (939 million metres in float32 puts it 100 m
+   from where the camera looks; it now sits at the scene root, placed camera-relative in
+   float64); and the chase camera has to smooth its offset from the craft, not its
+   position, because the sun's rotating frame carries the craft round at 600 km/s and an
+   absolute lerp trailed 90 km behind. **Not yet:** fuel stations (Chris's brief), ore
+   from stone, a scanner, rock persistence across sessions, wreck-on-a-rock riding the
+   field properly.
    Next: **re-entry** (item 4), then Stage D's remainder: the lock-view camera, the
    escape-the-system trigger.
 

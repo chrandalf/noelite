@@ -17,6 +17,8 @@
 //   ?over=home-1:300   start hanging over another body (id:altitude, optionally :x,y,z direction)
 //   ?pitch=-1.2        chase camera orbit pitch in radians (negative looks up from under the ship)
 //   ?menu=1            start paused with the menu up (for shots)
+//   ?field=home-l4:2000:3   start in cruise 2 km off rock 3 of home's leading Trojans
+//   ?fuel=20           start with 20 units in the tank
 import * as THREE from 'three'
 import { PlanetLOD } from './world/lod.ts'
 import { FlyCam } from './engine/FlyCam.ts'
@@ -37,6 +39,8 @@ import { SYSTEM, body, bodyPosition, bodySpin, type Body } from './world/system.
 import { terrainColour, facetJitter, SEA } from './world/palette.ts'
 import { Water } from './engine/Water.ts'
 import { OrbitAutopilot } from './engine/Autopilot.ts'
+import { Asteroids } from './engine/Asteroids.ts'
+import { FIELDS, fieldPosition, fieldOf, type Field } from './world/asteroids.ts'
 import { Rain } from './engine/Rain.ts'
 import { Clouds } from './engine/Clouds.ts'
 import { CloudPuffs } from './engine/CloudPuffs.ts'
@@ -159,7 +163,11 @@ let gearDown = 1
 const GEAR_ALT = 100
 ;(flame.material as THREE.Material).name = 'flame'
 ship.renderOrder = 2
-homeView.group.add(ship)
+// The ship lives at the scene root, placed camera-relative in float64 every frame. In a
+// body's group it would be a child at up to 939 million metres (the sun's frame at home's
+// distance) and Three multiplies matrices in float32, which puts it 100 m from where the
+// camera is looking. Bodies never showed this: their frames are 40 km across.
+world.add(ship)
 ship.visible = mode === 'fly'
 const padSite = padOf(HOME)!
 const pad = new THREE.Vector3(padSite.dir.x, padSite.dir.y, padSite.dir.z)
@@ -175,7 +183,7 @@ shadow.mesh.visible = dust.points.visible = mode === 'fly'
 let refView = homeView
 function switchFrame(): void {
   refView = views.find((v) => v.body === craft.ref)!
-  refView.group.add(ship, shadow.mesh, dust.points, rain.lines, puffs.mesh)
+  refView.group.add(shadow.mesh, dust.points, rain.lines, puffs.mesh)
   shadow.terrain = dust.terrain = chase.terrain = craft.terrain
   chase.snap()
 }
@@ -194,6 +202,17 @@ const burn = Number(q.get('burn') ?? 0)
 const clock0 = Number(q.get('t') ?? 350)
 craft.time = clock0
 craft.spawnOn(pad, new THREE.Vector3(1, 0, 0), 'surface', home)
+// ?field=<field id>:<gap m>[:<rock index>] starts you in cruise off a rock in a field, nose on it: field=home-l4:2000
+{
+  const fp = q.get('field')
+  if (fp) {
+    const [id, gap, idx] = fp.split(':')
+    const f = fieldOf(id)
+    craft.placeNearRock(f.rocks[Math.min(f.rocks.length - 1, Number(idx) || 0)], Number(gap) || 2000)
+  }
+}
+// ?fuel=<units> starts with that much in the tank.
+if (q.get('fuel') !== null) craft.fuel = Math.max(0, Math.min(FUEL_TANK, Number(q.get('fuel'))))
 // ?over=<body id>:<altitude m> starts you hanging over another body instead: over=home-1:300 is the moon.
 {
   const over = q.get('over')
@@ -245,8 +264,15 @@ let last = performance.now(), frames = 0, fps = 0, fpsAt = last, updates = 0, el
 // otherwise a harness can read the queue in the gap before the move is noticed.
 let placedAt = -1
 let crashedAt: number | null = null
-// Targeting: Tab cycles through every body, home included, so there is always a way back.
-const targets = views.slice()
+// Targeting: Tab cycles through every body, home included, so there is always a way back, then the asteroid fields.
+type Target = { name: string; rel: THREE.Vector3; radius: number; field: Field | null }
+const targets: Target[] = [
+  ...views.map((v) => ({ name: v.body.name, rel: v.rel, radius: v.body.radius, field: null })),
+  ...FIELDS.map((f) => ({ name: f.name, rel: new THREE.Vector3(), radius: 0, field: f })),
+]
+const asteroids = new Asteroids()
+world.add(asteroids.group)
+asteroids.group.visible = mode === 'fly'
 let targetIndex = 0
 const toTarget = new THREE.Vector3()
 addEventListener('keydown', (e) => {
@@ -293,6 +319,7 @@ function placeBodies(t: number, frame: Body): void {
     }
     if (v.shellSun) v.shellSun.copy(sunView.rel).sub(v.rel).normalize()
   }
+  for (const tg of targets) if (tg.field) fieldPosition(tg.field, t, tg.rel).sub(pHome).applyQuaternion(qHomeInv)
   // The sun, from the viewer.
   sunDir.copy(sunView.rel).sub(viewPos).normalize()
   sunLight.position.copy(sunView.rel).sub(viewPos)
@@ -322,11 +349,14 @@ renderer.setAnimationLoop((now) => {
     }
     // A target within 30° of the nose caps cruise so you arrive at it; otherwise only the nearest body does.
     tmp.set(0, 0, -1).applyQuaternion(craft.quat)
-    craft.arrive = toTarget.lengthSq() > 0 && tmp.dot(toTarget) / toTarget.length() > 0.86 ? toTarget.length() - tgt.body.radius : Infinity
+    craft.arrive = toTarget.lengthSq() > 0 && tmp.dot(toTarget) / toTarget.length() > 0.86 ? toTarget.length() - tgt.radius : Infinity
     craft.step(dt, c)
+    if (input.fire() && !orbitAP.engaged) {
+      const s = craft.fire()
+      if (s && craft.lastShot) { asteroids.shot(craft.lastShot, craft.time); craft.lastShot = null }
+    }
     if (refView.body !== craft.ref) switchFrame()
     if (craft.state === 'crashed') { crashedAt ??= now; if (now - crashedAt > 2000) respawn() }
-    ship.position.copy(craft.pos)
     ship.quaternion.copy(craft.quat)
     const flying = craft.state === 'flying'
     morphed += ((craft.cruise ? 1 : 0) - morphed) * Math.min(1, dt / 0.5)
@@ -347,6 +377,7 @@ renderer.setAnimationLoop((now) => {
     }
     chase.update(dt, craft, atmosphereDensity(altitude, craft.terrain.air))
     viewPos.copy(chase.pos); viewQuat.copy(chase.quat)
+    ship.position.copy(craft.pos).sub(viewPos)
     if (Math.abs(altitude) < 0.05) altitude = 0
     if (!off.has('shadow')) shadow.update(craft)
     if (!off.has('dust')) dust.update(dt, craft.pos, altitude, flame.visible)
@@ -395,15 +426,17 @@ renderer.setAnimationLoop((now) => {
     markers.place('retro', pro.clone().negate(), camera, showNav && moving)
     const tDist = toTarget.length(), tDir = toTarget.clone().divideScalar(tDist)
     const closing = -craft.vel.dot(tDir)
-    const tSurf = Math.max(0, tDist - tgt.body.radius)
+    const tSurf = Math.max(0, tDist - tgt.radius)
     const eta = closing > 1 ? `  ETA ${fmtTime(tSurf / closing)}` : ''
-    markers.place('target', tDir, camera, showNav, `${tgt.body.name}  ${fmtDist(tSurf)}  ${closing >= 0 ? '↓' : '↑'}${fmtSpeed(Math.abs(closing))}${eta}`)
+    markers.place('target', tDir, camera, showNav, `${tgt.name}  ${fmtDist(tSurf)}  ${closing >= 0 ? '↓' : '↑'}${fmtSpeed(Math.abs(closing))}${eta}`)
     const lc = craft.lastContact
     const vOrb = craft.orbitalSpeed(), vEsc = craft.escapeSpeed(), spd = craft.speed(), vIn = craft.inertialSpeed()
     const apLine = orbitAP.engaged ? `   AUTOPILOT ${orbitAP.phase.toUpperCase()} ${craft.ref.name}  park ${((orbitAP.parkRadius(craft) - craft.terrain.radius) / 1000).toFixed(0)} km at ${orbitAP.parkSpeed(craft).toFixed(0)} m/s` : ''
-    const spaceLine = rho < 1 ? `${craft.cruise ? `CRUISE  cap ${fmtSpeed(craft.cap())}` : 'HOVER'}${apLine}   SOI ${craft.ref.name}   orbit ${vOrb.toFixed(0)}   escape ${vEsc.toFixed(0)}   ${craft.cruise ? '' : vIn > vEsc ? '!! ESCAPING !!' : vIn > vOrb ? 'above orbital' : ''}   target ${tgt.body.name}\n` : ''
+    const rn = craft.rockNear
+    const rockLine = rn.rock && rn.dist < 30000 ? `   ROCK ${fmtDist(rn.dist)}${rn.dist < 2000 ? (rn.rock.ice ? '  ICE' : '  STONE') : ''}  (F fires)` : ''
+    const spaceLine = rho < 1 ? `${craft.cruise ? `CRUISE  cap ${fmtSpeed(craft.cap())}` : 'HOVER'}${apLine}   SOI ${craft.ref.name}   orbit ${vOrb.toFixed(0)}   escape ${vEsc.toFixed(0)}   ${craft.cruise ? '' : vIn > vEsc ? '!! ESCAPING !!' : vIn > vOrb ? 'above orbital' : ''}   target ${tgt.name}${rockLine}\n` : ''
     line = `alt ${altitude.toFixed(1).padStart(6)} m   v↑ ${vUp.toFixed(1).padStart(5)} m/s   spd ${fmtSpeed(spd).padStart(9)}   tilt ${tilt.toFixed(0).padStart(2)}°   ${craft.state.toUpperCase()}   landings ${craft.landings}  crashes ${craft.crashes}\n` + spaceLine +
-      (craft.state === 'crashed' ? `contact: v↑ ${lc.vUp.toFixed(1)}  drift ${lc.vH.toFixed(1)}  tilt ${lc.tilt.toFixed(0)}°  slope ${lc.slope.toFixed(0)}°   R to respawn\n` : '') +
+      (craft.state === 'crashed' ? `contact: ${craft.hitRock ? 'ROCK  ' : ''}v↑ ${lc.vUp.toFixed(1)}  drift ${lc.vH.toFixed(1)}  tilt ${lc.tilt.toFixed(0)}°  slope ${lc.slope.toFixed(0)}°   R to respawn\n` : '') +
       `Esc  menu and controls   ${fps} fps   chunks ${refView.lod?.liveCount ?? 0}`
   } else {
     setGroundClock(t)
@@ -419,6 +452,7 @@ renderer.setAnimationLoop((now) => {
   }
 
   placeBodies(mode === 'fly' ? craft.time : t, mode === 'fly' ? craft.ref : home); updates++
+  if (mode === 'fly') asteroids.update(dt, craft.time, craft.hpos, pHome, qHomeInv, viewPos, craft.hpos)
   const ft = mode === 'fly' ? craft.terrain : HOME
 
   // "How day is it" uses the sun's APPARENT elevation: level elevation plus the
@@ -426,7 +460,8 @@ renderer.setAnimationLoop((now) => {
   // so the sun that set on the pad is back above the horizon once you climb.
   const density = atmosphereDensity(altitude, ft.air)
   dir.copy(viewPos).normalize()
-  const sinApp = Sky.apparentSunElevation(dir, sunDir, altitude, ft.radius)
+  // In the sun's own sphere there is no horizon to be under: it is always noon.
+  const sinApp = ft.kind === 'sun' ? 1 : Sky.apparentSunElevation(dir, sunDir, altitude, ft.radius)
   const sinDip = Math.sin(Math.acos(Math.min(1, ft.radius / (ft.radius + Math.max(0, altitude)))))
   const day = sky.update(dir, sunDir, density, sinApp, sinDip)
   const simTime = mode === 'fly' ? craft.time : t
@@ -454,7 +489,7 @@ void tmp
 
 // For the harnesses.
 ;(window as unknown as { __noelite: unknown }).__noelite = {
-  mode, planet, craft, input, free, views,
+  mode, planet, craft, input, free, views, asteroids, ship,
   /** True only once the LOD has updated since the last place() and its queue is empty. */
   ready: () => updates > placedAt + 1 && planet.pendingCount === 0,
   /** Free mode: put the camera at p looking at a. */

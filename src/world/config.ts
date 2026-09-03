@@ -131,3 +131,16 @@ export const FUEL_SOLAR_TRICKLE = 0.1
 export const FUEL_RELIGHT = 1
 /** Metres from a pad's centre that count as on it. The disc is 22 m. */
 export const PAD_RADIUS = 20
+
+// ---- Asteroids and the gun (2026-09-03). ----
+
+/** Hits to break a rock: one plus this per metre of radius. A 40 m rock takes two, a 200 m rock six. */
+export const ROCK_HP_PER_METRE = 1 / 40
+/** Fuel units an ice rock gives per metre of radius, and the most any one rock gives. A 40 m ice rock is a fifth of a tank. */
+export const ICE_FUEL_PER_METRE = 0.5
+export const ICE_FUEL_MAX = 60
+/** Metres the gun reaches, and the seconds between shots. */
+export const GUN_RANGE = 3000
+export const GUN_COOLDOWN = 0.25
+/** Metres from a breaking ice rock within which its fuel reaches you. Beyond that it is lost to space. */
+export const ICE_REACH = 3000

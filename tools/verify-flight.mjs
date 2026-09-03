@@ -9,6 +9,7 @@ import { findLandable, groundRadius } from '../src/world/terrain.ts'
 import { HOME, height, padOf } from '../src/world/height.ts'
 import { body, bodyVelocity, bodyPosition, bodySpin } from '../src/world/system.ts'
 import { wind } from '../src/world/weather.ts'
+import { FIELDS, resetRocks } from '../src/world/asteroids.ts'
 import { FIXED_DT, DRAG, LAND_MAX_VSPEED, GROUND_EFFECT_HEIGHT, CRUISE_MAX, CRUISE_DECEL, CRUISE_SECONDS, THRUST_ACCEL, BOOST_MULT, FUEL_TANK, FUEL_HOVER_BURN, FUEL_CRUISE_BURN, FUEL_PAD_REFILL, FUEL_SOLAR_TRICKLE, FUEL_RELIGHT } from '../src/world/config.ts'
 const GRAVITY = HOME.g, ATMOSPHERE_HEIGHT = HOME.air
 const BODY_UP = new THREE.Vector3(0, 1, 0), BODY_FWD = new THREE.Vector3(0, 0, -1)
@@ -389,6 +390,50 @@ for (const [id, start] of [['home-1', 150_000], ['home', 400_000]]) {
   check('cruise burns the cruise rate under thrust and nothing coasting', k.cruise && near(burnt, 5 * FUEL_CRUISE_BURN, 0.02) && k.fuel === k1, `${burnt.toFixed(2)} in 5 s of thrust, ${(k1 - k.fuel).toFixed(3)} in 5 s of coasting`)
   // The moon trip from test 19 costs a fraction of the tank: reach is fuel, and home to the moon is the first rung.
   check('home to the moon at full boost costs under half a tank', 40 * FUEL_CRUISE_BURN * BOOST_MULT < FUEL_TANK / 2, `${(40 * FUEL_CRUISE_BURN * BOOST_MULT).toFixed(0)} units for 40 s at full boost`)
+}
+
+
+// 24. Asteroids: a rock caps cruise like a surface, flying into one is a crash, the gun breaks them, ice refuels you.
+{
+  resetRocks()
+  const l4 = FIELDS.find((f) => f.id === 'home-l4')
+  const ice = l4.rocks.find((r) => r.ice && r.radius > 30), stone = l4.rocks.find((r) => !r.ice)
+  /** A craft in cruise `gap` metres from rock r's surface, nose on it, at rest relative to the field. */
+  const beside = (r, gap) => {
+    const c = new Craft(HOME); c.windy = false
+    c.time = 5000
+    c.placeNearRock(r, gap)
+    c.substep(FIXED_DT, IDLE)
+    return c
+  }
+  const c = beside(ice, 2000)
+  const nearCap = c.cruiseCap(2000)
+  check('a rock 2 km off the nose caps cruise like a surface would', c.rockNear.rock === ice && Math.abs(c.proximity - 2000) < 2 && Math.abs(c.cap() - nearCap) < 1, `proximity ${c.proximity.toFixed(0)} m, cap ${c.cap().toFixed(0)} m/s`)
+  check('inside a field the field is the frame: at rest with the rocks reads as at rest', c.speed() < 0.5 && c.ref.kind === 'sun', `spd ${c.speed().toFixed(2)} m/s in ${c.ref.name}'s sphere`)
+  until(c, () => false, 5, () => IDLE)
+  check('and five seconds later the rock is still 2 km off the nose', Math.abs(c.rockNear.dist - 2000) < 2, `${c.rockNear.dist.toFixed(1)} m`)
+  // The gun: one shot takes a hit; enough shots break it; the fuel arrives.
+  const f0 = c.fuel = 20
+  const hp0 = ice.hp
+  const first = c.fire()
+  check('a shot down the nose hits the rock', first && first.hit && first.hit.rock === ice && ice.hp === hp0 - 1, `hit at ${first?.hit?.dist.toFixed(0)} m, hp ${hp0} → ${ice.hp}`)
+  check('the gun has a cooldown', c.fire() === null)
+  let shots = 1, broke = first.broke, gained = first.fuel
+  while (!broke && shots < 20) { until(c, () => false, 0.3, () => IDLE); const s = c.fire(); shots++; broke = s.broke; gained += s.fuel }
+  check('enough shots break an ice rock and the fuel comes to the tank', broke && ice.hp === 0 && gained > 0 && Math.abs(c.fuel - f0 - gained) < 1e-9, `${shots} shots, +${gained.toFixed(1)} units, tank ${c.fuel.toFixed(1)}`)
+  c.substep(FIXED_DT, IDLE)
+  check('a broken rock is gone from the sky', c.rockNear.rock !== ice, `nearest now ${c.rockNear.rock ? (c.rockNear.dist / 1000).toFixed(1) + ' km' : 'nothing'}`)
+  // Stone gives nothing.
+  const d = beside(stone, 1000)
+  d.fuel = 20
+  let b = false, got = 0
+  for (let i = 0; i < 20 && !b; i++) { const s = d.fire(); if (s) { b = s.broke; got += s.fuel }; until(d, () => false, 0.3, () => IDLE) }
+  check('breaking stone gives no fuel', b && got === 0 && d.fuel === 20)
+  // Flying into a rock is a crash.
+  const e = beside(l4.rocks.find((r) => r.hp > 0 && r.radius > 50), 600)
+  until(e, (c) => c.state !== 'flying', 30, () => T(1))
+  check('flying into a rock is a crash', e.state === 'crashed' && e.hitRock !== null && e.lastContact.vUp < -LAND_MAX_VSPEED, `${e.state} at ${(-e.lastContact.vUp).toFixed(0)} m/s`)
+  resetRocks()
 }
 
 console.log(`\n${pass}/${pass + fail} checks`)

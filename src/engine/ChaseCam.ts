@@ -51,6 +51,9 @@ export class ChaseCam {
   reset(): void { this.orbitYaw = 0; this.orbitPitch = 0; this.zoom = 1 }
   /** Next update lands the camera instantly: the frame just changed under it. */
   snap(): void { this.first = true }
+  /** The camera's offset from the craft, which is what gets smoothed: a frame can carry the craft at 600 km/s (the sun's, at home's distance) and an absolute lerp would trail 90 km behind. */
+  private readonly offNow = new THREE.Vector3()
+  private readonly offWant = new THREE.Vector3()
 
   /** `density`: 1 is the planet-level follow, 0 is locked to the ship's frame. */
   update(dt: number, craft: Craft, density: number): void {
@@ -89,7 +92,9 @@ export class ChaseCam {
     this.camUp.normalize()
 
     const k = 6 + craft.speed() * 0.5
-    this.pos.lerp(this.target, this.first ? 1 : 1 - Math.exp(-k * dt))
+    this.offWant.copy(this.target).sub(craft.pos)
+    this.offNow.lerp(this.offWant, this.first ? 1 : 1 - Math.exp(-k * dt))
+    this.pos.copy(craft.pos).add(this.offNow)
     this.dir.copy(this.pos).normalize()
     const minR = groundRadius(this.dir, this.terrain) + CAM_CLEARANCE
     if (this.pos.length() < minR) this.pos.copy(this.dir).multiplyScalar(minR)

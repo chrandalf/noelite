@@ -3,7 +3,7 @@
 // thruster (pushes forward). Nothing analogue yet; that is the honest Zarch version.
 import type { Controls } from './Craft.ts'
 
-const CODES = ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyQ', 'KeyE', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ShiftLeft', 'ShiftRight', 'KeyX', 'KeyZ', 'KeyT', 'Comma', 'Period', 'Slash', 'Quote']
+const CODES = ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyQ', 'KeyE', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ShiftLeft', 'ShiftRight', 'KeyX', 'KeyZ', 'KeyT', 'Comma', 'Period', 'Slash', 'Quote', 'KeyF']
 
 export class KeyInput {
   private readonly down = new Set<string>()
@@ -15,6 +15,9 @@ export class KeyInput {
     addEventListener('keyup', (e) => this.down.delete(e.code))
     addEventListener('blur', () => this.down.clear())
   }
+
+  /** F: the gun. Held down it fires as fast as the cooldown allows. */
+  fire(): boolean { return this.down.has('KeyF') }
 
   /** X: point against velocity. Z: point at the planet. T: point at the target. (Thrust axis in hover, nose in cruise.) */
   assist(): 'retro' | 'nadir' | 'target' | null {
