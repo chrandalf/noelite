@@ -86,7 +86,7 @@ export type Gear = THREE.Group[]
 export type Morph = { set: (m: number) => void; cruiseFlames: THREE.Mesh[] }
 
 /** Ship plus an engine flame that shows while thrusting, and four small RCS puffs. */
-export function buildCraftMesh(material: THREE.Material): { root: THREE.Group; flame: THREE.Mesh; rcs: Rcs; gear: Gear; morph: Morph } {
+export function buildCraftMesh(material: THREE.Material): { root: THREE.Group; flame: THREE.Mesh; rcs: Rcs; gear: Gear; morph: Morph; strobe: THREE.Mesh } {
   const root = new THREE.Group()
   root.add(new THREE.Mesh(buildCraftGeometry(), material))
   // Trim: two engine nozzles on the back face and the navigation lights on the wingtips.
@@ -125,6 +125,12 @@ export function buildCraftMesh(material: THREE.Material): { root: THREE.Group; f
     root.add(m)
   }
   lamp(-3.2, 0xff2a2a); lamp(3.2, 0x2aff55)
+  // A white anti-collision strobe on the spine, flashed by main.
+  const strobe = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.16, 0.3), new THREE.MeshBasicMaterial({ color: 0xffffff }))
+  ;(strobe.material as THREE.Material).name = 'strobe'
+  strobe.position.set(0, 1.22, 1.0)
+  strobe.visible = false
+  root.add(strobe)
   const flameMat = new THREE.MeshBasicMaterial({ color: 0xffa040 })
   const flame = new THREE.Mesh(new THREE.ConeGeometry(0.7, 3.4, 6), flameMat)
   flame.position.set(0, -2.3, 0.9)
@@ -199,5 +205,5 @@ export function buildCraftMesh(material: THREE.Material): { root: THREE.Group; f
     },
   }
   morph.set(0)
-  return { root, flame, rcs, gear, morph }
+  return { root, flame, rcs, gear, morph, strobe }
 }

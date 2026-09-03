@@ -29,9 +29,16 @@ export class Rain {
     this.lines.renderOrder = 3
   }
 
-  /** `craftPos` local frame; `wind` local m/s; `intensity` 0..1; `density` of air at the craft. */
-  update(dt: number, craftPos: THREE.Vector3, wind: THREE.Vector3, intensity: number, density: number): void {
-    const want = Math.round(N * Math.min(1, intensity * 1.2) * (density > 0.05 ? 1 : 0))
+  /**
+   * `craftPos` local frame; `wind` local m/s; `intensity` 0..1; `density` of air at the
+   * craft; `ceiling` the radius of the cloud base. Rain falls from the clouds: nothing
+   * above the base, and drops are born at the base when the craft is near it.
+   */
+  update(dt: number, craftPos: THREE.Vector3, wind: THREE.Vector3, intensity: number, density: number, ceiling: number): void {
+    const r = craftPos.length()
+    const underCloud = Math.min(1, Math.max(0, (ceiling - r) / 20))
+    const want = Math.round(N * Math.min(1, intensity * 1.2) * (density > 0.05 ? 1 : 0) * underCloud)
+    const roof = ceiling - r // metres of headroom to the cloud base; drops spawn no higher
     this.up.copy(craftPos).normalize()
     this.ax.set(Math.abs(this.up.x) < 0.9 ? 1 : 0, Math.abs(this.up.x) < 0.9 ? 0 : 1, 0)
     this.t1.crossVectors(this.ax, this.up).normalize()
@@ -49,7 +56,7 @@ export class Rain {
       const dx = x - craftPos.x, dy = y - craftPos.y, dz = z - craftPos.z
       const above = dx * this.up.x + dy * this.up.y + dz * this.up.z
       if (dead || Math.abs(above) > BOX || dx * dx + dy * dy + dz * dz > 3 * BOX * BOX) {
-        const a = (this.next() - 0.5) * 2 * BOX, b = (this.next() - 0.5) * 2 * BOX, h = this.next() * BOX
+        const a = (this.next() - 0.5) * 2 * BOX, b = (this.next() - 0.5) * 2 * BOX, h = Math.min(this.next() * BOX, roof)
         x = craftPos.x + this.t1.x * a + this.t2.x * b + this.up.x * h - this.v.x * 1.5
         y = craftPos.y + this.t1.y * a + this.t2.y * b + this.up.y * h - this.v.y * 1.5
         z = craftPos.z + this.t1.z * a + this.t2.z * b + this.up.z * h - this.v.z * 1.5

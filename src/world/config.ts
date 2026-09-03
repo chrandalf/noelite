@@ -181,3 +181,6 @@ export const HULL_GLOW = 0.39
 export const DAMAGE_TAU = 8
 /** Ground-relative m/s above which hover will not engage: you are still re-entering, flip and brake. */
 export const HOVER_MAX_SPEED = 250
+
+/** Cloud base as a fraction of the atmosphere's depth. 0.38 of a 2 km air is 760 m: low enough to fly under and look up at. Chris, 2026-09-03: "the clouds being too high and they need rain coming from them." */
+export const CLOUD_BASE_FRAC = 0.38

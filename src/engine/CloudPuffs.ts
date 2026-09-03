@@ -7,6 +7,7 @@
 // masses, streets and gaps. Sites are seeded per cube-sphere cell so they stay put as
 // you move. The shell (Clouds.ts) carries the cover at a distance and fades out near.
 import * as THREE from 'three'
+import { CLOUD_BASE_FRAC } from '../world/config.ts'
 import type { Terrain } from '../world/height.ts'
 import { cubeToFace, faceToUnit } from '../world/cubesphere.ts'
 import { cloudCover } from '../world/weather.ts'
@@ -76,7 +77,7 @@ export class CloudPuffs {
     if (t.id === this.lastId && at.distanceTo(this.lastAt) < 300 && time - this.lastTime < 2) return
     this.lastAt.copy(at); this.lastTime = time; this.lastId = t.id
     this.mesh.visible = true
-    const base = t.radius + t.air * 0.6
+    const base = t.radius + t.air * CLOUD_BASE_FRAC
     this.up.copy(at).normalize()
     this.ax.set(Math.abs(this.up.x) < 0.9 ? 1 : 0, Math.abs(this.up.x) < 0.9 ? 0 : 1, 0)
     this.t1.crossVectors(this.ax, this.up).normalize()

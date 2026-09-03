@@ -34,15 +34,24 @@ export class Sound {
   private windGain: GainNode | null = null
   private windFilter: BiquadFilterNode | null = null
   private rcsGain: GainNode | null = null
+  private rainGain: GainNode | null = null
+  private servoGain: GainNode | null = null
+  private muffle: BiquadFilterNode | null = null
   private nextBlip = 0
   private wasLanded = true
+  private lastGear = 1
+  private lastMorph = 0
 
   arm(): void {
     if (this.ctx) { if (this.ctx.state === 'suspended') void this.ctx.resume(); return }
     const ctx = (this.ctx = new AudioContext())
     const master = (this.master = ctx.createGain())
     master.gain.value = 0.8
-    master.connect(ctx.destination)
+    // Everything goes through one lowpass: wide open in air, closed down in vacuum, where
+    // what you hear is what the hull carries to the cockpit.
+    const muffle = (this.muffle = ctx.createBiquadFilter())
+    muffle.type = 'lowpass'; muffle.frequency.value = 18000; muffle.Q.value = 0.5
+    master.connect(muffle).connect(ctx.destination)
     const noise = brownNoise(ctx)
     const src = (kind: 'hover' | 'wind' | 'rcs') => {
       const s = ctx.createBufferSource(); s.buffer = noise; s.loop = true
@@ -66,14 +75,29 @@ export class Sound {
     { const { f, g } = src('wind'); this.windFilter = f; this.windGain = g; f.frequency.value = 400; f.Q.value = 0.5 }
     // RCS: a hiss while a thruster is held.
     { const { f, g } = src('rcs'); this.rcsGain = g; f.frequency.value = 2400; f.Q.value = 0.3 }
+    // Rain on the hull: high, hissy, only under the clouds.
+    { const { f, g } = src('wind'); this.rainGain = g; f.frequency.value = 3200; f.Q.value = 0.4 }
+    // Servos: the gear and the wing morph, a filtered whir while they move.
+    { const { f, g } = src('hover'); this.servoGain = g; f.frequency.value = 900; f.Q.value = 2.5 }
   }
 
-  /** Every frame. `rho` is the air at the craft, 0 in vacuum. */
-  update(now: number, craft: Craft, c: Controls, rho: number): void {
+  /** Every frame. `rho` is the air at the craft, 0 in vacuum; `zoom` the chase camera's distance factor (1 default); `rain` 0..1; `gear` 1 down; `morph` 0 dart, 1 TIE. */
+  update(now: number, craft: Craft, c: Controls, rho: number, zoom = 1, rain = 0, gear = 1, morph = 0): void {
     if (!this.ctx || !this.master) return
     const t = this.ctx.currentTime
     const on = !this.muted && craft.state === 'flying'
     const ramp = (p: AudioParam, v: number, tau = 0.12) => p.setTargetAtTime(v, t, tau)
+    // The camera is the ear: pull back and the ship gets quieter. Chris, 2026-09-03.
+    ramp(this.master.gain, this.muted ? 0 : 0.8 / Math.pow(Math.max(0.4, zoom), 0.9), 0.15)
+    // Vacuum closes the filter: the cockpit hears the hull, not the air.
+    ramp(this.muffle!.frequency, 700 + 17300 * Math.min(1, rho * 4), 0.4)
+    // Rain patter, when under it and in air (landed counts: it rains on a parked ship too).
+    ramp(this.rainGain!.gain, !this.muted && craft.state !== 'crashed' ? 0.12 * rain * Math.min(1, rho * 2) : 0, 0.3)
+    // Servos: whir while the gear or the wings move; a clunk when the gear seats.
+    const moving = Math.abs(gear - this.lastGear) > 0.002 || Math.abs(morph - this.lastMorph) > 0.002
+    ramp(this.servoGain!.gain, !this.muted && moving ? 0.05 : 0, 0.05)
+    if (!this.muted && ((this.lastGear < 0.97 && gear >= 0.97) || (this.lastGear > 0.06 && gear <= 0.06))) this.clunk()
+    this.lastGear = gear; this.lastMorph = morph
     const throttle = on ? c.thrust * (1 + 0.6 * c.boost) : 0
     // Hover engine only while hovering; cruise drive only in cruise. Both idle quietly when flying.
     const hover = on && !craft.cruise, cruise = on && craft.cruise
@@ -112,6 +136,31 @@ export class Sound {
     g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(gain, t + 0.008); g.gain.exponentialRampToValueAtTime(0.0005, t + len)
     o.connect(g).connect(this.master)
     o.start(t); o.stop(t + len + 0.02)
+  }
+
+  /** The gear seating, or unseating. */
+  private clunk(): void {
+    if (!this.ctx || !this.master) return
+    const o = this.ctx.createOscillator(), g = this.ctx.createGain()
+    o.type = 'triangle'
+    const t = this.ctx.currentTime
+    o.frequency.setValueAtTime(160, t); o.frequency.exponentialRampToValueAtTime(70, t + 0.08)
+    g.gain.setValueAtTime(0.12, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.1)
+    o.connect(g).connect(this.master)
+    o.start(t); o.stop(t + 0.12)
+  }
+
+  /** Fuel arriving from a broken ice rock: a rising two-note chime. */
+  chime(): void {
+    if (!this.ctx || !this.master || this.muted) return
+    const t = this.ctx.currentTime
+    for (const [f, at] of [[660, 0], [990, 0.11]] as [number, number][]) {
+      const o = this.ctx.createOscillator(), g = this.ctx.createGain()
+      o.type = 'sine'; o.frequency.value = f
+      g.gain.setValueAtTime(0, t + at); g.gain.linearRampToValueAtTime(0.06, t + at + 0.01); g.gain.exponentialRampToValueAtTime(0.001, t + at + 0.35)
+      o.connect(g).connect(this.master)
+      o.start(t + at); o.stop(t + at + 0.4)
+    }
   }
 
   private thud(): void {

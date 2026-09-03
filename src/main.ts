@@ -49,7 +49,7 @@ import { Clouds } from './engine/Clouds.ts'
 import { CloudPuffs } from './engine/CloudPuffs.ts'
 import { front, rainOf, cloudOf, moonDirection, TIDE_AMPLITUDE } from './world/weather.ts'
 import { setGroundClock } from './world/terrain.ts'
-import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE , FUEL_TANK, HULL_LIMIT, HULL_WARN, HULL_GLOW } from './world/config.ts'
+import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE , FUEL_TANK, HULL_LIMIT, HULL_WARN, HULL_GLOW, CLOUD_BASE_FRAC } from './world/config.ts'
 
 const q = new URLSearchParams(location.search)
 const mode: 'fly' | 'free' = q.get('mode') === 'free' ? 'free' : 'fly'
@@ -137,7 +137,7 @@ const views: BodyView[] = SYSTEM.map((b) => {
   if (b.kind !== 'sun' && b.kind !== 'giant') { lod = new PlanetLOD(terrain, b.id === 'home' ? terrainMaterial : bodyMaterial, skirts); group.add(lod.group) }
   if (lod && terrain.sea !== null) { water = new PlanetLOD(waterOf(terrain), waterMat.material, skirts); group.add(water.group) }
   let clouds: Clouds | null = null
-  if (lod && terrain.air > 0) { clouds = new Clouds(terrain, terrain.air * 0.6); group.add(clouds.mesh) }
+  if (lod && terrain.air > 0) { clouds = new Clouds(terrain, terrain.air * CLOUD_BASE_FRAC); group.add(clouds.mesh) }
   let shellSun: THREE.Vector3 | null = null
   if (b.atmosphereHeight > 0) {
     const shell = buildAtmosphereShell(new THREE.Vector3(1, 0, 0), new THREE.Color(SHELL_COLOUR[b.kind] ?? 0x5d9be0), b.radius, b.atmosphereHeight)
@@ -159,7 +159,7 @@ chase.orbitPitch = Math.min(ChaseCam.MAX_PITCH, Math.max(-ChaseCam.MAX_PITCH, Nu
 chase.orbitYaw = Number(q.get('yaw') ?? 0)
 const shipMaterial = new THREE.MeshLambertMaterial({ vertexColors: true })
 shipMaterial.name = 'ship'
-const { root: ship, flame, rcs, gear, morph } = buildCraftMesh(shipMaterial)
+const { root: ship, flame, rcs, gear, morph, strobe } = buildCraftMesh(shipMaterial)
 /** 0 dart, 1 TIE. Follows the craft's cruise flag over about a second and a half. */
 let morphed = 0
 /** 1 down, 0 up. Goes up above GEAR_ALT over the ground, down below it, over about a second. */
@@ -396,7 +396,7 @@ renderer.setAnimationLoop((now) => {
     craft.arriveFloor = tgt.field === null
     craft.step(dt, c)
     if (input.fire() && !orbitAP.engaged && craft.fire()) sound.shot()
-    if (craft.hits.length) { asteroids.hits(craft.hits, craft.time); for (const h of craft.hits) sound.hit(h.broke); craft.hits.length = 0 }
+    if (craft.hits.length) { asteroids.hits(craft.hits, craft.time); for (const h of craft.hits) { sound.hit(h.broke); if (h.fuel > 0) sound.chime() }; craft.hits.length = 0 }
     if (refView.body !== craft.ref) switchFrame()
     if (craft.state === 'crashed') { crashedAt ??= now; if (now - crashedAt > 2000) respawn() }
     ship.quaternion.copy(craft.quat)
@@ -406,6 +406,9 @@ renderer.setAnimationLoop((now) => {
     // The hover engine fires down; in cruise the boosters fire back. Hand over halfway through the morph.
     flame.visible = craft.thrusting && flying && morphed < 0.5
     for (const f of morph.cruiseFlames) f.visible = craft.thrusting && flying && morphed >= 0.5
+    // Flames flicker; the strobe flashes twice a second and a half, only in flight.
+    { const k = 0.85 + 0.3 * Math.random(); flame.scale.set(1, k, 1); for (const f of morph.cruiseFlames) f.scale.set(1, 0.85 + 0.3 * Math.random(), 1) }
+    { const ph = (now / 1000) % 1.5; strobe.visible = flying && (ph < 0.06 || (ph > 0.18 && ph < 0.24)) }
     rcs.right.visible = flying && c.lateral < 0
     rcs.left.visible = flying && c.lateral > 0
     rcs.top.visible = flying && c.vertical < 0
@@ -429,10 +432,10 @@ renderer.setAnimationLoop((now) => {
     rainNow = craft.atmosphere() > 0 ? rainOf(weatherFront) : 0
     cloudNow = craft.atmosphere() > 0 ? cloudOf(weatherFront) : 0
     windNow = craft.wind.length()
-    if (!off.has('rain')) rain.update(dt, craft.pos, craft.wind, rainNow, craft.atmosphere())
+    if (!off.has('rain')) rain.update(dt, craft.pos, craft.wind, rainNow, craft.atmosphere(), craft.terrain.radius + craft.terrain.air * CLOUD_BASE_FRAC)
     if (!off.has('clouds')) puffs.update(craft.pos, craft.terrain, craft.time)
     if (off.has('flame')) { flame.visible = false; for (const f of morph.cruiseFlames) f.visible = false }
-    sound.update(now / 1000, craft, c, craft.atmosphere())
+    sound.update(now / 1000, craft, c, craft.atmosphere(), chase.zoom, rainNow, gearDown, morphed)
 
     // Altimeter and the four landing lights. They arm below 60 m so they mean something.
     const vUp = craft.vUp(), tilt = craft.tilt()
@@ -489,7 +492,7 @@ renderer.setAnimationLoop((now) => {
       }
       cleared = `  cleared pad ${bestN}`
     }
-    const eta = closing > 1 ? `  ETA ${fmtTime(tSurf / closing)}` : ''
+    const eta = closing > 1 && tSurf / closing < 86400 ? `  ETA ${fmtTime(tSurf / closing)}` : ''
     markers.place('target', tDir, camera, showNav || cleared !== '', `${tgt.name}  ${fmtDist(tSurf)}  ${closing >= 0 ? '↓' : '↑'}${fmtSpeed(Math.abs(closing))}${eta}${cleared}`)
     const lc = craft.lastContact
     const vOrb = craft.orbitalSpeed(), vEsc = craft.escapeSpeed(), spd = craft.speed(), vIn = craft.inertialSpeed()
