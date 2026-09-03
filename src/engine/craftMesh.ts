@@ -1,6 +1,7 @@
 // The ship. Six facets, two colours, no assets. Zarch's dart, more or less.
 // Winding is fixed up automatically against the centroid so every face points out.
 import * as THREE from 'three'
+import { GUN_MUZZLE } from '../world/config.ts'
 
 type P = [number, number, number]
 const N: P = [0, 0, -4.6]        // nose
@@ -83,7 +84,7 @@ export type Gear = THREE.Group[]
  * in cruise; two boosters slide out of the back and carry the cruise flame. main drives
  * `set(morph)` from the craft's cruise flag, 0 dart, 1 TIE.
  */
-export type Morph = { set: (m: number) => void; cruiseFlames: THREE.Mesh[] }
+export type Morph = { set: (m: number) => void; cruiseFlames: THREE.Mesh[]; flashes: THREE.Mesh[] }
 
 /** Ship plus an engine flame that shows while thrusting, and four small RCS puffs. */
 export function buildCraftMesh(material: THREE.Material): { root: THREE.Group; flame: THREE.Mesh; rcs: Rcs; gear: Gear; morph: Morph; strobe: THREE.Mesh; glowMats: THREE.MeshLambertMaterial[]; plasma: THREE.Mesh; haze: THREE.Mesh } {
@@ -189,8 +190,36 @@ export function buildCraftMesh(material: THREE.Material): { root: THREE.Group; f
     f.visible = false
     root.add(f); cruiseFlames.push(f)
   }
+  // Cannons: two barrels under the wings that slide forward out of the hull with the morph,
+  // muzzles at GUN_MUZZLE (Craft fires from the same points), a flash cone at each.
+  // Chris, 2026-09-03: "can they actually be seen from guns that come out and look like
+  // they're firing, this should also only be possible in tie fighter mode."
+  const barrels: THREE.Group[] = []
+  const flashes: THREE.Mesh[] = []
+  for (const x of [-GUN_MUZZLE.x, GUN_MUZZLE.x]) {
+    const g = new THREE.Group()
+    g.position.set(x, GUN_MUZZLE.y, 0.4)
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.14, 3.2, 6), metal)
+    barrel.rotation.x = Math.PI / 2
+    barrel.position.z = -1.6
+    const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.16, 0.5, 6), sparMat)
+    muzzle.rotation.x = Math.PI / 2
+    muzzle.position.z = -3.0
+    const mount = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.5, 0.9), sparMat)
+    mount.position.set(0, 0.3, 0.1)
+    g.add(barrel, muzzle, mount)
+    root.add(g)
+    barrels.push(g)
+    const fl = new THREE.Mesh(new THREE.ConeGeometry(0.35, 1.4, 6), flameMat)
+    fl.rotation.x = -Math.PI / 2       // apex forward
+    fl.position.set(x, GUN_MUZZLE.y, GUN_MUZZLE.z - 0.7)
+    fl.visible = false
+    root.add(fl)
+    flashes.push(fl)
+  }
   const morph: Morph = {
     cruiseFlames,
+    flashes,
     set: (m: number) => {
       const t = Math.min(1, Math.max(0, m))
       for (const { g, fold } of panels) {
@@ -202,6 +231,8 @@ export function buildCraftMesh(material: THREE.Material): { root: THREE.Group; f
         boosters[i].position.z = 1.85 + 1.55 * t
         cruiseFlames[i].position.set(boosters[i].position.x, 0.2, boosters[i].position.z + 0.75 + 1.6)
       }
+      // Barrels slide forward out of the wing: stowed they sit inside the hull, scaled to a stub.
+      for (const b of barrels) { b.position.z = 2.4 - 2.0 * t; b.scale.z = 0.12 + 0.88 * t; b.visible = t > 0.05 }
     },
   }
   morph.set(0)

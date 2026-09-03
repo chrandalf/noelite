@@ -184,3 +184,6 @@ export const HOVER_MAX_SPEED = 250
 
 /** Cloud base as a fraction of the atmosphere's depth. 0.38 of a 2 km air is 760 m: low enough to fly under and look up at. Chris, 2026-09-03: "the clouds being too high and they need rain coming from them." */
 export const CLOUD_BASE_FRAC = 0.38
+
+/** Where the bolts leave the ship, body frame, for the right-hand cannon (mirror x for the left). Only in cruise, when the cannons are out. */
+export const GUN_MUZZLE = { x: 2.2, y: -0.35, z: -3.4 }

@@ -170,6 +170,8 @@ shipMaterial.name = 'ship'
 const { root: ship, flame, rcs, gear, morph, strobe, glowMats, plasma, haze } = buildCraftMesh(shipMaterial)
 /** 0 dart, 1 TIE. Follows the craft's cruise flag over about a second and a half. */
 let morphed = 0
+/** Muzzle flash timers, left and right, in ms of `now`. */
+const flashUntil = [0, 0]
 /** 1 down, 0 up. Goes up above GEAR_ALT over the ground, down below it, over about a second. */
 let gearDown = 1
 const GEAR_ALT = 100
@@ -406,7 +408,8 @@ renderer.setAnimationLoop((now) => {
     craft.arrive = toTarget.lengthSq() > 0 && tmp.dot(toTarget) / toTarget.length() > 0.86 ? toTarget.length() - tgt.radius : Infinity
     craft.arriveFloor = tgt.field === null
     craft.step(dt, c)
-    if (input.fire() && !orbitAP.engaged && craft.fire()) sound.shot()
+    if (input.fire() && !orbitAP.engaged) { const b = craft.fire(); if (b) { sound.shot(); flashUntil[b.side > 0 ? 1 : 0] = now + 60 } }
+    morph.flashes[0].visible = now < flashUntil[0]; morph.flashes[1].visible = now < flashUntil[1]
     if (craft.hits.length) { asteroids.hits(craft.hits, craft.time); for (const h of craft.hits) { sound.hit(h.broke); if (h.fuel > 0) sound.chime() }; craft.hits.length = 0 }
     if (refView.body !== craft.ref) switchFrame()
     if (craft.state === 'crashed') { crashedAt ??= now; if (now - crashedAt > 2000) respawn() }
@@ -527,7 +530,7 @@ renderer.setAnimationLoop((now) => {
     const vOrb = craft.orbitalSpeed(), vEsc = craft.escapeSpeed(), spd = craft.speed(), vIn = craft.inertialSpeed()
     const apLine = orbitAP.engaged ? `   AUTOPILOT ${orbitAP.phase.toUpperCase()} ${craft.ref.name}  park ${((orbitAP.parkRadius(craft) - craft.terrain.radius) / 1000).toFixed(0)} km at ${orbitAP.parkSpeed(craft).toFixed(0)} m/s` : ''
     const rn = craft.rockNear
-    const rockLine = rn.rock && rn.dist < 30000 ? `   ROCK ${fmtDist(rn.dist)}${rn.dist < 2000 ? (rn.rock.ice ? '  ICE' : '  STONE') : ''}  (F fires)` : ''
+    const rockLine = rn.rock && rn.dist < 30000 ? `   ROCK ${fmtDist(rn.dist)}${rn.dist < 2000 ? (rn.rock.ice ? '  ICE' : '  STONE') : ''}${craft.cruise ? '  (F fires)' : '  (cannons stowed in hover)'}` : ''
     const spaceLine = rho < 1 ? `${craft.cruise ? `CRUISE  cap ${fmtSpeed(craft.cap())}` : 'HOVER'}${apLine}   SOI ${craft.ref.name}   orbit ${vOrb.toFixed(0)}   escape ${vEsc.toFixed(0)}   ${craft.cruise ? '' : vIn > vEsc ? '!! ESCAPING !!' : vIn > vOrb ? 'above orbital' : ''}   target ${tgt.name}${tgt.field ? ` (${fieldIndex + 1} of ${nearFields.length} nearest, V)` : ' (Tab)'}${rockLine}\n` : ''
     line = `alt ${altitude.toFixed(1).padStart(6)} m   v↑ ${vUp.toFixed(1).padStart(5)} m/s   spd ${fmtSpeed(spd).padStart(9)}   tilt ${tilt.toFixed(0).padStart(2)}°   ${craft.state.toUpperCase()}   landings ${craft.landings}  crashes ${craft.crashes}\n` + spaceLine +
       (craft.state === 'crashed' ? `contact: ${craft.burned ? 'HULL BURNED THROUGH  ' : craft.hitRock ? 'ROCK  ' : ''}v↑ ${lc.vUp.toFixed(1)}  drift ${lc.vH.toFixed(1)}  tilt ${lc.tilt.toFixed(0)}°  slope ${lc.slope.toFixed(0)}°   R to respawn\n` : '') +

@@ -28,7 +28,7 @@ import {
   CRUISE_ENTER, CRUISE_EXIT, CRUISE_FLOOR, CRUISE_ALIGN_TAU, CRUISE_MAX, CRUISE_FLOOR_SPEED, CRUISE_BRAKE, CRUISE_DECEL, CRUISE_SECONDS, CRUISE_SPOOL,
   FUEL_TANK, FUEL_HOVER_BURN, FUEL_CRUISE_BURN, FUEL_RCS_BURN, FUEL_PAD_REFILL, FUEL_SOLAR_TRICKLE, FUEL_RELIGHT, PAD_RADIUS,
   GUN_RANGE, GUN_COOLDOWN, ICE_REACH, BOLT_SPEED,
-  HEAT_K, HEAT_RAMP_LO, HEAT_RAMP_HI, HEAT_RAMP_MIN, HEAT_TAU, COOL_RATE, COOL_MIN, HULL_LIMIT, DAMAGE_TAU, HOVER_MAX_SPEED,
+  GUN_MUZZLE, HEAT_K, HEAT_RAMP_LO, HEAT_RAMP_HI, HEAT_RAMP_MIN, HEAT_TAU, COOL_RATE, COOL_MIN, HULL_LIMIT, DAMAGE_TAU, HOVER_MAX_SPEED,
 } from '../world/config.ts'
 
 /**
@@ -41,7 +41,7 @@ export const IDLE: Readonly<Controls> = Object.freeze({ pitch: 0, roll: 0, yaw: 
 
 export type CraftState = 'landed' | 'flying' | 'crashed'
 
-export type Bolt = { pos: THREE.Vector3; vel: THREE.Vector3; dir: THREE.Vector3; dies: number; alive: boolean }
+export type Bolt = { pos: THREE.Vector3; vel: THREE.Vector3; dir: THREE.Vector3; dies: number; alive: boolean; side: number }
 export type BoltHit = { hit: Hit; broke: boolean; fuel: number }
 const BOLT_POOL = 32
 
@@ -538,23 +538,25 @@ export class Craft {
    * null if the gun was not ready.
    */
   fire(): Bolt | null {
-    if (this.state !== 'flying' || this.time < this.gunReady) return null
+    // The cannons are out only in cruise (the TIE): nothing fires in hover.
+    if (this.state !== 'flying' || !this.cruise || this.time < this.gunReady) return null
     this.gunReady = this.time + GUN_COOLDOWN
     let b = this.bolts.find((x) => !x.alive)
     if (!b) {
       if (this.bolts.length >= BOLT_POOL) return null
-      b = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), dir: new THREE.Vector3(), dies: 0, alive: false }
+      b = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), dir: new THREE.Vector3(), dies: 0, alive: false, side: 1 }
       this.bolts.push(b)
     }
     this.nose.copy(BODY_FWD).applyQuaternion(this.hquat)
-    // From the wingtip lamp on alternate sides, a touch below the spine.
+    // From the cannon muzzles under the wings, alternate sides.
     this.gunSide = -this.gunSide
-    this.tmp.set(3.0 * this.gunSide, 0.1, 1.8).applyQuaternion(this.hquat)
+    this.tmp.set(GUN_MUZZLE.x * this.gunSide, GUN_MUZZLE.y, GUN_MUZZLE.z).applyQuaternion(this.hquat)
     b.pos.copy(this.hpos).add(this.tmp)
     b.dir.copy(this.nose)
     b.vel.copy(this.hvel).addScaledVector(this.nose, BOLT_SPEED)
     b.dies = this.time + GUN_RANGE / BOLT_SPEED
     b.alive = true
+    b.side = this.gunSide
     return b
   }
 
