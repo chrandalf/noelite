@@ -145,3 +145,30 @@ export const GUN_COOLDOWN = 0.2
 export const BOLT_SPEED = 900
 /** Metres from a breaking ice rock within which its fuel reaches you. Beyond that it is lost to space. */
 export const ICE_REACH = 3000
+
+// ---- Re-entry: hull heating (2026-09-03). After XRVessels' twenty years of tuning, via the research report. ----
+
+/**
+ * Hull heat is an equilibrium temperature the hull rises toward, not an integral: stable
+ * at any step. Target = HEAT_K · √ρ · v³ · ramp(ρ). The square root is Sutton-Graves (the
+ * real heat flux goes as √ρ, and it is what makes thin air bite on a shallow entry); the
+ * ramp is XRVessels' conductive-cooling fraction, which falls to HEAT_RAMP_MIN in thick
+ * air so fast flight near the deck warms the hull without cooking it. Degrees over ambient.
+ */
+export const HEAT_K = 2.5e-5
+export const HEAT_RAMP_LO = 0.07
+export const HEAT_RAMP_HI = 0.9
+export const HEAT_RAMP_MIN = 0.095
+/** Seconds for the hull to rise most of the way to its target. */
+export const HEAT_TAU = 3
+/** Cooling: this fraction of the excess a second, never slower than COOL_MIN degrees a second. */
+export const COOL_RATE = 0.02
+export const COOL_MIN = 0.4
+/** Degrees over ambient the hull takes; warning and critical as fractions of it; the glow starts at HULL_GLOW. */
+export const HULL_LIMIT = 1000
+export const HULL_WARN = 0.8
+export const HULL_GLOW = 0.39
+/** Over the limit, damage accrues at ((T/limit)² − 1) / DAMAGE_TAU a second; at 1 the hull is gone. The expectation of XRVessels' dice. */
+export const DAMAGE_TAU = 8
+/** Ground-relative m/s above which hover will not engage: you are still re-entering, flip and brake. */
+export const HOVER_MAX_SPEED = 250

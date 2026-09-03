@@ -28,6 +28,7 @@ import {
   CRUISE_ENTER, CRUISE_EXIT, CRUISE_FLOOR, CRUISE_ALIGN_TAU, CRUISE_MAX, CRUISE_BRAKE, CRUISE_DECEL, CRUISE_SECONDS, CRUISE_SPOOL,
   FUEL_TANK, FUEL_HOVER_BURN, FUEL_CRUISE_BURN, FUEL_RCS_BURN, FUEL_PAD_REFILL, FUEL_SOLAR_TRICKLE, FUEL_RELIGHT, PAD_RADIUS,
   GUN_RANGE, GUN_COOLDOWN, ICE_REACH, BOLT_SPEED,
+  HEAT_K, HEAT_RAMP_LO, HEAT_RAMP_HI, HEAT_RAMP_MIN, HEAT_TAU, COOL_RATE, COOL_MIN, HULL_LIMIT, DAMAGE_TAU, HOVER_MAX_SPEED,
 } from '../world/config.ts'
 
 /**
@@ -101,6 +102,12 @@ export class Craft {
   readonly rockNear: Nearest = { rock: null, dist: Infinity, pos: new THREE.Vector3() }
   /** The rock you hit, if the last contact was a rock. */
   hitRock: Rock | null = null
+  /** Hull temperature, degrees over ambient. Re-entry heating; see config HEAT_*. */
+  hull = 0
+  /** Hull damage 0..1 from running over HULL_LIMIT. At 1 the hull is gone. Repaired docked. */
+  damage = 0
+  /** True when the last crash was the hull burning through. */
+  burned = false
   /** Bolts in flight, heliocentric. A pool; `alive` says which count. */
   readonly bolts: Bolt[] = []
   /** What bolts did this step: a hit, and whether the rock broke and what fuel came home. Cleared by whoever draws them. */
@@ -255,17 +262,20 @@ export class Craft {
     this.fuel = FUEL_TANK
     this.burn = 0
     this.hitRock = null
+    this.hull = 0
+    this.damage = 0
+    this.burned = false
     this.accumulator = 0
     this.frameAt(this.time)
     this.syncHelio()
   }
 
-  /** Hang it in the air `altitude` metres over direction `dir` on `on`, level, at rest relative to the ground. */
-  placeAbove(on: Body, dir: THREE.Vector3, altitude: number, heading?: THREE.Vector3): void {
+  /** Hang it in the air `altitude` metres over direction `dir` on `on`, level, at rest relative to the ground (or moving at `velocity`, local frame). */
+  placeAbove(on: Body, dir: THREE.Vector3, altitude: number, heading?: THREE.Vector3, velocity?: THREE.Vector3): void {
     this.setRef(on)
     this.up.copy(dir).normalize()
     this.pos.copy(this.up).multiplyScalar(groundRadius(this.up, this.terrain) + HULL_CLEARANCE + altitude)
-    this.vel.set(0, 0, 0)
+    if (velocity) this.vel.copy(velocity); else this.vel.set(0, 0, 0)
     this.angVel.set(0, 0, 0)
     this.alignTo(this.n.copy(this.up), heading)
     this.hold = holdAt(altitude)
@@ -322,7 +332,13 @@ export class Craft {
       else {
         this.burn = 0
         this.stepBolts(h)
-        if (this.state === 'landed') this.fuel = Math.min(FUEL_TANK, this.fuel + (this.onPad() ? FUEL_PAD_REFILL : FUEL_SOLAR_TRICKLE) * h)
+        this.heat(0, 0, h)
+        if (this.state === 'landed') {
+          const here = this.padHere()
+          this.fuel = Math.min(FUEL_TANK, this.fuel + (here ? FUEL_PAD_REFILL : FUEL_SOLAR_TRICKLE) * h)
+          // Docked at a station, the hull is patched up. Free until money exists.
+          if (here?.station) this.damage = Math.max(0, this.damage - 0.05 * h)
+        }
         // Ride the body: the rest pose is body-fixed, the heliocentric state follows it.
         this.time += h
         this.frameAt(this.time)
@@ -368,7 +384,12 @@ export class Craft {
     this.localDir.copy(this.up).applyQuaternion(this.spinInv)
     const alt = r - groundRadius(this.localDir, this.terrain)
     const rhoNow = atmosphereDensity(alt, this.terrain.air)
-    if (this.cruise ? rhoNow > CRUISE_EXIT || alt < CRUISE_FLOOR : rhoNow < CRUISE_ENTER && alt > CRUISE_FLOOR * 1.2) this.cruise = !this.cruise
+    this.frameVelAt(this.rel, this.frameVel)
+    this.vRel.copy(this.hvel).sub(this.frameVel)
+    // Into hover on density or the floor, but only once you are slow enough: above
+    // HOVER_MAX_SPEED you are still re-entering, in cruise, with the air dragging and the
+    // hull heating, and the way out is to flip and brake (DESIGN §8b item 4).
+    if (this.cruise ? (rhoNow > CRUISE_EXIT || alt < CRUISE_FLOOR) && this.vRel.length() < HOVER_MAX_SPEED : rhoNow < CRUISE_ENTER && alt > CRUISE_FLOOR * 1.2) this.cruise = !this.cruise
     this.hold = holdAt(alt)
     this.frameVelAt(this.rel, this.frameVel)
     this.vRel.copy(this.hvel).sub(this.frameVel)
@@ -403,7 +424,13 @@ export class Craft {
       this.nose.copy(BODY_FWD).applyQuaternion(this.hquat)
       const gain = Math.max(1, cap / (THRUST_ACCEL * CRUISE_SPOOL))
       if (c.thrust > 0) this.acc.addScaledVector(this.nose, mainThrust * gain)
-      if (c.vertical < 0) this.acc.addScaledVector(this.nose, -THRUST_ACCEL * CRUISE_BRAKE * gain)
+      // The brake takes speed off along the nose and stops at zero: held down at 60 km it
+      // used to push you backwards without limit, and the cap only clamps forward
+      // (the re-entry harness, 2026-09-03, found the craft at 5 × 10¹⁸ m).
+      if (c.vertical < 0) {
+        const vPar = this.vRel.dot(this.nose)
+        if (vPar > 0) this.acc.addScaledVector(this.nose, -Math.min(THRUST_ACCEL * CRUISE_BRAKE * gain, vPar / h))
+      }
     } else if (c.thrust > 0) {
       this.bodyUp.copy(BODY_UP).applyQuaternion(this.hquat)
       this.acc.addScaledVector(this.bodyUp, mainThrust)
@@ -431,7 +458,9 @@ export class Craft {
       this.tmp.subVectors(this.vRel, this.tmp)
       const speed = this.tmp.length()
       if (speed > 0) this.acc.addScaledVector(this.tmp, -DRAG * rhoNow * speed)
-    } else this.wind.set(0, 0, 0)
+      this.heat(rhoNow, speed, h)
+    } else { this.wind.set(0, 0, 0); this.heat(0, 0, h) }
+    if (this.damage >= 1) { this.burnUp(); return }
 
     this.stepBolts(h)
     this.hvel.addScaledVector(this.acc, h)
@@ -537,6 +566,38 @@ export class Craft {
       }
       b.pos.addScaledVector(b.vel, h)
     }
+  }
+
+  /** The hull temperature this air and speed settle to. Public and pure, so the harness can hold its shape. */
+  static heatTarget(rho: number, speed: number): number {
+    if (rho <= 0 || speed <= 0) return 0
+    const ramp = 1 - (1 - HEAT_RAMP_MIN) * Math.min(1, Math.max(0, (rho - HEAT_RAMP_LO) / (HEAT_RAMP_HI - HEAT_RAMP_LO)))
+    return HEAT_K * Math.sqrt(rho) * speed * speed * speed * ramp
+  }
+
+  /** Move the hull toward its target; damage over the limit. */
+  private heat(rho: number, speed: number, h: number): void {
+    const target = Craft.heatTarget(rho, speed)
+    if (target > this.hull) this.hull += (target - this.hull) * (1 - Math.exp(-h / HEAT_TAU))
+    else this.hull = Math.max(target, this.hull - Math.max(COOL_RATE * (this.hull - target), COOL_MIN) * h)
+    const over = this.hull / HULL_LIMIT
+    if (over > 1) this.damage = Math.min(1, this.damage + ((over * over - 1) / DAMAGE_TAU) * h)
+  }
+
+  /** The hull is gone: a crash where you are, flagged as a burn. */
+  private burnUp(): void {
+    this.frameVelAt(this.rel, this.frameVel)
+    this.vRel.copy(this.hvel).sub(this.frameVel)
+    this.lastContact = { vUp: -this.vRel.length(), vH: 0, tilt: 0, slope: 0 }
+    this.hvel.copy(this.frameVel)
+    this.angVel.set(0, 0, 0)
+    this.syncLocal()
+    this.vel.set(0, 0, 0)
+    this.state = 'crashed'
+    this.burned = true
+    this.crashes++
+    this.rest()
+    this.syncHelio()
   }
 
   /** Wreckage against a rock: stop where you are in the reference frame, record the contact, count it. */

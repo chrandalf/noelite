@@ -49,7 +49,7 @@ import { Clouds } from './engine/Clouds.ts'
 import { CloudPuffs } from './engine/CloudPuffs.ts'
 import { front, rainOf, cloudOf, moonDirection, TIDE_AMPLITUDE } from './world/weather.ts'
 import { setGroundClock } from './world/terrain.ts'
-import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE , FUEL_TANK } from './world/config.ts'
+import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE , FUEL_TANK, HULL_LIMIT, HULL_WARN, HULL_GLOW } from './world/config.ts'
 
 const q = new URLSearchParams(location.search)
 const mode: 'fly' | 'free' = q.get('mode') === 'free' ? 'free' : 'fly'
@@ -252,6 +252,8 @@ altimeter.hidden = mode !== 'fly'
 const light = (el: HTMLElement, text: string, ok: boolean, armed: boolean) => { el.textContent = text; el.className = armed ? (ok ? 'ok' : 'bad') : '' }
 const atmosEl = document.getElementById('atmos')!
 const fuelEl = document.getElementById('fuel')!
+const hullEl = document.getElementById('hull')!
+const GLOW = new THREE.Color(0xff5a1a)
 // Drag orbits the chase camera, wheel zooms, C resets.
 {
   let dragging = false, lx = 0, ly = 0
@@ -441,6 +443,14 @@ renderer.setAnimationLoop((now) => {
       fuelEl.textContent = craft.fuel <= 0 ? 'FUEL DRY' + refuel : `FUEL ${pct.toFixed(0)}%${Number.isFinite(endure) ? `   ${fmtTime(endure)} at this burn` : ''}${refuel}`
       fuelEl.className = 'atmos ' + (craft.fuel <= 0 ? 'dry' : pct < 20 ? 'low' : '')
     }
+    // Hull: heat as a fraction of the limit, damage when there is any. The hull glows from HULL_GLOW of the limit, saturating at HULL_WARN.
+    {
+      const over = craft.hull / HULL_LIMIT
+      hullEl.textContent = over > 0.05 || craft.damage > 0 ? `HULL ${(over * 100).toFixed(0)}%${craft.damage > 0 ? `   DAMAGE ${(craft.damage * 100).toFixed(0)}%` : ''}${craft.cruise && rho > 0 ? '   RE-ENTRY: flip and brake' : ''}` : ''
+      hullEl.className = 'atmos ' + (over > 1 ? 'dry' : over > HULL_WARN ? 'low' : '')
+      const glow = Math.min(1, Math.max(0, (over - HULL_GLOW) / (HULL_WARN - HULL_GLOW)))
+      shipMaterial.emissive.copy(GLOW).multiplyScalar(glow * 0.9)
+    }
     // Nav markers once the ground stops being the obvious reference.
     const showNav = flying && (altitude > 80 || rho < 0.5)
     markers.place('planet', dir.clone().negate(), camera, showNav)
@@ -471,7 +481,7 @@ renderer.setAnimationLoop((now) => {
     const rockLine = rn.rock && rn.dist < 30000 ? `   ROCK ${fmtDist(rn.dist)}${rn.dist < 2000 ? (rn.rock.ice ? '  ICE' : '  STONE') : ''}  (F fires)` : ''
     const spaceLine = rho < 1 ? `${craft.cruise ? `CRUISE  cap ${fmtSpeed(craft.cap())}` : 'HOVER'}${apLine}   SOI ${craft.ref.name}   orbit ${vOrb.toFixed(0)}   escape ${vEsc.toFixed(0)}   ${craft.cruise ? '' : vIn > vEsc ? '!! ESCAPING !!' : vIn > vOrb ? 'above orbital' : ''}   target ${tgt.name}${rockLine}\n` : ''
     line = `alt ${altitude.toFixed(1).padStart(6)} m   v↑ ${vUp.toFixed(1).padStart(5)} m/s   spd ${fmtSpeed(spd).padStart(9)}   tilt ${tilt.toFixed(0).padStart(2)}°   ${craft.state.toUpperCase()}   landings ${craft.landings}  crashes ${craft.crashes}\n` + spaceLine +
-      (craft.state === 'crashed' ? `contact: ${craft.hitRock ? 'ROCK  ' : ''}v↑ ${lc.vUp.toFixed(1)}  drift ${lc.vH.toFixed(1)}  tilt ${lc.tilt.toFixed(0)}°  slope ${lc.slope.toFixed(0)}°   R to respawn\n` : '') +
+      (craft.state === 'crashed' ? `contact: ${craft.burned ? 'HULL BURNED THROUGH  ' : craft.hitRock ? 'ROCK  ' : ''}v↑ ${lc.vUp.toFixed(1)}  drift ${lc.vH.toFixed(1)}  tilt ${lc.tilt.toFixed(0)}°  slope ${lc.slope.toFixed(0)}°   R to respawn\n` : '') +
       `Esc  menu and controls   ${fps} fps   chunks ${refView.lod?.liveCount ?? 0}`
   } else {
     setGroundClock(t)

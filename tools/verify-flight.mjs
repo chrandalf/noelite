@@ -10,7 +10,7 @@ import { HOME, height, padOf, stationOf } from '../src/world/height.ts'
 import { body, bodyVelocity, bodyPosition, bodySpin } from '../src/world/system.ts'
 import { wind } from '../src/world/weather.ts'
 import { FIELDS, resetRocks } from '../src/world/asteroids.ts'
-import { FIXED_DT, DRAG, LAND_MAX_VSPEED, GROUND_EFFECT_HEIGHT, CRUISE_MAX, CRUISE_DECEL, CRUISE_SECONDS, THRUST_ACCEL, BOOST_MULT, FUEL_TANK, FUEL_HOVER_BURN, FUEL_CRUISE_BURN, FUEL_PAD_REFILL, FUEL_SOLAR_TRICKLE, FUEL_RELIGHT, GUN_RANGE, GUN_COOLDOWN, BOLT_SPEED } from '../src/world/config.ts'
+import { FIXED_DT, DRAG, LAND_MAX_VSPEED, GROUND_EFFECT_HEIGHT, CRUISE_MAX, CRUISE_DECEL, CRUISE_SECONDS, THRUST_ACCEL, BOOST_MULT, FUEL_TANK, FUEL_HOVER_BURN, FUEL_CRUISE_BURN, FUEL_PAD_REFILL, FUEL_SOLAR_TRICKLE, FUEL_RELIGHT, GUN_RANGE, GUN_COOLDOWN, BOLT_SPEED, HULL_LIMIT, HOVER_MAX_SPEED } from '../src/world/config.ts'
 const GRAVITY = HOME.g, ATMOSPHERE_HEIGHT = HOME.air
 const BODY_UP = new THREE.Vector3(0, 1, 0), BODY_FWD = new THREE.Vector3(0, 0, -1)
 
@@ -199,10 +199,10 @@ const L1 = land()
     // Along the nose: that is what the cap clamps. Across it, the velocity left over from
     // the climb bleeds away in CRUISE_ALIGN_TAU while the assist swings the nose to nadir.
     nose.set(0, 0, -1).applyQuaternion(c.quat)
-    worst = Math.max(worst, c.vel.dot(nose) / c.cruiseCap(c.altitude()))
+    worst = Math.max(worst, c.vel.dot(nose) / c.cap())
     return T(1, a.pitch, a.roll, a.yaw, 1)
   })
-  check('diving at full boost never exceeds the cap along the nose', worst < 1.02 && !c.cruise && c.state === 'flying', `from ${(top / 1000).toFixed(0)} km: worst ${(worst * 100).toFixed(0)}% of cap, handed back to hover at ${c.altitude().toFixed(0)} m doing ${c.speed().toFixed(0)} m/s`)
+  check('diving at full boost never exceeds the cap along the nose, and the air burns the hull through', worst < 1.02 && c.state === 'crashed' && c.burned, `from ${(top / 1000).toFixed(0)} km: worst ${(worst * 100).toFixed(0)}% of cap, ${c.burned ? 'burned' : c.state} at ${c.altitude().toFixed(0)} m doing ${(-c.lastContact.vUp).toFixed(0)} m/s, hull ${(100 * c.hull / HULL_LIMIT).toFixed(0)}%`)
 }
 
 // 16. Stage C: the moon is a real place. Hang over it, fall, land, ride it, lift off with it.
@@ -480,6 +480,50 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol
   until(e, (c) => c.altitude() > 6, 10, () => T(1))
   const tDown = until(e, (c) => c.state !== 'flying', 60, (t, c) => T(c.vUp() > -1.5 ? 0 : 1))
   check('a hop off a station pad comes down landed on the disc', e.state === 'landed' && e.lastContact.vUp > -LAND_MAX_VSPEED, `${e.state} after ${tDown.toFixed(1)} s at v↑ ${e.lastContact.vUp.toFixed(1)}`)
+}
+
+
+// 26. Re-entry: the hull model's shape, a cold hull in ordinary flight, a braked entry that lives, a dive that does not, hover's speed gate, repair when docked.
+{
+  // Shape: Sutton-Graves, √ρ·v³, with XRVessels' thick-air ramp.
+  const t1 = Craft.heatTarget(0.04, 500), t2 = Craft.heatTarget(0.16, 500), t8 = Craft.heatTarget(0.04, 1000)
+  check('heat goes as the square root of density', Math.abs(t2 / t1 - 2 * (1 - 0.905 * (0.16 - 0.07) / 0.83)) < 0.02, `×${(t2 / t1).toFixed(2)} for 4× the air`)
+  check('and as the cube of speed', Math.abs(t8 / t1 - 8) < 1e-9, `×${(t8 / t1).toFixed(2)} for 2× the speed`)
+  check('fast flight in thick air warms the hull without cooking it', Craft.heatTarget(1, 300) < 0.1 * HULL_LIMIT, `${(100 * Craft.heatTarget(1, 300) / HULL_LIMIT).toFixed(0)}% at 300 m/s on the deck`)
+  // Ordinary flight is cold.
+  const c = fresh()
+  until(c, () => false, 30, (t) => T(t < 4 ? 1 : 0.55, t < 4 ? 0 : 0.3))
+  check('a hover dash near the ground leaves the hull cold', c.hull < 0.05 * HULL_LIMIT, `${(100 * c.hull / HULL_LIMIT).toFixed(1)}% at ${c.speed().toFixed(0)} m/s`)
+  // A braked entry: from rest at 60 km (where the autopilot would leave you), nose at nadir, 380 m/s into the air, then brake to under 250 for hover. Lives, with a warm hull.
+  const e = new Craft(HOME); e.windy = false
+  e.placeAbove(body('home'), pad, 60_000)
+  until(e, (c) => c.cruise, 2, () => IDLE)
+  const nadir = new THREE.Vector3()
+  let peak = 0, handedAt = -1, everCruiseInAir = false
+  until(e, (c) => c.state !== 'flying' || !c.cruise, 400, (t, c) => {
+    nadir.copy(c.pos).normalize().negate()
+    const a = c.aimControls(nadir)
+    peak = Math.max(peak, c.hull)
+    if (c.atmosphere() > 0) everCruiseInAir = true
+    // Fly down at a held speed: thrust under it, brake over it. 380 m/s into the air (home's is only
+    // 2 km deep, so the corridor is the last two kilometres), then 200 for the hand-off to hover.
+    const want = c.altitude() < 1100 ? 200 : 380
+    return T(c.speed() < want - 30 ? 1 : 0, a.pitch, a.roll, a.yaw, 0, 0, c.speed() > want ? -1 : 0)
+  })
+  handedAt = e.speed()
+  check('a braked entry comes through to hover with a warm hull and no damage', e.state === 'flying' && !e.cruise && e.damage === 0 && peak > 0.2 * HULL_LIMIT && peak < HULL_LIMIT && everCruiseInAir, `peak hull ${(100 * peak / HULL_LIMIT).toFixed(0)}%, hover at ${handedAt.toFixed(0)} m/s, ${e.altitude().toFixed(0)} m`)
+  check('hover only engages under HOVER_MAX_SPEED', handedAt < HOVER_MAX_SPEED, `${handedAt.toFixed(0)} m/s`)
+  until(e, () => false, 20, () => IDLE)
+  check('and the hull cools once the speed is off, slowly', e.hull < peak * 0.8, `${(100 * e.hull / HULL_LIMIT).toFixed(0)}% twenty seconds later, from ${(100 * peak / HULL_LIMIT).toFixed(0)}%`)
+  // Repair: docked at a station, damage comes off.
+  const st = stationOf(HOME)
+  const r = new Craft(HOME); r.windy = false
+  r.spawnOn(new THREE.Vector3(st.pads[0].dir.x, st.pads[0].dir.y, st.pads[0].dir.z), new THREE.Vector3(1, 0, 0), 'radial'); r.damage = 0.5
+  until(r, () => false, 6, () => IDLE)
+  check('docked at a station the hull is repaired', r.damage < 0.25 && r.damage >= 0, `damage ${r.damage.toFixed(2)} after 6 s`)
+  const o = fresh(); o.damage = 0.5
+  until(o, () => false, 6, () => IDLE)
+  check('on the outpost pad it is not', o.damage === 0.5)
 }
 
 console.log(`\n${pass}/${pass + fail} checks`)

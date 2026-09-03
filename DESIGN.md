@@ -384,14 +384,34 @@ Every step is playable. That's the point of the ordering.
    frame at home's distance moves at 650 km/s. Measured: home to 60 km over the moon in
    39 s with a 169 km/s peak; 5,000 km out, 20 s of boost reaches 5,563 km/s. Elite
    Dangerous's answer, and the right one.
-4. **Re-entry.** Heat flux is density × speed³, which the atmosphere stack can already
-   supply; hull temperature integrates it minus radiation, over the limit is damage, a
-   gauge on the HUD. The entry corridor emerges: steep and fast cooks you, shallow bleeds
-   speed in thin air. Hover mode does not engage until you are below a speed and above a
-   density, so you have to flip like Starship, and that flip is the TIE-fighter morph with
-   a reason to exist. The harness already shows the problem: a full-boost dive is handed
-   back to hover at 1,590 m doing 1,168 m/s, into air whose drag would pull 16,000 m/s².
-   DRAG (terminal velocity 29 m/s, a feather) gets reconsidered here too.
+4. ~~**Re-entry.**~~ Done 2026-09-03 (`config.ts` HEAT_*/HULL_*/HOVER_MAX_SPEED,
+   `Craft.hull/damage/burned/heatTarget`, flight harness 26), built on the research
+   report's XRVessels findings rather than the line above. **Hull heat is an equilibrium
+   temperature the hull rises toward** (3 s), not an integral, so it is stable at any
+   step; the target is HEAT_K · √ρ · v³ · ramp(ρ). The square root is Sutton-Graves (the
+   real flux; it is what makes thin air bite). The ramp is XRVessels' conductive cooling:
+   it falls to a tenth in thick air, so 300 m/s on the deck is 6% of the limit while
+   500 m/s in the upper air is over it. Cooling is 2% of the excess a second (a hull
+   stays warm for minutes). **Over the limit, damage accrues** at ((T/limit)² − 1)/8 a
+   second, the expectation of XRVessels' dice, and at 1 the hull is gone: a crash flagged
+   HULL BURNED THROUGH. Docked at a station it is repaired at 5% a second. **Hover does
+   not engage above 250 m/s ground-relative**, whatever the air: above it you are still
+   re-entering, in cruise, with drag on and the hull heating, and the way out is to flip
+   and brake. The HUD shows HULL % (amber past 80%, red over), DAMAGE, and says
+   RE-ENTRY: flip and brake while you are in cruise in air; the hull glows orange from
+   39% of the limit to 80%, the same numbers as the gauge. **What the harness settled:**
+   the full-boost dive that used to be handed to hover at 1,590 m now burns through at
+   564 m doing 506 m/s; a braked entry, 380 m/s into the air then the brake to 249, comes
+   through at 21% with no damage; heat goes as √ρ and v³ in the shape check. **What it
+   found:** the cruise brake pushed you backwards without limit when held (the entry
+   craft was at 5 × 10¹⁸ m); it now stops at zero along the nose. **The honest caveat:**
+   there is no shallow coasting entry in this flight model, because the cruise assist
+   bleeds gravity's pull off your velocity along with everything else across the nose,
+   so every entry is a dive whose speed the cap sets; and home's air is 2 km deep under
+   a 2.5 km hover floor, so the corridor is the last two kilometres. It is a speed you
+   hold with the brake and a gauge that tells you when, which is the Elite lesson from
+   the report (generous tolerance, demanding presentation). A deeper air would make it a
+   longer corridor; that is Chris's dial. DRAG stays at 0.004.
 5. ~~**Orbit autopilot**~~ Done 2026-09-02 (`src/engine/Autopilot.ts`, the O key). It flies
    the pilot's own controls: under the floor it climbs; in cruise it wants a velocity,
    inward at gap/30 s blending into circular speed sideways as the gap closes, and since
