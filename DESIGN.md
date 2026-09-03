@@ -522,6 +522,23 @@ Every step is playable. That's the point of the ordering.
    absolute lerp trailed 90 km behind. **Not yet:** fuel stations (Chris's brief), ore
    from stone, a scanner, rock persistence across sessions, wreck-on-a-rock riding the
    field properly.
+12. ~~**The home station.**~~ Done 2026-09-03 (`height.ts` `stationOf`/`findSite`,
+   `engine/Station.ts`, `Craft.padHere`, terrain harness 10, flight harness 25). The
+   second authored place, built the way the pad was: a site search (flat over 40 m, dry,
+   25 to 140 m above the sea, forest-free, at least 15 km from the outpost pad, spiralling
+   out from a seeded direction 32 km round the body) and a 110 m disc flattened to one
+   height with a 30 m ramp. On it: four pads 62 m out at the compass points, each a slab
+   with a ring, four lamps and one to four yellow pips for its number; a half-buried dome;
+   a tower with a beacon that pulses; sixteen edge lights. The pads are placed by taking
+   their directions into the mesh's local frame, so paint and physics agree. **Landing on
+   a numbered pad docks you** (the altimeter says DOCKED PAD 2) and refuels at the pad
+   rate; on the disc but off a pad you are down, not docked, and only the sun feeds you.
+   Stations are Tab targets between the bodies and the fields, and inside 5 km the marker
+   clears you to the nearest pad, which is the surface-station version of the docking
+   computer the research report found in Oolite (a waypoint table, not a controller).
+   Home's is 38 km from the pad. Every terrestrial body with land gets one. ?station=N
+   starts you on pad N (0 hangs you over the dome). **Not yet:** the shop (fuel for
+   money, tank II, the heat shield), repair, cargo, the Coriolis in orbit.
    Next: **re-entry** (item 4), then Stage D's remainder: the lock-view camera, the
    escape-the-system trigger.
 

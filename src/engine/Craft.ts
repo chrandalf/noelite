@@ -15,7 +15,7 @@
 // this straight from Node.
 import * as THREE from 'three'
 import type { Terrain } from '../world/height.ts'
-import { terrainOf, padOf } from '../world/height.ts'
+import { terrainOf, padOf, stationOf, type Station } from '../world/height.ts'
 import { groundRadius, surfaceNormal, slopeDeg, setGroundClock } from '../world/terrain.ts'
 import { wind } from '../world/weather.ts'
 import { atmosphereDensity } from '../world/atmosphere.ts'
@@ -181,14 +181,18 @@ export class Craft {
 
   /** Seconds the tank lasts at the current burn; Infinity when nothing is burning. */
   endurance(): number { return this.burn > 0 ? this.fuel / this.burn : Infinity }
-  /** Within PAD_RADIUS of the reference body's pad, measured along the ground. */
-  onPad(): boolean {
-    const site = padOf(this.terrain)
-    if (!site) return false
+  /** The pad under the craft, within PAD_RADIUS along the ground: the outpost pad (no station, pad 0) or a numbered station pad. */
+  padHere(): { station: Station | null; pad: number } | null {
     this.up.copy(this.pos).normalize()
-    const cos = this.up.x * site.dir.x + this.up.y * site.dir.y + this.up.z * site.dir.z
-    return Math.acos(Math.min(1, cos)) * this.terrain.radius < PAD_RADIUS
+    const within = (d: { x: number; y: number; z: number }) => Math.acos(Math.min(1, this.up.x * d.x + this.up.y * d.y + this.up.z * d.z)) * this.terrain.radius < PAD_RADIUS
+    const site = padOf(this.terrain)
+    if (site && within(site.dir)) return { station: null, pad: 0 }
+    const st = stationOf(this.terrain)
+    if (st) for (const p of st.pads) if (within(p.dir)) return { station: st, pad: p.n }
+    return null
   }
+  /** On any pad, outpost or station. Pads refuel. */
+  onPad(): boolean { return this.padHere() !== null }
 
   /**
    * Attitude assist. Pitch and roll inputs that swing the thrust axis (body up)

@@ -152,82 +152,145 @@ export const PAD_BLEND = 18
 /** Metres above the sea a pad wants to sit: enough for a view, not a mountain. */
 const PAD_MIN = 25, PAD_MAX = 140
 
-export type PadSite = { dir: UnitVector; h: number }
+export type PadSite = { dir: UnitVector; h: number; radius: number; blend: number }
+/** A station: a flat disc with numbered pads round a dome. The first authored place (DESIGN §10). */
+export type Station = { name: string; site: PadSite; pads: { dir: UnitVector; n: number }[] }
 const pads = new Map<string, PadSite | null>()
+const stations = new Map<string, Station | null>()
+
+/** Metres of the station's flat disc, its ramp, and how far out the four pads sit. */
+export const STATION_RADIUS = 110
+export const STATION_BLEND = 30
+export const STATION_PAD_OFFSET = 62
+/** Metres: a station is at least this far from the outpost pad, so it is a trip. */
+export const STATION_MIN_FROM_PAD = 15_000
 
 /** The body's landing pad, found once: a dry, flat, forest-free spot at a reasonable height, spiralling out from (0, 0, 1). */
 export function padOf(t: Terrain): PadSite | null {
   if (t.water || t.kind !== 'terrestrial' || !t.amplitude) return null
   let p = pads.get(t.id)
-  if (p === undefined) { p = findPadSite(t); pads.set(t.id, p) }
+  if (p === undefined) { p = findSite(t, { x: 0, y: 0, z: 1 }, 3, PAD_RADIUS, PAD_BLEND, null, 5, 1.5); pads.set(t.id, p) }
   return p
 }
 
-function findPadSite(t: Terrain): PadSite {
+/**
+ * The body's station, found once: flatter over a wider area than the pad, at least
+ * STATION_MIN_FROM_PAD from it, spiralling out from a seeded direction 32 km round the
+ * body from the pad. Chris, 2026-09-03: "we'll have fuel stations as well."
+ */
+export function stationOf(t: Terrain): Station | null {
+  if (t.water || t.kind !== 'terrestrial' || !t.amplitude) return null
+  let st = stations.get(t.id)
+  if (st === undefined) {
+    const pad = padOf(t)
+    if (!pad) { stations.set(t.id, null); return null }
+    const b = Math.PI * (1 + noiseFor((t.seed ^ 0x53544154) >>> 0).noise(0.3, 0.7, 0.1))
+    const a = 0.8
+    const start = { x: Math.sin(a) * Math.cos(b), y: Math.sin(a) * Math.sin(b), z: Math.cos(a) }
+    const site = findSite(t, start, 40, STATION_RADIUS, STATION_BLEND, { dir: pad.dir, metres: STATION_MIN_FROM_PAD }, 3, 1, 8)
+    // Four pads on the disc, at the compass points of a tangent frame at the site.
+    const d = site.dir
+    const ax0 = Math.abs(d.x) < 0.9 ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 }
+    const ax = norm(cross(ax0, d)), ay = cross(d, ax)
+    const k = STATION_PAD_OFFSET / t.radius
+    const padDirs = [0, 1, 2, 3].map((i) => {
+      const c = Math.cos((i * Math.PI) / 2) * k, sn = Math.sin((i * Math.PI) / 2) * k
+      return { dir: norm({ x: d.x + ax.x * c + ay.x * sn, y: d.y + ax.y * c + ay.y * sn, z: d.z + ax.z * c + ay.z * sn }), n: i + 1 }
+    })
+    st = { name: `${t.id === 'home' ? 'Vale' : t.id} Station`, site, pads: padDirs }
+    stations.set(t.id, st)
+  }
+  return st
+}
+
+function cross(a: UnitVector, b: UnitVector): { x: number; y: number; z: number } {
+  return { x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x }
+}
+function norm(v: { x: number; y: number; z: number }): UnitVector {
+  const l = Math.hypot(v.x, v.y, v.z) || 1
+  return { x: v.x / l, y: v.y / l, z: v.z / l }
+}
+
+/** Every flattened site on the body: the pad, and the station's disc. */
+function sitesOf(t: Terrain): PadSite[] {
+  const out: PadSite[] = []
+  const p = padOf(t); if (p) out.push(p)
+  const s = stationOf(t); if (s) out.push(s.site)
+  return out
+}
+
+/**
+ * A dry, flat, forest-free spot at a reasonable height, spiralling out from `start`.
+ * `e` is how far out (metres) slope is sampled, so a station asks for flat over a wider
+ * area than a pad; `avoid` keeps it away from somewhere; `slopeMax` and `slopeGood`
+ * are degrees (reject above the first, stop looking below the second).
+ */
+function findSite(t: Terrain, start: UnitVector, e: number, radius: number, blend: number, avoid: { dir: UnitVector; metres: number } | null, slopeMax: number, slopeGood: number, reach = 1): PadSite {
   const sea = t.sea ?? -Infinity
-  const step = 12 / t.radius
-  const e = 3 / t.radius
+  // The spiral covers ~2.8 km at reach 1; a station's start may be at sea, so it looks further.
+  const step = (12 * reach) / t.radius
+  const ee = e / t.radius
   const slopeAt = (d: { x: number; y: number; z: number }) => {
-    const ax = Math.abs(d.x) < 0.9 ? 1 : 0
-    // Two tangents from an axis cross d, unnormalised is fine at this scale.
-    const t1 = { x: ax ? 0 : 0, y: ax ? -d.z : d.z, z: ax ? d.y : 0 }
-    if (!ax) { t1.x = 0; t1.y = d.z; t1.z = -d.y } else { t1.x = 0; t1.y = -d.z; t1.z = d.y }
-    const l1 = Math.hypot(t1.x, t1.y, t1.z) || 1
-    const t2 = { x: d.y * t1.z - d.z * t1.y, y: d.z * t1.x - d.x * t1.z, z: d.x * t1.y - d.y * t1.x }
-    const l2 = Math.hypot(t2.x, t2.y, t2.z) || 1
+    const ax0 = Math.abs(d.x) < 0.9 ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 }
+    const t1 = norm(cross(ax0, d)), t2 = cross(d, t1)
     const h0 = baseHeight(d, t)
     let worst = 0
-    for (const [tx, ty, tz] of [[t1.x / l1, t1.y / l1, t1.z / l1], [t2.x / l2, t2.y / l2, t2.z / l2]]) {
-      const q = { x: d.x + e * tx, y: d.y + e * ty, z: d.z + e * tz }
-      const l = Math.hypot(q.x, q.y, q.z)
-      worst = Math.max(worst, Math.abs(baseHeight({ x: q.x / l, y: q.y / l, z: q.z / l }, t) - h0) / 3)
+    for (const [tx, ty, tz] of [[t1.x, t1.y, t1.z], [t2.x, t2.y, t2.z], [-t1.x, -t1.y, -t1.z], [-t2.x, -t2.y, -t2.z]]) {
+      const q = norm({ x: d.x + ee * tx, y: d.y + ee * ty, z: d.z + ee * tz })
+      worst = Math.max(worst, Math.abs(baseHeight(q, t) - h0) / e)
     }
     return worst
   }
-  const g = { x: 0, y: 0, z: 1 }
-  const gt1 = { x: 1, y: 0, z: 0 }, gt2 = { x: 0, y: 1, z: 0 }
+  const g = start
+  const g0 = Math.abs(g.x) < 0.9 ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 }
+  const gt1 = norm(cross(g0, g)), gt2 = cross(g, gt1)
+  const avoidCos = avoid ? Math.cos(avoid.metres / t.radius) : 2
   let best: PadSite | null = null, bestScore = Infinity
   for (let k = 0; k < 6000; k++) {
     const ang = k * 2.4, rad = step * Math.sqrt(k) * 3
-    const x = g.x + gt1.x * Math.cos(ang) * rad + gt2.x * Math.sin(ang) * rad
-    const y = g.y + gt1.y * Math.cos(ang) * rad + gt2.y * Math.sin(ang) * rad
-    const z = g.z + gt1.z * Math.cos(ang) * rad + gt2.z * Math.sin(ang) * rad
-    const l = Math.hypot(x, y, z)
-    const d = { x: x / l, y: y / l, z: z / l }
+    const d = norm({
+      x: g.x + gt1.x * Math.cos(ang) * rad + gt2.x * Math.sin(ang) * rad,
+      y: g.y + gt1.y * Math.cos(ang) * rad + gt2.y * Math.sin(ang) * rad,
+      z: g.z + gt1.z * Math.cos(ang) * rad + gt2.z * Math.sin(ang) * rad,
+    })
+    if (avoid && d.x * avoid.dir.x + d.y * avoid.dir.y + d.z * avoid.dir.z > avoidCos) continue
     const h = baseHeight(d, t)
     const above = h - (t.sea ?? 0)
     if (h < sea + 3 || above < PAD_MIN || above > PAD_MAX) continue
     if (clump(d, t) > CLUMP_EDGE - 0.15) continue // well clear of any forest edge
     const s = slopeAt(d)
-    if (s > Math.tan((5 * Math.PI) / 180)) continue
+    if (s > Math.tan((slopeMax * Math.PI) / 180)) continue
     // Prefer gentle and not too far out.
     const score = s * 40 + k * 0.001
-    if (score < bestScore) { bestScore = score; best = { dir: d, h } }
-    if (s < Math.tan((1.5 * Math.PI) / 180)) break
+    if (score < bestScore) { bestScore = score; best = { dir: d, h, radius, blend } }
+    if (s < Math.tan((slopeGood * Math.PI) / 180)) break
   }
-  return best ?? { dir: g, h: baseHeight(g, t) }
+  return best ?? { dir: g, h: baseHeight(g, t), radius, blend }
 }
 
-/** The pad flattens the ground to its own height inside PAD_RADIUS, ramping back over PAD_BLEND. */
-function applyPad(p: UnitVector, t: Terrain, base: number): number {
-  const pad = padOf(t)
-  if (!pad) return base
-  const c = p.x * pad.dir.x + p.y * pad.dir.y + p.z * pad.dir.z
-  const outer = (PAD_RADIUS + PAD_BLEND) / t.radius
-  if (c < Math.cos(outer)) return base
-  const dist = Math.acos(Math.min(1, c)) * t.radius
-  const w = 1 - smooth(PAD_RADIUS, PAD_RADIUS + PAD_BLEND, dist)
-  return base + (pad.h - base) * w
+/** Each site flattens the ground to its own height inside its radius, ramping back over its blend. */
+function applySites(p: UnitVector, t: Terrain, base: number): number {
+  let h = base
+  for (const site of sitesOf(t)) {
+    const c = p.x * site.dir.x + p.y * site.dir.y + p.z * site.dir.z
+    const outer = (site.radius + site.blend) / t.radius
+    if (c < Math.cos(outer)) continue
+    const dist = Math.acos(Math.min(1, c)) * t.radius
+    const w = 1 - smooth(site.radius, site.radius + site.blend, dist)
+    h = h + (site.h - h) * w
+  }
+  return h
 }
 
-/** Angular test: is p within `metres` of the pad's centre? */
+/** Angular test: is p within `metres` of the edge of any site's flat disc (measured as if the disc were a pad)? */
 export function nearPad(p: UnitVector, t: Terrain, metres: number): boolean {
-  const pad = padOf(t)
-  if (!pad) return false
-  return p.x * pad.dir.x + p.y * pad.dir.y + p.z * pad.dir.z > Math.cos(metres / t.radius)
+  for (const site of sitesOf(t)) {
+    if (p.x * site.dir.x + p.y * site.dir.y + p.z * site.dir.z > Math.cos((site.radius - PAD_RADIUS + metres) / t.radius)) return true
+  }
+  return false
 }
 
 export function height(p: UnitVector, t: Terrain): number {
   if (t.water) return t.sea ?? 0
-  return applyPad(p, t, baseHeight(p, t))
+  return applySites(p, t, baseHeight(p, t))
 }

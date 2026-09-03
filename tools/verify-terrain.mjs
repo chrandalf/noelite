@@ -9,7 +9,7 @@ import { FACES, faceToUnit, faceToCube, cubeToUnit, cubeToFace } from '../src/wo
 import { TERRAIN_AMPLITUDE, PLANET_RADIUS, MASTER_SEED } from '../src/world/config.ts'
 import { rng } from '../src/world/noise.ts'
 import { wind, front, tide, WIND_CALM, WIND_STORM, TIDE_AMPLITUDE } from '../src/world/weather.ts'
-import { terrainOf, padOf } from '../src/world/height.ts'
+import { terrainOf, padOf, stationOf, STATION_RADIUS, STATION_PAD_OFFSET, STATION_MIN_FROM_PAD } from '../src/world/height.ts'
 import { slopeDeg } from '../src/world/terrain.ts'
 import { forestAt } from '../src/world/forest.ts'
 import { body } from '../src/world/system.ts'
@@ -176,6 +176,37 @@ const OTHER = { ...HOME, seed: MASTER_SEED + 1 }
   check('the pad is dead level for 18 m all round', flat)
   check('no tree within 60 m of the pad', treeFree)
   check('the ground ramps back smoothly from the pad', worstStep < 1.5, `worst 2 m step ${worstStep.toFixed(2)} m`)
+}
+
+
+// 10. The station: a flat disc with four pads, a trip from the pad, clear of trees, ramping back smoothly.
+{
+  const st = stationOf(HOME)
+  const site = padOf(HOME)
+  check('home has a station', st !== null && st.pads.length === 4, st ? `${st.name}, ${st.pads.length} pads` : 'none')
+  const d = new THREE.Vector3(st.site.dir.x, st.site.dir.y, st.site.dir.z)
+  const fromPad = d.angleTo(new THREE.Vector3(site.dir.x, site.dir.y, site.dir.z)) * HOME.radius
+  check('the station is a trip from the pad', fromPad >= STATION_MIN_FROM_PAD, `${(fromPad / 1000).toFixed(1)} km`)
+  const above = height(d, HOME) - HOME.sea
+  check('the station sits at a reasonable height above the sea', above >= 25 && above <= 140, `${above.toFixed(0)} m`)
+  const ax = new THREE.Vector3(1, 0, 0).cross(d).normalize(), ay = d.clone().cross(ax)
+  let flat = true, treeFree = true, worstStep = 0
+  for (let i = 0; i < 64; i++) {
+    const a = i * 0.098
+    for (const r of [30, 62, 100]) {
+      const q = d.clone().addScaledVector(ax, Math.cos(a) * r / HOME.radius).addScaledVector(ay, Math.sin(a) * r / HOME.radius).normalize()
+      if (Math.abs(height(q, HOME) - height(d, HOME)) > 0.01) flat = false
+    }
+    const f = d.clone().addScaledVector(ax, Math.cos(a) * 150 / HOME.radius).addScaledVector(ay, Math.sin(a) * 150 / HOME.radius).normalize()
+    if (forestAt(f, HOME)) treeFree = false
+    let prev = height(d, HOME)
+    for (let r = 2; r <= 180; r += 2) { const w = d.clone().addScaledVector(ax, Math.cos(a) * r / HOME.radius).addScaledVector(ay, Math.sin(a) * r / HOME.radius).normalize(); const h = height(w, HOME); worstStep = Math.max(worstStep, Math.abs(h - prev)); prev = h }
+  }
+  check('the station disc is dead level out to 100 m', flat)
+  check('no tree within 150 m of the station', treeFree)
+  check('the ground ramps back smoothly from the station', worstStep < 1.5, `worst 2 m step ${worstStep.toFixed(2)} m`)
+  const padsOk = st.pads.every((p) => { const pd = new THREE.Vector3(p.dir.x, p.dir.y, p.dir.z); return Math.abs(pd.angleTo(d) * HOME.radius - STATION_PAD_OFFSET) < 0.5 && Math.abs(height(pd, HOME) - height(d, HOME)) < 0.01 })
+  check('the four pads sit on the disc at their offset, level with it', padsOk && STATION_PAD_OFFSET + 22 < STATION_RADIUS)
 }
 
 console.log(`\n${pass}/${pass + fail} checks`)

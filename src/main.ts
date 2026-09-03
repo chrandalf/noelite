@@ -20,6 +20,7 @@
 //   ?menu=1            start paused with the menu up (for shots)
 //   ?field=home-l4:2000:3   start in cruise 2 km off rock 3 of home's leading Trojans
 //   ?fuel=20           start with 20 units in the tank
+//   ?station=2         start landed on pad 2 of home's station (0: hanging 300 m over it)
 import * as THREE from 'three'
 import { PlanetLOD } from './world/lod.ts'
 import { FlyCam } from './engine/FlyCam.ts'
@@ -32,8 +33,9 @@ import { Dust } from './engine/Dust.ts'
 import { Beeper } from './engine/Beeper.ts'
 import { Sky } from './engine/Sky.ts'
 import { NavMarkers } from './engine/NavMarkers.ts'
-import { waterOf, height, HOME, terrainOf, padOf, type Terrain } from './world/height.ts'
+import { waterOf, height, HOME, terrainOf, padOf, stationOf, type Terrain, type Station } from './world/height.ts'
 import { buildPad } from './engine/Pad.ts'
+import { buildStation, updateStation, type StationView } from './engine/Station.ts'
 import { slopeDeg } from './world/terrain.ts'
 import { atmosphereDensity, buildAtmosphereShell } from './world/atmosphere.ts'
 import { SYSTEM, body, bodyPosition, bodySpin, type Body } from './world/system.ts'
@@ -213,6 +215,16 @@ craft.spawnOn(pad, new THREE.Vector3(1, 0, 0), 'surface', home)
     craft.placeNearRock(f.rocks[Math.min(f.rocks.length - 1, Number(idx) || 0)], Number(gap) || 2000)
   }
 }
+// ?station=<pad 1-4> starts landed on that pad of home's station; ?station=0 hangs 300 m over its dome.
+{
+  const sp = q.get('station')
+  if (sp !== null) {
+    const st = stationOf(HOME)!
+    const n = Number(sp)
+    if (n >= 1 && n <= 4) craft.spawnOn(new THREE.Vector3(st.pads[n - 1].dir.x, st.pads[n - 1].dir.y, st.pads[n - 1].dir.z), new THREE.Vector3(1, 0, 0), 'surface', home)
+    else craft.placeAbove(home, new THREE.Vector3(st.site.dir.x, st.site.dir.y, st.site.dir.z), 300)
+  }
+}
 // ?fuel=<units> starts with that much in the tank.
 if (q.get('fuel') !== null) craft.fuel = Math.max(0, Math.min(FUEL_TANK, Number(q.get('fuel'))))
 // ?over=<body id>:<altitude m> starts you hanging over another body instead: over=home-1:300 is the moon.
@@ -267,10 +279,14 @@ let last = performance.now(), frames = 0, fps = 0, fpsAt = last, updates = 0, el
 let placedAt = -1
 let crashedAt: number | null = null
 // Targeting: Tab cycles through every body, home included, so there is always a way back, then the asteroid fields.
-type Target = { name: string; rel: THREE.Vector3; radius: number; field: Field | null }
+type Target = { name: string; rel: THREE.Vector3; radius: number; field: Field | null; station: { view: BodyView; st: Station } | null }
+// Stations: one per terrestrial body, drawn in its group, a target after the bodies.
+const stationViews: { view: BodyView; sv: StationView }[] = []
+for (const v of views) { const sv = buildStation(v.terrain); if (sv) { v.group.add(sv.group); stationViews.push({ view: v, sv }) } }
 const targets: Target[] = [
-  ...views.map((v) => ({ name: v.body.name, rel: v.rel, radius: v.body.radius, field: null })),
-  ...FIELDS.map((f) => ({ name: f.name, rel: new THREE.Vector3(), radius: 0, field: f })),
+  ...views.map((v) => ({ name: v.body.name, rel: v.rel, radius: v.body.radius, field: null, station: null })),
+  ...stationViews.map((s) => ({ name: s.sv.station.name, rel: new THREE.Vector3(), radius: 0, field: null, station: { view: s.view, st: s.sv.station } })),
+  ...FIELDS.map((f) => ({ name: f.name, rel: new THREE.Vector3(), radius: 0, field: f, station: null })),
 ]
 const asteroids = new Asteroids()
 world.add(asteroids.group)
@@ -321,7 +337,14 @@ function placeBodies(t: number, frame: Body): void {
     }
     if (v.shellSun) v.shellSun.copy(sunView.rel).sub(v.rel).normalize()
   }
-  for (const tg of targets) if (tg.field) fieldPosition(tg.field, t, tg.rel).sub(pHome).applyQuaternion(qHomeInv)
+  for (const tg of targets) {
+    if (tg.field) fieldPosition(tg.field, t, tg.rel).sub(pHome).applyQuaternion(qHomeInv)
+    if (tg.station) {
+      const { view, st } = tg.station
+      tg.rel.set(st.site.dir.x, st.site.dir.y, st.site.dir.z).multiplyScalar(view.body.radius + st.site.h).applyQuaternion(view.group.quaternion).add(view.rel)
+    }
+  }
+  for (const s of stationViews) updateStation(s.sv, t)
   // The sun, from the viewer.
   sunDir.copy(sunView.rel).sub(viewPos).normalize()
   sunLight.position.copy(sunView.rel).sub(viewPos)
@@ -405,7 +428,8 @@ renderer.setAnimationLoop((now) => {
     light(lights.d, `DRIFT ${drift.toFixed(1)}`, drift < LAND_MAX_HSPEED, armed)
     light(lights.t, `TILT ${tilt.toFixed(0)}°`, tilt < LAND_MAX_TILT, armed)
     light(lights.s, `SLOPE ${slope.toFixed(0)}°`, slope < LAND_MAX_SLOPE, armed)
-    altState.textContent = craft.state === 'landed' ? 'DOWN' : craft.state === 'crashed' ? 'CRASHED' : gearDown > 0.5 ? 'GEAR ↓' : 'GEAR ↑'
+    const here = craft.state === 'landed' ? craft.padHere() : null
+    altState.textContent = craft.state === 'landed' ? (here?.station ? `DOCKED  PAD ${here.pad}` : here ? 'ON THE PAD' : 'DOWN') : craft.state === 'crashed' ? 'CRASHED' : gearDown > 0.5 ? 'GEAR ↓' : 'GEAR ↑'
     const rho = craft.atmosphere()
     atmosEl.textContent = rho > 0 ? `ATMOS ${(rho * 100).toFixed(0)}%   WIND ${windNow.toFixed(0)} m/s${rainNow > 0 ? `   RAIN ${(rainNow * 100).toFixed(0)}%` : cloudNow > 0.5 ? '   OVERCAST' : ''}` : 'VACUUM'
     atmosEl.className = rho > 0 ? '' : 'vacuum'
@@ -427,8 +451,19 @@ renderer.setAnimationLoop((now) => {
     const tDist = toTarget.length(), tDir = toTarget.clone().divideScalar(tDist)
     const closing = -craft.vel.dot(tDir)
     const tSurf = Math.max(0, tDist - tgt.radius)
+    // Within 5 km of a station you are cleared to its nearest pad, which the marker names.
+    let cleared = ''
+    if (tgt.station && tSurf < 5000 && flying) {
+      const st = tgt.station.st
+      let bestN = 0, bestD = Infinity
+      for (const p of st.pads) {
+        const d = tmp.set(p.dir.x, p.dir.y, p.dir.z).multiplyScalar(tgt.station.view.body.radius + st.site.h).applyQuaternion(tgt.station.view.group.quaternion).add(tgt.station.view.rel).distanceTo(craft.pos)
+        if (d < bestD) { bestD = d; bestN = p.n }
+      }
+      cleared = `  cleared pad ${bestN}`
+    }
     const eta = closing > 1 ? `  ETA ${fmtTime(tSurf / closing)}` : ''
-    markers.place('target', tDir, camera, showNav, `${tgt.name}  ${fmtDist(tSurf)}  ${closing >= 0 ? '↓' : '↑'}${fmtSpeed(Math.abs(closing))}${eta}`)
+    markers.place('target', tDir, camera, showNav || cleared !== '', `${tgt.name}  ${fmtDist(tSurf)}  ${closing >= 0 ? '↓' : '↑'}${fmtSpeed(Math.abs(closing))}${eta}${cleared}`)
     const lc = craft.lastContact
     const vOrb = craft.orbitalSpeed(), vEsc = craft.escapeSpeed(), spd = craft.speed(), vIn = craft.inertialSpeed()
     const apLine = orbitAP.engaged ? `   AUTOPILOT ${orbitAP.phase.toUpperCase()} ${craft.ref.name}  park ${((orbitAP.parkRadius(craft) - craft.terrain.radius) / 1000).toFixed(0)} km at ${orbitAP.parkSpeed(craft).toFixed(0)} m/s` : ''

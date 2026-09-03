@@ -6,7 +6,7 @@ import * as THREE from 'three'
 import { Craft, IDLE } from '../src/engine/Craft.ts'
 import { OrbitAutopilot } from '../src/engine/Autopilot.ts'
 import { findLandable, groundRadius } from '../src/world/terrain.ts'
-import { HOME, height, padOf } from '../src/world/height.ts'
+import { HOME, height, padOf, stationOf } from '../src/world/height.ts'
 import { body, bodyVelocity, bodyPosition, bodySpin } from '../src/world/system.ts'
 import { wind } from '../src/world/weather.ts'
 import { FIELDS, resetRocks } from '../src/world/asteroids.ts'
@@ -332,9 +332,9 @@ for (const [id, start] of [['home-1', 150_000], ['home', 400_000]]) {
 }
 
 
+const near = (a, b, tol) => Math.abs(a - b) <= tol
 // 23. Fuel: the tank is the first number that gates reach (DESIGN §10b). Burn, dry, refill, trickle, cruise, boost.
 {
-  const near = (a, b, tol) => Math.abs(a - b) <= tol
   // Sitting on the pad costs nothing.
   const c = fresh()
   until(c, () => false, 5, () => IDLE)
@@ -458,6 +458,28 @@ for (const [id, start] of [['home-1', 150_000], ['home', 400_000]]) {
   until(e, (c) => c.state !== 'flying', 30, () => T(1))
   check('flying into a rock is a crash', e.state === 'crashed' && e.hitRock !== null && e.lastContact.vUp < -LAND_MAX_VSPEED, `${e.state} at ${(-e.lastContact.vUp).toFixed(0)} m/s`)
   resetRocks()
+}
+
+
+// 25. The station: land on a numbered pad and you are docked and refuelling; on the disc but off a pad, only the sun.
+{
+  const st = stationOf(HOME)
+  const onPad = (n) => { const c = new Craft(HOME); c.windy = false; c.spawnOn(new THREE.Vector3(st.pads[n - 1].dir.x, st.pads[n - 1].dir.y, st.pads[n - 1].dir.z), new THREE.Vector3(1, 0, 0), 'radial'); return c }
+  const c = onPad(3); c.fuel = 10
+  until(c, () => false, 5, () => IDLE)
+  const here = c.padHere()
+  check('landed on station pad 3 reads as docked on pad 3', here && here.station === st && here.pad === 3, here ? `${here.station?.name} pad ${here.pad}` : 'no pad')
+  check('and the pad refuels', near(c.fuel, 10 + 5 * FUEL_PAD_REFILL, 0.05), `${c.fuel.toFixed(1)} after 5 s`)
+  // Lift off pad 3 and set down on pad 1: 124 m across the disc.
+  const d = new Craft(HOME); d.windy = false
+  d.spawnOn(new THREE.Vector3(st.site.dir.x, st.site.dir.y, st.site.dir.z), new THREE.Vector3(1, 0, 0), 'radial'); d.fuel = 0
+  until(d, () => false, 5, () => IDLE)
+  check('on the disc but off a pad you are down, not docked, and only the sun feeds you', d.state === 'landed' && d.padHere() === null && near(d.fuel, 5 * FUEL_SOLAR_TRICKLE, 0.05), `${d.fuel.toFixed(2)} after 5 s`)
+  // The station is level ground to land on: hover up off pad 2, drift, and set down again gently.
+  const e = onPad(2)
+  until(e, (c) => c.altitude() > 6, 10, () => T(1))
+  const tDown = until(e, (c) => c.state !== 'flying', 60, (t, c) => T(c.vUp() > -1.5 ? 0 : 1))
+  check('a hop off a station pad comes down landed on the disc', e.state === 'landed' && e.lastContact.vUp > -LAND_MAX_VSPEED, `${e.state} after ${tDown.toFixed(1)} s at v↑ ${e.lastContact.vUp.toFixed(1)}`)
 }
 
 console.log(`\n${pass}/${pass + fail} checks`)
