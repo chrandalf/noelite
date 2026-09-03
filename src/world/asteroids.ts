@@ -14,9 +14,9 @@
 import * as THREE from 'three'
 import { MASTER_SEED, ROCK_HP_PER_METRE, ICE_FUEL_PER_METRE, ICE_FUEL_MAX } from './config.ts'
 import { rng } from './noise.ts'
-import { SYSTEM, body } from './system.ts'
+import { SYSTEM, body, bodyPosition, bodyVelocity } from './system.ts'
 
-export type FieldKind = 'trojan' | 'belt'
+export type FieldKind = 'trojan' | 'belt' | 'drifter' | 'ring'
 
 export type Field = {
   id: string
@@ -29,6 +29,10 @@ export type Field = {
   phase0: number
   /** Metres: the rocks lie within this of the centre. */
   spread: number
+  /** Rotation taking the ecliptic orbit into this field's orbital plane. Identity for Trojans and the belt. */
+  plane: THREE.Quaternion
+  /** The body this field orbits; null for the sun. */
+  parent: string | null
   rocks: Rock[]
 }
 
@@ -55,10 +59,10 @@ export function buildFields(seed = MASTER_SEED): Field[] {
   const sun = body('sun')
   const fields: Field[] = []
   let nextId = 1
-  const add = (id: string, name: string, kind: FieldKind, a: number, period: number, phase0: number, spread: number, count: number, iceFraction: number, minR: number, maxR: number): Field => {
+  const add = (id: string, name: string, kind: FieldKind, a: number, period: number, phase0: number, spread: number, count: number, iceFraction: number, minR: number, maxR: number, plane = new THREE.Quaternion(), parent: string | null = null): Field => {
     const fseed = (seed ^ Math.imul(fields.length + 101, 0x85ebca6b)) >>> 0
     const next = rng(fseed)
-    const f: Field = { id, name, kind, seed: fseed, a, period, phase0, spread, rocks: [] }
+    const f: Field = { id, name, kind, seed: fseed, a, period, phase0, spread, plane, parent, rocks: [] }
     let tries = 0
     while (f.rocks.length < count && tries++ < count * 50) {
       // A blob, denser toward the middle, flattened toward the orbital plane.
@@ -91,6 +95,56 @@ export function buildFields(seed = MASTER_SEED): Field[] {
     const period = TWO_PI * Math.sqrt((a * a * a) / sun.mu)
     add(`belt-${k + 1}`, `Belt ${k + 1}`, 'belt', a, period, next() * TWO_PI, 60_000, 150, 0.45, 20, 400)
   }
+  // Drifters: small clusters on their own orbits anywhere from inside Cinder's to beyond
+  // the belt, tilted out of the ecliptic, so they turn up where nothing else is (Chris:
+  // "random asteroids out in space, lots of clusters of them, they can appear from
+  // anywhere, not just in belts"). An orbit that would ever pass through a body's sphere
+  // of influence is rerolled, sampled through one turn of the orbit.
+  const drift = rng(seed ^ 0x44524946)
+  const pf = new THREE.Vector3(), pb = new THREE.Vector3()
+  const planets = SYSTEM.filter((b) => b.parent === 'sun')
+  let made = 0, tries = 0
+  while (made < 240 && tries++ < 6000) {
+    const a = home.orbit!.a * (0.3 + 3.2 * drift() * drift() + 0.1 * drift())
+    const period = TWO_PI * Math.sqrt((a * a * a) / sun.mu)
+    const phase0 = drift() * TWO_PI
+    const incl = (3 + 27 * drift()) * (Math.PI / 180) * (drift() < 0.5 ? -1 : 1)
+    const node = drift() * TWO_PI
+    const plane = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(Math.cos(node), 0, Math.sin(node)), incl)
+    const spread = 6_000 + 12_000 * drift()
+    const probe: Field = { id: '', name: '', kind: 'drifter', seed: 0, a, period, phase0, spread, plane, parent: null, rocks: [] }
+    let clear = true
+    for (let k = 0; k < 240 && clear; k++) {
+      const t = (period * k) / 240
+      fieldPosition(probe, t, pf)
+      for (const b of planets) if (bodyPosition(b, t, pb).distanceTo(pf) - spread < b.hill * 1.1) { clear = false; break }
+      if (pf.length() - spread < sun.radius * 4) clear = false
+    }
+    if (!clear) continue
+    made++
+    add(`drift-${made}`, `Cluster ${made}`, 'drifter', a, period, phase0, spread, 8 + Math.floor(32 * drift()), 0.15 + 0.3 * drift(), 12, 160, plane)
+  }
+  // Rings: small clusters orbiting the planets themselves, inside the sphere of influence
+  // but well clear of any moon, so there is rock within a minute of the pad. Less ice
+  // than the deep-space clusters: the easy ones pay less.
+  const ring = rng(seed ^ 0x52494e47)
+  for (const b of planets) {
+    if (b.kind === 'hot' || b.kind === 'giant') continue
+    const moons = SYSTEM.filter((m) => m.parent === b.id)
+    const n = b.id === 'home' ? 6 : 3
+    for (let k = 0; k < n; k++) {
+      let a = 0, ok = false
+      for (let attempt = 0; attempt < 40 && !ok; attempt++) {
+        a = b.radius * (5 + 20 * ring())
+        ok = a < b.hill * 0.35 && moons.every((m) => Math.abs(m.orbit!.a - a) > m.hill * 3 + 20_000)
+      }
+      if (!ok) continue
+      const period = TWO_PI * Math.sqrt((a * a * a) / b.mu)
+      const incl = (ring() - 0.5) * 1.2, node = ring() * TWO_PI
+      const plane = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(Math.cos(node), 0, Math.sin(node)), incl)
+      add(`${b.id}-ring-${k + 1}`, `${b.name} Ring ${k + 1}`, 'ring', a, period, ring() * TWO_PI, 3_000 + 5_000 * ring(), 6 + Math.floor(14 * ring()), 0.12, 10, 90, plane, b.id)
+    }
+  }
   return fields
 }
 
@@ -104,24 +158,31 @@ const tmpC = new THREE.Vector3()
 /** Heliocentric position of a field's centre at time t. */
 export function fieldPosition(f: Field, t: number, out = new THREE.Vector3()): THREE.Vector3 {
   const th = f.phase0 + (TWO_PI * t) / f.period
-  return out.set(Math.cos(th) * f.a, 0, Math.sin(th) * f.a)
+  out.set(Math.cos(th) * f.a, 0, Math.sin(th) * f.a).applyQuaternion(f.plane)
+  if (f.parent) out.add(bodyPosition(body(f.parent), t, tmpParent))
+  return out
 }
+const tmpParent = new THREE.Vector3()
 
 /** Heliocentric velocity of a field's centre (and, near enough, of every rock in it). */
 export function fieldVelocity(f: Field, t: number, out = new THREE.Vector3()): THREE.Vector3 {
   const th = f.phase0 + (TWO_PI * t) / f.period
   const w = (TWO_PI * f.a) / f.period
-  return out.set(-Math.sin(th) * w, 0, Math.cos(th) * w)
+  out.set(-Math.sin(th) * w, 0, Math.cos(th) * w).applyQuaternion(f.plane)
+  if (f.parent) out.add(bodyVelocity(body(f.parent), t, tmpParent))
+  return out
 }
 
-/** Heliocentric position of a rock at time t: the field's centre plus the offset in the orbiting frame. */
+/** Heliocentric position of a rock at time t: the field's centre plus the offset in the orbiting frame, through the field's plane. */
 export function rockPosition(r: Rock, t: number, out = new THREE.Vector3()): THREE.Vector3 {
   const f = r.field
   const th = f.phase0 + (TWO_PI * t) / f.period
   const c = Math.cos(th), s = Math.sin(th)
   // radial (c, 0, s), normal (0, 1, 0), tangential (-s, 0, c)
   const o = r.offset
-  return out.set(c * f.a + o.x * c - o.z * s, o.y, s * f.a + o.x * s + o.z * c)
+  out.set(c * f.a + o.x * c - o.z * s, o.y, s * f.a + o.x * s + o.z * c).applyQuaternion(f.plane)
+  if (f.parent) out.add(bodyPosition(body(f.parent), t, tmpParent))
+  return out
 }
 
 export type Nearest = { rock: Rock | null; dist: number; pos: THREE.Vector3 }
@@ -147,23 +208,48 @@ export function nearestRock(p: THREE.Vector3, t: number, out: Nearest): Nearest 
 
 export type Hit = { rock: Rock; dist: number; point: THREE.Vector3 }
 
+/** First surviving rock of field f along the ray from p in unit direction d within range, at time t. */
+function rayField(f: Field, p: THREE.Vector3, d: THREE.Vector3, range: number, t: number, best: Hit | null): Hit | null {
+  const dc = fieldPosition(f, t, tmpC).distanceTo(p)
+  if (dc - f.spread > range) return best
+  for (const r of f.rocks) {
+    if (r.hp <= 0) continue
+    rockPosition(r, t, tmpC).sub(p)
+    const along = tmpC.dot(d)
+    if (along < 0 || along - r.radius > range) continue
+    const perp2 = tmpC.lengthSq() - along * along
+    if (perp2 > r.radius * r.radius) continue
+    const dist = along - Math.sqrt(r.radius * r.radius - perp2)
+    if (dist < 0 || dist > range) continue
+    if (!best || dist < best.dist) best = { rock: r, dist, point: new THREE.Vector3().copy(p).addScaledVector(d, dist) }
+  }
+  return best
+}
+
 /** First surviving rock along the ray from p in unit direction d within range, at time t. */
 export function castRay(p: THREE.Vector3, d: THREE.Vector3, range: number, t: number): Hit | null {
   let best: Hit | null = null
+  for (const f of FIELDS) best = rayField(f, p, d, range, t, best)
+  return best
+}
+
+const tmpRel = new THREE.Vector3(), tmpFv = new THREE.Vector3()
+
+/**
+ * A moving thing (a bolt) at p with heliocentric velocity v, over h seconds: what it
+ * strikes. Tested in each field's own frame, because a field moves at kilometres a
+ * second and a bolt swept heliocentrically against a rock held still for the step
+ * passes straight through it (the bolt harness, 2026-09-03: inside the rock at
+ * 2.26 s, "hit" on the way out at 2.47).
+ */
+export function sweep(p: THREE.Vector3, v: THREE.Vector3, h: number, t: number): Hit | null {
+  let best: Hit | null = null
   for (const f of FIELDS) {
-    const dc = fieldPosition(f, t, tmpC).distanceTo(p)
-    if (dc - f.spread > range) continue
-    for (const r of f.rocks) {
-      if (r.hp <= 0) continue
-      rockPosition(r, t, tmpC).sub(p)
-      const along = tmpC.dot(d)
-      if (along < 0 || along - r.radius > range) continue
-      const perp2 = tmpC.lengthSq() - along * along
-      if (perp2 > r.radius * r.radius) continue
-      const dist = along - Math.sqrt(r.radius * r.radius - perp2)
-      if (dist < 0 || dist > range) continue
-      if (!best || dist < best.dist) best = { rock: r, dist, point: new THREE.Vector3().copy(p).addScaledVector(d, dist) }
-    }
+    tmpRel.copy(v).sub(fieldVelocity(f, t, tmpFv))
+    const speed = tmpRel.length()
+    if (speed === 0) continue
+    tmpRel.divideScalar(speed)
+    best = rayField(f, p, tmpRel, speed * h, t, best)
   }
   return best
 }

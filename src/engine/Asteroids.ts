@@ -3,15 +3,20 @@
 // sprinkle of points so you can find it. Plus the gun's tracer, the burst when a
 // rock breaks, and the streak of fuel coming home from an ice rock.
 import * as THREE from 'three'
-import { ROCKS, rockPosition, fieldVelocity, type Rock, type Hit } from '../world/asteroids.ts'
+import { ROCKS, rockPosition, fieldVelocity, type Rock } from '../world/asteroids.ts'
+import type { Bolt, BoltHit } from './Craft.ts'
 import { rng } from '../world/noise.ts'
 
 /** Metres from the viewer within which a rock gets a mesh, and within which a field shows as points. */
 const MESH_RANGE = 80_000
 const POINT_RANGE = 1_500_000
 const PER_MESH = 512
-const BURST_N = 240
+const BURST_N = 320
 const BURST_LIFE = 2.5
+const BOLT_N = 32
+const Z_AXIS = new THREE.Vector3(0, 0, 1)
+/** A bolt on screen: a glowing rod this long, and a fatter core. */
+const BOLT_LEN = 16
 
 function potato(shape: number): THREE.BufferGeometry {
   const g = new THREE.IcosahedronGeometry(1, 2).toNonIndexed()
@@ -38,15 +43,15 @@ export class Asteroids {
   private readonly meshes: THREE.InstancedMesh[] = []
   private readonly points: THREE.Points
   private readonly pointPos: Float32Array
-  private readonly tracer: THREE.Line
-  private readonly tracerPos: Float32Array
-  private tracerUntil = -1
+  private readonly boltMesh: THREE.InstancedMesh
+  private readonly boltCore: THREE.InstancedMesh
   private readonly streak: THREE.Line
   private readonly streakPos: Float32Array
   private streakUntil = -1
   private readonly streakFrom = new THREE.Vector3()
-  /** The field's velocity, so the streak's origin and the tracer ride with the rocks instead of drifting off at 1.6 km/s. */
+  /** The field's velocity, so the streak's origin rides with the rocks instead of drifting off at 1.6 km/s. */
   private readonly rideVel = new THREE.Vector3()
+  private readonly streakVel = new THREE.Vector3()
   private readonly burstPoints: THREE.Points
   private readonly burstPos: Float32Array
   private readonly burstHelio = new Float64Array(BURST_N * 3)
@@ -86,15 +91,22 @@ export class Asteroids {
     this.points = new THREE.Points(pg, pm)
     this.points.frustumCulled = false
     this.group.add(this.points)
-    this.tracerPos = new Float32Array(6)
-    const tg = new THREE.BufferGeometry()
-    tg.setAttribute('position', new THREE.BufferAttribute(this.tracerPos, 3))
-    const tm = new THREE.LineBasicMaterial({ color: 0xffe08a, fog: false })
-    tm.name = 'tracer'
-    this.tracer = new THREE.Line(tg, tm)
-    this.tracer.frustumCulled = false
-    this.tracer.visible = false
-    this.group.add(this.tracer)
+    // Bolts: a long thin glow with a short bright core, both instanced, pointed along their flight.
+    const rod = new THREE.CylinderGeometry(0.6, 1.1, BOLT_LEN, 6)
+    rod.rotateX(Math.PI / 2)
+    const glow = new THREE.MeshBasicMaterial({ color: 0xff7a2a, transparent: true, opacity: 0.85, fog: false, depthWrite: false, blending: THREE.AdditiveBlending })
+    glow.name = 'bolt-glow'
+    this.boltMesh = new THREE.InstancedMesh(rod, glow, BOLT_N)
+    this.boltMesh.frustumCulled = false
+    this.boltMesh.count = 0
+    const core = new THREE.CylinderGeometry(0.22, 0.4, BOLT_LEN * 0.7, 5)
+    core.rotateX(Math.PI / 2)
+    const white = new THREE.MeshBasicMaterial({ color: 0xfff3d0, fog: false })
+    white.name = 'bolt-core'
+    this.boltCore = new THREE.InstancedMesh(core, white, BOLT_N)
+    this.boltCore.frustumCulled = false
+    this.boltCore.count = 0
+    this.group.add(this.boltMesh, this.boltCore)
     this.streakPos = new Float32Array(6)
     const sg = new THREE.BufferGeometry()
     sg.setAttribute('position', new THREE.BufferAttribute(this.streakPos, 3))
@@ -107,7 +119,7 @@ export class Asteroids {
     this.burstPos = new Float32Array(BURST_N * 3)
     const bg = new THREE.BufferGeometry()
     bg.setAttribute('position', new THREE.BufferAttribute(this.burstPos, 3))
-    const bm = new THREE.PointsMaterial({ color: 0xe8e0d0, size: 3, sizeAttenuation: false, fog: false, transparent: true, opacity: 0.9, depthWrite: false })
+    const bm = new THREE.PointsMaterial({ color: 0xe8e0d0, size: 4, sizeAttenuation: false, fog: false, transparent: true, opacity: 0.9, depthWrite: false })
     bm.name = 'burst'
     this.burstPoints = new THREE.Points(bg, bm)
     this.burstPoints.frustumCulled = false
@@ -115,18 +127,30 @@ export class Asteroids {
     for (let i = 0; i < BURST_N; i++) this.burstLife[i] = 0
   }
 
-  /** A shot happened: draw the tracer, and if a rock broke, its burst and (for ice) the fuel streak. */
-  shot(shot: { from: THREE.Vector3; to: THREE.Vector3; hit: Hit | null; broke: boolean; fuel: number }, t: number): void {
-    this.tracerUntil = t + 0.08
-    this.tracerFrom.copy(shot.from); this.tracerTo.copy(shot.to)
-    if (shot.hit) fieldVelocity(shot.hit.rock.field, t, this.rideVel); else this.rideVel.set(0, 0, 0)
-    if (shot.hit && shot.broke) {
-      this.burst(shot.hit.rock, t)
-      if (shot.fuel > 0) { this.streakUntil = t + 0.7; this.streakFrom.copy(shot.hit.point) }
+  /** Bolts landed: a flash where each struck, a burst if the rock broke, and (for ice) the fuel streak. */
+  hits(events: BoltHit[], t: number): void {
+    for (const e of events) {
+      const r = e.hit.rock
+      fieldVelocity(r.field, t, this.rideVel)
+      this.flash(e.hit.point, this.rideVel)
+      if (e.broke) {
+        this.burst(r, t)
+        if (e.fuel > 0) { this.streakUntil = t + 0.7; this.streakFrom.copy(e.hit.point); this.streakVel.copy(this.rideVel) }
+      }
     }
   }
-  private readonly tracerFrom = new THREE.Vector3()
-  private readonly tracerTo = new THREE.Vector3()
+
+  /** A puff of sparks at a strike, riding with the field. */
+  private flash(at: THREE.Vector3, ride: THREE.Vector3): void {
+    for (let i = 0; i < 40; i++) {
+      const j = this.burstCursor; this.burstCursor = (this.burstCursor + 1) % BURST_N
+      const d = new THREE.Vector3(this.next() - 0.5, this.next() - 0.5, this.next() - 0.5).normalize()
+      const sp = 10 + 40 * this.next()
+      this.burstHelio[j * 3] = at.x; this.burstHelio[j * 3 + 1] = at.y; this.burstHelio[j * 3 + 2] = at.z
+      this.burstVel[j * 3] = ride.x + d.x * sp; this.burstVel[j * 3 + 1] = ride.y + d.y * sp; this.burstVel[j * 3 + 2] = ride.z + d.z * sp
+      this.burstLife[j] = 0.5 + 0.4 * this.next()
+    }
+  }
 
   private burst(r: Rock, t: number): void {
     const c = rockPosition(r, t), v = fieldVelocity(r.field, t)
@@ -147,7 +171,7 @@ export class Asteroids {
    * reference body's rotating frame with the camera at the origin), `viewPos` the
    * camera in that frame, `craftHelio` the craft (for the fuel streak's end).
    */
-  update(dt: number, t: number, helio: THREE.Vector3, frame: THREE.Vector3, qInv: THREE.Quaternion, viewPos: THREE.Vector3, craftHelio: THREE.Vector3): void {
+  update(dt: number, t: number, helio: THREE.Vector3, frame: THREE.Vector3, qInv: THREE.Quaternion, viewPos: THREE.Vector3, craftHelio: THREE.Vector3, bolts: readonly Bolt[]): void {
     const counts = new Array<number>(this.meshes.length).fill(0)
     let np = 0
     let overflow = 0
@@ -175,16 +199,22 @@ export class Asteroids {
     ;(this.points.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true
     this.drawn = counts.reduce((a, b) => a + b, 0)
     void overflow
-    // Tracer and streak ride the field.
-    this.tracerFrom.addScaledVector(this.rideVel, dt); this.tracerTo.addScaledVector(this.rideVel, dt); this.streakFrom.addScaledVector(this.rideVel, dt)
-    this.tracer.visible = t < this.tracerUntil
-    if (this.tracer.visible) {
-      this.p.copy(this.tracerFrom).sub(frame).applyQuaternion(qInv).sub(viewPos)
-      this.tracerPos[0] = this.p.x; this.tracerPos[1] = this.p.y; this.tracerPos[2] = this.p.z
-      this.p.copy(this.tracerTo).sub(frame).applyQuaternion(qInv).sub(viewPos)
-      this.tracerPos[3] = this.p.x; this.tracerPos[4] = this.p.y; this.tracerPos[5] = this.p.z
-      ;(this.tracer.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true
+    // Bolts, pointed along their flight.
+    let nb = 0
+    for (const b of bolts) {
+      if (!b.alive || nb >= BOLT_N) continue
+      this.p.copy(b.pos).sub(frame).applyQuaternion(qInv).sub(viewPos)
+      this.s.copy(b.dir).applyQuaternion(qInv)
+      this.q.setFromUnitVectors(Z_AXIS, this.s)
+      this.s.setScalar(1)
+      this.m.compose(this.p, this.q, this.s)
+      this.boltMesh.setMatrixAt(nb, this.m)
+      this.boltCore.setMatrixAt(nb, this.m)
+      nb++
     }
+    this.boltMesh.count = nb; this.boltCore.count = nb
+    this.boltMesh.instanceMatrix.needsUpdate = true; this.boltCore.instanceMatrix.needsUpdate = true
+    this.streakFrom.addScaledVector(this.streakVel, dt)
     // Fuel streak, from where the ice was to the craft, fading.
     this.streak.visible = t < this.streakUntil
     if (this.streak.visible) {

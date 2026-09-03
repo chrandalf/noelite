@@ -493,7 +493,25 @@ Every step is playable. That's the point of the ordering.
    plus a hit per 40 m of radius; when a rock breaks its facets burst outward and, if it
    was ice and within 3 km, half a unit of fuel per metre of radius streaks to the tank
    (a 100 m ice rock is half a tank). Stone gives nothing yet; that is ore, later. Broken
-   rocks stay broken for the session. Fields are Tab targets after the bodies. **Three
+   rocks stay broken for the session. Fields are Tab targets after the bodies.
+   **Second pass, same day**, from Chris: "shooting looks like shit, need to see more a
+   projectile shot, plus need random asteroids out in space, lots of clusters of them,
+   they can appear from anywhere, not just in belts" and "we need there to be more seeded
+   loads here too, we originally built this to be more random, is that still possible?"
+   The gun fires **bolts** now: from alternate wingtips at 900 m/s on top of the ship's
+   velocity, dying at 3 km, five a second, swept against the rocks each substep **in each
+   field's own frame** (swept heliocentrically the first version flew straight through a
+   rock and registered on the way out, because the field moves at 2.4 km/s sideways and
+   the rock is held still for the step). On screen a glowing rod with a bright core, a
+   spark flash where it strikes. And the sky is fuller: **240 drifting clusters** of 8 to
+   40 rocks on their own orbits, tilted up to 30° out of the ecliptic, from inside
+   Cinder's orbit to beyond the belt, any that would ever pass through a sphere of
+   influence rerolled; and **rings** of 6 to 20 rocks orbiting home (six, from 620 km out)
+   and Marram (three), inside the sphere of influence and clear of the moon, so there is
+   rock within a minute of the pad, with less ice than the deep clusters. 261 fields,
+   7,158 rocks, all from the master seed: random and seeded are the same thing here, and
+   the harness proves the sky rebuilds identically. A field is a frame in any body's
+   sphere now, as its velocity over the body's own, fading with `hold` near the ground. **Three
    things the build caught:** a field is a frame (in the sun's sphere its velocity blends
    into the frame's within three spreads, or the cruise assist bleeds your co-orbital
    speed and the rocks stream past at 1.6 km/s); the ship cannot be a child of the

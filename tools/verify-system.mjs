@@ -80,6 +80,10 @@ for (const b of SYSTEM) {
 {
   const home = body('home'), sun = body('sun')
   check('there are fields and rocks', FIELDS.length >= 10 && ROCKS.length > 500, `${FIELDS.length} fields, ${ROCKS.length} rocks`)
+  const drifters = FIELDS.filter((f) => f.kind === 'drifter')
+  check('there are many drifting clusters, all over the system', drifters.length >= 200 && Math.min(...drifters.map((f) => f.a)) < home.orbit.a * 0.6 && Math.max(...drifters.map((f) => f.a)) > home.orbit.a * 2.5, `${drifters.length} clusters from ${km(Math.min(...drifters.map((f) => f.a)))} to ${km(Math.max(...drifters.map((f) => f.a)))} km out`)
+  const yMax = Math.max(...drifters.map((f) => Math.abs(fieldPosition(f, 0).y)))
+  check('drifters leave the ecliptic', yMax > home.orbit.a * 0.1 && drifters.every((f) => Math.abs(fieldPosition(f, f.period / 4).y) + Math.abs(fieldPosition(f, 0).y) > f.a * 0.04), `highest ${km(yMax)} km above the plane`)
   const again = buildFields()
   let same = again.length === FIELDS.length
   for (let i = 0; same && i < FIELDS.length; i++) {
@@ -123,11 +127,25 @@ for (const b of SYSTEM) {
   for (const f of FIELDS) for (let t = 0; t < home.orbit.period; t += home.orbit.period / 61) {
     fieldPosition(f, t, pf)
     for (const b of SYSTEM) {
+      if (f.parent === b.id) {
+        // A ring orbits this body: stay out of its air and inside a third of its Hill sphere.
+        const d = bodyPosition(b, t, pb).distanceTo(pf)
+        if (d - f.spread < b.radius * 3 || d + f.spread > b.hill / 3) { clear = false; detail.push(`${f.id} badly placed round ${b.name}`) }
+        continue
+      }
+      if (b.parent && b.parent !== 'sun' && f.parent === b.parent) {
+        // A moon of the ring's planet: keep out of its Hill sphere.
+        if (bodyPosition(b, t, pb).distanceTo(pf) - f.spread < b.hill * 2) { clear = false; detail.push(`${f.id} in ${b.name}`) }
+        continue
+      }
       const limit = b.kind === 'sun' ? b.radius * 3 : b.hill
       if (bodyPosition(b, t, pb).distanceTo(pf) - f.spread < limit) { clear = false; detail.push(`${f.id} in ${b.name}`) }
     }
   }
-  check('no field ever enters a body\'s sphere of influence', clear, detail.slice(0, 3).join(', '))
+  check('no free field ever enters a sphere of influence, and rings stay clear of moons and air', clear, detail.slice(0, 3).join(', '))
+  const rings = FIELDS.filter((f) => f.kind === 'ring')
+  const homeRings = rings.filter((f) => f.parent === 'home')
+  check('the planets have rings of rock within reach of the pad', homeRings.length >= 4 && homeRings.every((f) => f.a < home.radius * 30), `${rings.length} rings, ${homeRings.length} round home, nearest ${km(Math.min(...homeRings.map((f) => f.a)))} km out`)
   // The Trojans are the first rung: reachable, far, and not too far.
   const dL4 = bodyPosition(home, 0).distanceTo(fieldPosition(l4, 0))
   check("home's Trojans are as far as the sun (that is what L4 means)", Math.abs(dL4 - home.orbit.a) < 1e-6 * home.orbit.a, `${km(dL4)} km`)

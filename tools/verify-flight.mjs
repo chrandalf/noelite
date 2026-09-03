@@ -10,7 +10,7 @@ import { HOME, height, padOf } from '../src/world/height.ts'
 import { body, bodyVelocity, bodyPosition, bodySpin } from '../src/world/system.ts'
 import { wind } from '../src/world/weather.ts'
 import { FIELDS, resetRocks } from '../src/world/asteroids.ts'
-import { FIXED_DT, DRAG, LAND_MAX_VSPEED, GROUND_EFFECT_HEIGHT, CRUISE_MAX, CRUISE_DECEL, CRUISE_SECONDS, THRUST_ACCEL, BOOST_MULT, FUEL_TANK, FUEL_HOVER_BURN, FUEL_CRUISE_BURN, FUEL_PAD_REFILL, FUEL_SOLAR_TRICKLE, FUEL_RELIGHT } from '../src/world/config.ts'
+import { FIXED_DT, DRAG, LAND_MAX_VSPEED, GROUND_EFFECT_HEIGHT, CRUISE_MAX, CRUISE_DECEL, CRUISE_SECONDS, THRUST_ACCEL, BOOST_MULT, FUEL_TANK, FUEL_HOVER_BURN, FUEL_CRUISE_BURN, FUEL_PAD_REFILL, FUEL_SOLAR_TRICKLE, FUEL_RELIGHT, GUN_RANGE, GUN_COOLDOWN, BOLT_SPEED } from '../src/world/config.ts'
 const GRAVITY = HOME.g, ATMOSPHERE_HEIGHT = HOME.air
 const BODY_UP = new THREE.Vector3(0, 1, 0), BODY_FWD = new THREE.Vector3(0, 0, -1)
 
@@ -412,22 +412,46 @@ for (const [id, start] of [['home-1', 150_000], ['home', 400_000]]) {
   check('inside a field the field is the frame: at rest with the rocks reads as at rest', c.speed() < 0.5 && c.ref.kind === 'sun', `spd ${c.speed().toFixed(2)} m/s in ${c.ref.name}'s sphere`)
   until(c, () => false, 5, () => IDLE)
   check('and five seconds later the rock is still 2 km off the nose', Math.abs(c.rockNear.dist - 2000) < 2, `${c.rockNear.dist.toFixed(1)} m`)
-  // The gun: one shot takes a hit; enough shots break it; the fuel arrives.
+  // The gun: a bolt flies, and takes a hit off the rock when it arrives; enough break it; the fuel arrives.
   const f0 = c.fuel = 20
   const hp0 = ice.hp
-  const first = c.fire()
-  check('a shot down the nose hits the rock', first && first.hit && first.hit.rock === ice && ice.hp === hp0 - 1, `hit at ${first?.hit?.dist.toFixed(0)} m, hp ${hp0} → ${ice.hp}`)
+  const bolt = c.fire()
+  check('firing launches a bolt from the wing at BOLT_SPEED along the nose', bolt && bolt.alive && Math.abs(bolt.vel.clone().sub(c.hvel).length() - BOLT_SPEED) < 1e-6, `${bolt ? bolt.vel.clone().sub(c.hvel).length().toFixed(0) : '-'} m/s`)
   check('the gun has a cooldown', c.fire() === null)
+  const tFly = until(c, (c) => c.hits.length > 0, 10, () => IDLE)
+  const first = c.hits[0]
+  check('the bolt hits the rock about when it should, and the rock loses a hit', first && first.hit.rock === ice && ice.hp === hp0 - 1 && Math.abs(tFly - 2000 / BOLT_SPEED) < 0.1 && !bolt.alive, `hit after ${tFly.toFixed(2)} s (expected ${(2000 / BOLT_SPEED).toFixed(2)}), hp ${hp0} → ${ice.hp}`)
+  c.hits.length = 0
   let shots = 1, broke = first.broke, gained = first.fuel
-  while (!broke && shots < 20) { until(c, () => false, 0.3, () => IDLE); const s = c.fire(); shots++; broke = s.broke; gained += s.fuel }
-  check('enough shots break an ice rock and the fuel comes to the tank', broke && ice.hp === 0 && gained > 0 && Math.abs(c.fuel - f0 - gained) < 1e-9, `${shots} shots, +${gained.toFixed(1)} units, tank ${c.fuel.toFixed(1)}`)
+  while (!broke && shots < 20) {
+    until(c, () => false, GUN_COOLDOWN + 0.01, () => IDLE)
+    c.fire(); shots++
+    until(c, (c) => c.hits.length > 0, 10, () => IDLE)
+    for (const e of c.hits) { broke ||= e.broke; gained += e.fuel }
+    c.hits.length = 0
+  }
+  check('enough bolts break an ice rock and the fuel comes to the tank', broke && ice.hp === 0 && gained > 0 && Math.abs(c.fuel - f0 - gained) < 1e-9, `${shots} shots, +${gained.toFixed(1)} units, tank ${c.fuel.toFixed(1)}`)
   c.substep(FIXED_DT, IDLE)
   check('a broken rock is gone from the sky', c.rockNear.rock !== ice, `nearest now ${c.rockNear.rock ? (c.rockNear.dist / 1000).toFixed(1) + ' km' : 'nothing'}`)
+  // A bolt that misses dies at range.
+  {
+    const m = beside(stone, 1000)
+    m.hquat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2) // nose off to the side
+    const b = m.fire()
+    const tDie = until(m, () => !b.alive, 10, () => IDLE)
+    check('a bolt that misses dies at GUN_RANGE', !b.alive && m.hits.length === 0 && Math.abs(tDie - GUN_RANGE / BOLT_SPEED) < 0.05, `after ${tDie.toFixed(2)} s`)
+  }
   // Stone gives nothing.
   const d = beside(stone, 1000)
   d.fuel = 20
   let b = false, got = 0
-  for (let i = 0; i < 20 && !b; i++) { const s = d.fire(); if (s) { b = s.broke; got += s.fuel }; until(d, () => false, 0.3, () => IDLE) }
+  for (let i = 0; i < 20 && !b; i++) {
+    d.fire()
+    until(d, (c) => c.hits.length > 0, 10, () => IDLE)
+    for (const e of d.hits) { b ||= e.broke; got += e.fuel }
+    d.hits.length = 0
+    until(d, () => false, GUN_COOLDOWN + 0.01, () => IDLE)
+  }
   check('breaking stone gives no fuel', b && got === 0 && d.fuel === 20)
   // Flying into a rock is a crash.
   const e = beside(l4.rocks.find((r) => r.hp > 0 && r.radius > 50), 600)

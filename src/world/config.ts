@@ -139,8 +139,9 @@ export const ROCK_HP_PER_METRE = 1 / 40
 /** Fuel units an ice rock gives per metre of radius, and the most any one rock gives. A 40 m ice rock is a fifth of a tank. */
 export const ICE_FUEL_PER_METRE = 0.5
 export const ICE_FUEL_MAX = 60
-/** Metres the gun reaches, and the seconds between shots. */
+/** Metres a bolt flies before it dies, the seconds between shots, and how fast a bolt leaves the gun (relative to the ship). Chris, 2026-09-03: "need to see more a projectile shot." */
 export const GUN_RANGE = 3000
-export const GUN_COOLDOWN = 0.25
+export const GUN_COOLDOWN = 0.2
+export const BOLT_SPEED = 900
 /** Metres from a breaking ice rock within which its fuel reaches you. Beyond that it is lost to space. */
 export const ICE_REACH = 3000

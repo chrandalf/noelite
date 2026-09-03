@@ -20,14 +20,14 @@ import { groundRadius, surfaceNormal, slopeDeg, setGroundClock } from '../world/
 import { wind } from '../world/weather.ts'
 import { atmosphereDensity } from '../world/atmosphere.ts'
 import { SYSTEM, body, bodyPosition, bodyVelocity, bodySpin, type Body } from '../world/system.ts'
-import { nearestRock, castRay, fuelYield, fieldPosition, fieldVelocity, rockPosition, type Nearest, type Hit, type Rock } from '../world/asteroids.ts'
+import { nearestRock, sweep, fuelYield, fieldPosition, fieldVelocity, rockPosition, type Nearest, type Hit, type Rock } from '../world/asteroids.ts'
 import {
   DRAG, THRUST_ACCEL, ANG_ACCEL, ANG_DAMP,
   HULL_CLEARANCE, LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE, FIXED_DT,
   BOOST_MULT, GROUND_EFFECT_HEIGHT, GROUND_EFFECT_ACCEL_G, GROUND_EFFECT_DAMP, GRAVITY_FALLOFF, RCS_ACCEL,
   CRUISE_ENTER, CRUISE_EXIT, CRUISE_FLOOR, CRUISE_ALIGN_TAU, CRUISE_MAX, CRUISE_BRAKE, CRUISE_DECEL, CRUISE_SECONDS, CRUISE_SPOOL,
   FUEL_TANK, FUEL_HOVER_BURN, FUEL_CRUISE_BURN, FUEL_RCS_BURN, FUEL_PAD_REFILL, FUEL_SOLAR_TRICKLE, FUEL_RELIGHT, PAD_RADIUS,
-  GUN_RANGE, GUN_COOLDOWN, ICE_REACH,
+  GUN_RANGE, GUN_COOLDOWN, ICE_REACH, BOLT_SPEED,
 } from '../world/config.ts'
 
 /**
@@ -39,6 +39,10 @@ export type Controls = { pitch: number; roll: number; yaw: number; thrust: numbe
 export const IDLE: Readonly<Controls> = Object.freeze({ pitch: 0, roll: 0, yaw: 0, thrust: 0, boost: 0, lateral: 0, vertical: 0, fore: 0 })
 
 export type CraftState = 'landed' | 'flying' | 'crashed'
+
+export type Bolt = { pos: THREE.Vector3; vel: THREE.Vector3; dir: THREE.Vector3; dies: number; alive: boolean }
+export type BoltHit = { hit: Hit; broke: boolean; fuel: number }
+const BOLT_POOL = 32
 
 const BODY_UP = new THREE.Vector3(0, 1, 0)
 const BODY_FWD = new THREE.Vector3(0, 0, -1)
@@ -97,15 +101,19 @@ export class Craft {
   readonly rockNear: Nearest = { rock: null, dist: Infinity, pos: new THREE.Vector3() }
   /** The rock you hit, if the last contact was a rock. */
   hitRock: Rock | null = null
-  /** The last shot: where it went and what it did, for the tracer. Cleared by whoever draws it. */
-  lastShot: { from: THREE.Vector3; to: THREE.Vector3; hit: Hit | null; broke: boolean; fuel: number } | null = null
+  /** Bolts in flight, heliocentric. A pool; `alive` says which count. */
+  readonly bolts: Bolt[] = []
+  /** What bolts did this step: a hit, and whether the rock broke and what fuel came home. Cleared by whoever draws them. */
+  readonly hits: BoltHit[] = []
   private gunReady = 0
+  private gunSide = 1
   /**
    * A field is a frame too. Between the sun (whose frame is at rest) and a Trojan
    * cluster doing 1.6 km/s, "relative velocity" would otherwise mean the rocks stream
    * past you and the cruise assist bleeds your orbital speed away. Within three
    * spreads of a field's centre its velocity blends into the frame's, so arriving at
-   * a field matches you to it. Only in the sun's sphere; near a body the body wins.
+   * a field matches you to it. In any body's sphere, as that field's velocity over the
+   * body's own; the blend also fades with `hold`, so near the ground the ground wins.
    */
   private fieldWeight = 0
   private readonly fieldVel = new THREE.Vector3()
@@ -309,6 +317,7 @@ export class Craft {
       if (this.state === 'landed' && (c.thrust > 0 || c.vertical > 0)) this.state = 'flying'
       else {
         this.burn = 0
+        this.stepBolts(h)
         if (this.state === 'landed') this.fuel = Math.min(FUEL_TANK, this.fuel + (this.onPad() ? FUEL_PAD_REFILL : FUEL_SOLAR_TRICKLE) * h)
         // Ride the body: the rest pose is body-fixed, the heliocentric state follows it.
         this.time += h
@@ -332,11 +341,12 @@ export class Craft {
     nearestRock(this.hpos, this.time, this.rockNear)
     nearest = Math.min(nearest, this.rockNear.dist)
     this.fieldWeight = 0
-    if (this.rockNear.rock && this.ref.kind === 'sun') {
+    if (this.rockNear.rock && this.hold < 1) {
       const f = this.rockNear.rock.field
       const dc = fieldPosition(f, this.time, this.tmp).distanceTo(this.hpos)
-      this.fieldWeight = Math.min(1, Math.max(0, (3 * f.spread - dc) / f.spread))
-      if (this.fieldWeight > 0) fieldVelocity(f, this.time, this.fieldVel)
+      this.fieldWeight = Math.min(1, Math.max(0, (3 * f.spread - dc) / f.spread)) * (1 - this.hold)
+      // The field's velocity over and above the reference body's own.
+      if (this.fieldWeight > 0) fieldVelocity(f, this.time, this.fieldVel).sub(this.bVel)
     }
     this.proximity = Math.max(0, nearest)
     // A rock is a wall. Inside its surface (plus the hull) you are wreckage; the cap
@@ -419,6 +429,7 @@ export class Craft {
       if (speed > 0) this.acc.addScaledVector(this.tmp, -DRAG * rhoNow * speed)
     } else this.wind.set(0, 0, 0)
 
+    this.stepBolts(h)
     this.hvel.addScaledVector(this.acc, h)
     if (this.cruise) {
       // Flight assist: velocity across the nose bleeds away, so where you point is where
@@ -475,26 +486,53 @@ export class Craft {
   }
 
   /**
-   * The gun. Fires along the nose, hitscan to GUN_RANGE, one shot per GUN_COOLDOWN.
-   * A rock loses a hit; at zero it breaks, and if it was ice and within ICE_REACH
-   * its fuel comes to the tank. Returns what happened, or null if not ready.
+   * The gun. A bolt leaves the wing nozzle (alternating sides) at BOLT_SPEED along the
+   * nose, on top of the ship's own velocity, and dies GUN_RANGE later. One per
+   * GUN_COOLDOWN. What it hits is decided in substep as it flies. Returns the bolt, or
+   * null if the gun was not ready.
    */
-  fire(): { hit: Hit | null; broke: boolean; fuel: number } | null {
+  fire(): Bolt | null {
     if (this.state !== 'flying' || this.time < this.gunReady) return null
     this.gunReady = this.time + GUN_COOLDOWN
-    this.nose.copy(BODY_FWD).applyQuaternion(this.hquat)
-    const hit = castRay(this.hpos, this.nose, GUN_RANGE, this.time)
-    let broke = false, fuel = 0
-    if (hit) {
-      hit.rock.hp--
-      if (hit.rock.hp <= 0) {
-        broke = true
-        if (hit.dist <= ICE_REACH) { fuel = Math.min(fuelYield(hit.rock), FUEL_TANK - this.fuel); this.fuel += fuel }
-      }
+    let b = this.bolts.find((x) => !x.alive)
+    if (!b) {
+      if (this.bolts.length >= BOLT_POOL) return null
+      b = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), dir: new THREE.Vector3(), dies: 0, alive: false }
+      this.bolts.push(b)
     }
-    const to = hit ? hit.point.clone() : this.hpos.clone().addScaledVector(this.nose, GUN_RANGE)
-    this.lastShot = { from: this.hpos.clone(), to, hit, broke, fuel }
-    return { hit, broke, fuel }
+    this.nose.copy(BODY_FWD).applyQuaternion(this.hquat)
+    // From the wingtip lamp on alternate sides, a touch below the spine.
+    this.gunSide = -this.gunSide
+    this.tmp.set(3.0 * this.gunSide, 0.1, 1.8).applyQuaternion(this.hquat)
+    b.pos.copy(this.hpos).add(this.tmp)
+    b.dir.copy(this.nose)
+    b.vel.copy(this.hvel).addScaledVector(this.nose, BOLT_SPEED)
+    b.dies = this.time + GUN_RANGE / BOLT_SPEED
+    b.alive = true
+    return b
+  }
+
+  /** Fly every live bolt one step; a rock along the way loses a hit, and breaks at zero. */
+  private stepBolts(h: number): void {
+    for (const b of this.bolts) {
+      if (!b.alive) continue
+      if (this.time >= b.dies) { b.alive = false; continue }
+      // The bolt's path this step, in each field's frame.
+      const hit = sweep(b.pos, b.vel, h, this.time)
+      if (hit) {
+        b.alive = false
+        hit.rock.hp--
+        let broke = false, fuel = 0
+        if (hit.rock.hp <= 0) {
+          broke = true
+          const reach = rockPosition(hit.rock, this.time, this.tmp).distanceTo(this.hpos)
+          if (reach <= ICE_REACH) { fuel = Math.min(fuelYield(hit.rock), FUEL_TANK - this.fuel); this.fuel += fuel }
+        }
+        this.hits.push({ hit, broke, fuel })
+        continue
+      }
+      b.pos.addScaledVector(b.vel, h)
+    }
   }
 
   /** Wreckage against a rock: stop where you are in the reference frame, record the contact, count it. */

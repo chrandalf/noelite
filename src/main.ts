@@ -16,6 +16,7 @@
 //   ?wire=1  ?skirts=0|red  ?no=dust,shadow,flame   renderer debug
 //   ?over=home-1:300   start hanging over another body (id:altitude, optionally :x,y,z direction)
 //   ?pitch=-1.2        chase camera orbit pitch in radians (negative looks up from under the ship)
+//   ?yaw=1.3           chase camera orbit yaw in radians (from the side)
 //   ?menu=1            start paused with the menu up (for shots)
 //   ?field=home-l4:2000:3   start in cruise 2 km off rock 3 of home's leading Trojans
 //   ?fuel=20           start with 20 units in the tank
@@ -153,6 +154,7 @@ const craft = new Craft(HOME)
 const input = new KeyInput()
 const chase = new ChaseCam(HOME)
 chase.orbitPitch = Math.min(ChaseCam.MAX_PITCH, Math.max(-ChaseCam.MAX_PITCH, Number(q.get('pitch') ?? 0)))
+chase.orbitYaw = Number(q.get('yaw') ?? 0)
 const shipMaterial = new THREE.MeshLambertMaterial({ vertexColors: true })
 shipMaterial.name = 'ship'
 const { root: ship, flame, rcs, gear, morph } = buildCraftMesh(shipMaterial)
@@ -351,10 +353,8 @@ renderer.setAnimationLoop((now) => {
     tmp.set(0, 0, -1).applyQuaternion(craft.quat)
     craft.arrive = toTarget.lengthSq() > 0 && tmp.dot(toTarget) / toTarget.length() > 0.86 ? toTarget.length() - tgt.radius : Infinity
     craft.step(dt, c)
-    if (input.fire() && !orbitAP.engaged) {
-      const s = craft.fire()
-      if (s && craft.lastShot) { asteroids.shot(craft.lastShot, craft.time); craft.lastShot = null }
-    }
+    if (input.fire() && !orbitAP.engaged) craft.fire()
+    if (craft.hits.length) { asteroids.hits(craft.hits, craft.time); craft.hits.length = 0 }
     if (refView.body !== craft.ref) switchFrame()
     if (craft.state === 'crashed') { crashedAt ??= now; if (now - crashedAt > 2000) respawn() }
     ship.quaternion.copy(craft.quat)
@@ -452,7 +452,7 @@ renderer.setAnimationLoop((now) => {
   }
 
   placeBodies(mode === 'fly' ? craft.time : t, mode === 'fly' ? craft.ref : home); updates++
-  if (mode === 'fly') asteroids.update(dt, craft.time, craft.hpos, pHome, qHomeInv, viewPos, craft.hpos)
+  if (mode === 'fly') asteroids.update(dt, craft.time, craft.hpos, pHome, qHomeInv, viewPos, craft.hpos, craft.bolts)
   const ft = mode === 'fly' ? craft.terrain : HOME
 
   // "How day is it" uses the sun's APPARENT elevation: level elevation plus the
