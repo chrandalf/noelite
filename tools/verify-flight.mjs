@@ -47,14 +47,15 @@ const c2 = fresh()
   until(c2, () => false, 3, () => T(1))
   check('three seconds of thrust lifts it', c2.state === 'flying' && c2.altitude() > 15, `alt ${c2.altitude().toFixed(1)} m, v↑ ${c2.vUp().toFixed(1)}`)
 }
-// 3. It falls, and falling is fatal.
+// 3. It falls, and falling is fatal (with the landing assist off; the assist has its own tests, 27).
 {
+  c2.assist = false
   const t = until(c2, (c) => c.state !== 'flying', 60, () => IDLE)
   check('cutting thrust ends in a crash', c2.state === 'crashed' && c2.lastContact.vUp < -LAND_MAX_VSPEED, `after ${t.toFixed(1)} s at v↑ ${c2.lastContact.vUp.toFixed(1)} m/s`)
 }
 // 4. Drag caps the fall.
 {
-  const c = fresh()
+  const c = fresh(); c.assist = false
   until(c, (c) => c.altitude() > 400, 40, () => T(1))
   let minV = 0
   until(c, (c) => c.state !== 'flying', 120, (t, c) => { minV = Math.min(minV, c.vUp()); return IDLE })
@@ -332,7 +333,7 @@ for (const [id, start] of [['home-1', 150_000], ['home', 400_000]]) {
   }
   check('somewhere on home it is blowing a gale', best.s > 20, `${best.s.toFixed(1)} m/s`)
   const run = (windy) => {
-    const c = new Craft(HOME); c.windy = windy; c.time = 5000
+    const c = new Craft(HOME); c.windy = windy; c.time = 5000; c.assist = false
     c.placeAbove(body('home'), best.d, 40)
     until(c, () => false, 3, () => IDLE)
     const vUp = c.vUp(), drift = new THREE.Vector3().copy(c.vel).addScaledVector(c.pos.clone().normalize(), -vUp)
@@ -544,6 +545,38 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol
   const o = fresh(); o.damage = 0.5
   until(o, () => false, 6, () => IDLE)
   check('on the outpost pad it is not', o.damage === 0.5)
+}
+
+
+// 27. The landing assist: cut the throttle and it lands; dive and it saves you; a respawn takes off clean.
+{
+  const a = fresh()
+  until(a, (c) => c.altitude() > 300, 60, () => T(1))
+  const tA = until(a, (c) => c.state !== 'flying', 120, () => IDLE)
+  check('hands off at 300 m, the assist lands the ship', a.state === 'landed' && a.lastContact.vUp > -LAND_MAX_VSPEED, `${a.state} after ${tA.toFixed(0)} s at v↑ ${a.lastContact.vUp.toFixed(1)}, drift ${a.lastContact.vH.toFixed(1)}`)
+  const d = new Craft(HOME); d.windy = false
+  d.placeAbove(body('home'), pad, 1500)
+  until(d, () => false, 4, () => T(1, 1))
+  const vDive = -d.vUp()
+  const tD = until(d, (c) => c.state !== 'flying', 120, () => IDLE)
+  check('a head-first dive with hands off ends landed, not crashed', d.state === 'landed', `dived at ${vDive.toFixed(0)} m/s down, ${d.state} after ${tD.toFixed(0)} s at v↑ ${d.lastContact.vUp.toFixed(1)}`)
+  const e = new Craft(HOME); e.windy = false
+  e.placeAbove(body('home'), pad, 400)
+  const tE = until(e, (c) => c.state !== 'flying', 120, () => T(0, 1))
+  check('holding full pitch into the ground, the floor still catches you', e.state === 'landed', `${e.state} after ${tE.toFixed(0)} s at v↑ ${e.lastContact.vUp.toFixed(1)}, tilt ${e.lastContact.tilt.toFixed(0)}°`)
+  const f = new Craft(HOME); f.windy = false; f.assist = false
+  f.placeAbove(body('home'), pad, 1500)
+  until(f, () => false, 4, () => T(1, 1))
+  until(f, (c) => c.state !== 'flying', 120, () => IDLE)
+  check('and without the assist that dive is a crash', f.state === 'crashed')
+  const g = fresh(); g.assist = false
+  until(g, (c) => c.altitude() > 60, 30, () => T(1))
+  until(g, (c) => c.state !== 'flying', 60, () => IDLE)
+  check('the set-up crash happened', g.state === 'crashed')
+  g.assist = true
+  g.spawnOn(pad, new THREE.Vector3(1, 0, 0), 'surface')
+  until(g, () => false, 3, () => T(1))
+  check('after a crash and respawn, three seconds of thrust lifts it straight', g.state === 'flying' && g.altitude() > 15 && g.tilt() < 6, `alt ${g.altitude().toFixed(1)} m, tilt ${g.tilt().toFixed(1)}°`)
 }
 
 console.log(`\n${pass}/${pass + fail} checks`)

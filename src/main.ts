@@ -447,7 +447,8 @@ renderer.setAnimationLoop((now) => {
     const assist = orbitAP.engaged ? null : input.assist()
     const tgt = target
     toTarget.copy(tgt.rel).sub(craft.pos)
-    if (assist && craft.state === 'flying') {
+    // The aim assists near the ground would tip the ship at a target below the horizon (a station 38 km away is), so they wait until 40 m up in hover.
+    if (assist && craft.state === 'flying' && (craft.cruise || craft.altitude() > 40)) {
       dir.copy(craft.pos).normalize()
       const target = assist === 'nadir' ? dir.clone().negate()
         : assist === 'target' ? toTarget.clone().normalize()
@@ -526,7 +527,7 @@ renderer.setAnimationLoop((now) => {
     light(lights.t, `TILT ${tilt.toFixed(0)}°`, tilt < LAND_MAX_TILT, armed)
     light(lights.s, `SLOPE ${slope.toFixed(0)}°`, slope < LAND_MAX_SLOPE, armed)
     const here = craft.state === 'landed' ? craft.padHere() : null
-    altState.textContent = craft.state === 'landed' ? (here?.station ? `DOCKED  PAD ${here.pad}` : here ? 'ON THE PAD' : 'DOWN') : craft.state === 'crashed' ? 'CRASHED' : gearDown > 0.5 ? 'GEAR ↓' : 'GEAR ↑'
+    altState.textContent = craft.state === 'landed' ? (here?.station ? `DOCKED  PAD ${here.pad}` : here ? 'ON THE PAD' : 'DOWN') : craft.state === 'crashed' ? 'CRASHED' : `${gearDown > 0.5 ? 'GEAR ↓' : 'GEAR ↑'}${craft.assisting ? '   ASSIST' : ''}`
     const rho = craft.atmosphere()
     atmosEl.textContent = rho > 0 ? `ATMOS ${(rho * 100).toFixed(0)}%   WIND ${windNow.toFixed(0)} m/s${rainNow > 0 ? `   RAIN ${(rainNow * 100).toFixed(0)}%` : cloudNow > 0.5 ? '   OVERCAST' : ''}` : 'VACUUM'
     atmosEl.className = rho > 0 ? '' : 'vacuum'

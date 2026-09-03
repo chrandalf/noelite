@@ -95,6 +95,21 @@ export class Craft {
   arriveFloor = true
   /** The opening holds you to hover until dawn: cruise will not engage while this is set. */
   cruiseLocked = false
+  /**
+   * Landing assist, on by default. In hover near the ground it never lets you fall faster
+   * than the height allows (it levels the ship and fires the engine, boost if it must),
+   * and with your hands off it flies the landing: leans against drift, comes down on a
+   * profile, touches at walking pace. Chris, 2026-09-03: "if I dive head first into it,
+   * it should auto brake so I don't crash and smooth its way to the surface, it shouldn't
+   * be a skill thing if it's that easy to need a restart." The harness turns it off to
+   * test raw falls. It cannot help where the engine cannot lift the ship (the giant), or
+   * with a dry tank.
+   */
+  assist = true
+  /** True while the assist is overriding the controls, for the HUD. */
+  assisting = false
+  /** Once the low-level branch has taken the attitude it keeps it until you climb or stop sinking, so a held stick cannot re-tilt the ship between touches of the floor. */
+  private assistLatch = false
   /** Weather on. The harness turns it off for tests that are not about weather. */
   windy = true
   /** The wind at the craft, m/s, local frame. Zero in vacuum. */
@@ -409,6 +424,14 @@ export class Craft {
     this.frameVelAt(this.rel, this.frameVel)
     this.vRel.copy(this.hvel).sub(this.frameVel)
 
+    // Landing assist, before attitude and thrust read the controls.
+    this.assisting = false
+    if (this.assist && !this.cruise && alt < 500 && THRUST_ACCEL > this.terrain.g * 1.1) {
+      c = this.assistLanding(c, alt)
+      // The assist cannot burn what is not there.
+      if (dry && (c.thrust || c.boost)) c = { ...c, thrust: 0, boost: 0 }
+    }
+
     // Attitude. Torque in body frame, exponential damping, first-order quaternion update.
     // Near the ground the attitude holds against the ground, which turns under an
     // inertial craft at 9° a minute on a 40-minute day; by twice CRUISE_FLOOR it holds
@@ -584,6 +607,52 @@ export class Craft {
       }
       b.pos.addScaledVector(b.vel, h)
     }
+  }
+
+  /** The landing assist's controls: the floor on descent speed, and the hands-off landing. `alt` is the hull centre's altitude. */
+  private assistLanding(c: Controls, alt: number): Controls {
+    const feet = Math.max(0, alt - HULL_CLEARANCE)
+    const vUp = this.vRel.dot(this.up)
+    const vSafe = 2 + 0.11 * feet
+    const handsOff = !c.thrust && !c.boost && !c.pitch && !c.roll && !c.yaw && !c.vertical && !c.lateral && !c.fore
+    const level = (lean: number) => {
+      // Body-up toward local up, leaned against horizontal drift.
+      this.tmp.copy(this.vRel).addScaledVector(this.up, -vUp)
+      const vH = this.tmp.length()
+      this.fwd.copy(this.up)
+      if (vH > 0.5 && lean > 0) this.fwd.addScaledVector(this.tmp.divideScalar(vH), -Math.min(0.6, vH * lean)).normalize()
+      this.n.copy(this.fwd).applyQuaternion(this.spinInv) // local frame, which aimControls wants
+      return { a: this.aimControls(this.n, 4), vH }
+    }
+    if (vUp < -vSafe) {
+      // Falling faster than this height allows: level up and burn. The floor, whatever your hands are doing.
+      const { a } = level(0.02)
+      this.assisting = true
+      return { ...c, pitch: a.pitch, roll: a.roll, yaw: 0, thrust: 1, boost: vUp < -1.6 * vSafe ? 1 : 0 }
+    }
+    // Tilt from the heliocentric frame we are in: tilt() would overwrite `up`, the substep's scratch.
+    const cosTilt = this.n.copy(BODY_UP).applyQuaternion(this.hquat).dot(this.up)
+    if (feet >= 60 || vUp >= 0.5) this.assistLatch = false
+    if (feet < 60 && vUp < 0.5 && (cosTilt < 0.9945 || this.assistLatch)) {
+      this.assistLatch = true
+      // Low, sinking and leaned over, whatever your hands are doing: level, kill the drift
+      // while holding height, then come down on the profile. The lean against drift fades
+      // out over the last 25 m so the touch is upright. Full pitch into the ground was
+      // arriving at 2 m/s and 41° and crashing on the tilt.
+      const { a, vH } = level(0.02 * Math.min(1, feet / 25))
+      this.assisting = true
+      const thrust = (vH > 3 && vUp < 0) || vUp < -(1.2 + 0.07 * feet) ? 1 : c.thrust
+      return { ...c, pitch: a.pitch, roll: a.roll, yaw: 0, thrust }
+    }
+    if (handsOff && feet < 400 && vUp < 0.5) {
+      // Hands off and sinking: fly it down. Come down at a fraction of the floor, kill the drift, touch gently.
+      const { a, vH } = level(0.03 * Math.min(1, feet / 25 + 0.2))
+      this.assisting = true
+      const wantDown = -(1.2 + 0.07 * feet)
+      const thrust = vUp < wantDown || (vH > 2.5 && vUp < 0) ? 1 : 0
+      return { ...c, pitch: a.pitch, roll: a.roll, yaw: 0, thrust }
+    }
+    return c
   }
 
   /** The hull temperature this air and speed settle to. Public and pure, so the harness can hold its shape. */

@@ -614,6 +614,28 @@ Every step is playable. That's the point of the ordering.
    it scale better if it was log scale ... begin to expand it when it gets to 500 m"). The cannons deploy with the wings and fire only in cruise; the orbital cloud
    shell is drawn per pixel by noise. **Not yet:** the fall from 40 km as the payoff of the
    first flight out (the report's candidate B), a music cue on first orbit, ZzFX one-shots.
+14. ~~**The landing assist.**~~ Done 2026-09-03 (`Craft.assist`, `assistLanding`, flight
+   harness 27). Chris: "if I dive head first into it, it should auto brake so I don't crash
+   and smooth its way to the surface, it shouldn't be a skill thing if it's that easy to
+   need a restart." In hover under 500 m, three rules, in order: **the floor**, whatever
+   your hands are doing, never lets you fall faster than 2 + 0.11 × height m/s (it levels
+   the ship and burns, boost if it is far over); **low and leaned over** while sinking under
+   60 m it takes the attitude and keeps it (a latch, so a held stick cannot re-tilt it
+   between touches of the floor), holds height while it kills the drift, and comes down on
+   the profile with the lean fading out over the last 25 m so the touch is upright;
+   **hands off** and sinking under 400 m it flies the whole landing, down at 1.2 + 0.07 ×
+   height m/s, touching at about a metre a second. It cannot burn a dry tank and it cannot
+   help where the engine will not lift the ship (the giant). The HUD says ASSIST while it
+   has the controls. Harness: hands off at 300 m lands; a 38 m/s head-first dive with hands
+   off lands; full pitch held into the ground lands upright; the same dive with the assist
+   off is a crash, so the assist is doing the work; and a crash-respawn-take-off lifts
+   straight, which it always did in the model, so the "head first into the floor" on
+   respawn was most likely a held T or Z aiming the thrust at a target below the horizon
+   from the pad: the aim assists now wait until 40 m up in hover. **Found on the way:**
+   calling `tilt()` inside the substep overwrote `up`, the substep's scratch, and tipped
+   the ship 65° into the ground; and the assist was firing the engine after the dry-tank
+   gate. Falling with the assist off is still fatal (harness 3), which is the wreck
+   crashes will want.
    Next: crashes with debris and a repair bill, then cargo.
 
 ## 9. Deferred
