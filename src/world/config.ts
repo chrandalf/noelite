@@ -107,3 +107,27 @@ export const CRUISE_SECONDS = 7
 export const CRUISE_SPOOL = 4
 /** Brake (the / key in cruise) as a fraction of main thrust. */
 export const CRUISE_BRAKE = 0.8
+
+// ---- Fuel (2026-09-03). The first number that gates reach. ----
+
+/**
+ * Tank capacity, units. Everything else is a rate against it. Chris: "we'll need ways to
+ * refuel without annoyingly running out of fuel", so the rules are: every pad refills
+ * you on touchdown, the ground trickles from sunlight so a dry tank limps home, and
+ * the HUD shows endurance and shouts before the tank does.
+ */
+export const FUEL_TANK = 100
+/** Units per second at full hover thrust, no boost. 400 s of full thrust; hovering at home (g / THRUST_ACCEL) is over twelve minutes. */
+export const FUEL_HOVER_BURN = 0.25
+/** Units per second at full cruise throttle. The cap is reached in CRUISE_SPOOL seconds and coasting is free, so a trip is a few seconds of burn. */
+export const FUEL_CRUISE_BURN = 0.4
+/** Units per second per unit of RCS input. */
+export const FUEL_RCS_BURN = 0.02
+/** Units per second refilled while landed on a pad. A full tank in 20 s. */
+export const FUEL_PAD_REFILL = 5
+/** Units per second from the solar cells, only while landed and only off the pad. A dry tank gets 40 s of full thrust after 100 s on the ground. */
+export const FUEL_SOLAR_TRICKLE = 0.1
+/** Units the engine needs before it will light from the ground. A dry tank waits ten seconds on the sun, a fifth of one on the pad. */
+export const FUEL_RELIGHT = 1
+/** Metres from a pad's centre that count as on it. The disc is 22 m. */
+export const PAD_RADIUS = 20

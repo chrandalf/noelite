@@ -453,15 +453,36 @@ Every step is playable. That's the point of the ordering.
    the ground between 500 and 1,500 m from the camera (a vertex-shader scale on each
    instance) and exist one LOD level further out, sparse and half again as big, so a forest
    sinks into the palette's green instead of switching off with its chunk.
+9. ~~**The TIE morph.**~~ Done 2026-09-03, first thing, because Chris asked for it that
+   morning ("the ship should morph into a different shape when it goes into space, more
+   like a tie fighter"). Four hexagonal panels hinged at the wingtips, an upper and a
+   lower each side, lie folded into the wing as stubs in air and swing out to vertical
+   in cruise over about a second and a half; two boosters slide out of the tail and carry
+   the cruise flame, so the engine fires backwards in space and downwards in air, handing
+   over halfway through the morph. Driven from the craft's existing cruise flag
+   (`craftMesh.ts` `Morph`, `main.ts` `morphed`), no key. The two ships are visibly two
+   ships, and the fold on the way back in is the Starship flip re-entry will need.
+10. ~~**Fuel.**~~ Done 2026-09-03 (`config.ts` FUEL_*, `Craft.fuel/burn/endurance/onPad`,
+   flight harness 23). A tank of 100 units; the hover engine burns 0.25 a second at full
+   thrust (twelve minutes of hovering at home), the cruise drive 0.4 (the cap is reached
+   in four seconds and coasting is free, so home to the moon at full boost is 42 units),
+   boost multiplies burn the way it multiplies thrust, the cruise brake burns like the
+   drive, the RCS sips. Chris: "not sure why fuel is so complex, but we'll need ways to
+   refuel without annoyingly running out of fuel." So: **any pad refills you on touchdown**
+   (full in 20 s, free until money exists); **landed anywhere else the solar cells
+   trickle** (0.1 a second, a dry tank has 40 s of full thrust after 100 s on the ground),
+   which is the reserve that means a dry tank never strands you, only delays you; in the
+   air the engine dies with the last drop and on the ground it needs one unit to relight;
+   the HUD shows the tank, the endurance at the current burn, LOW under 20% and DRY.
+   Respawn is a full tank. **Not yet:** the point-of-no-return beeper, the nearest-refuel
+   nav marker, a tank you can buy bigger, night stopping the trickle, and stations.
    Next: **re-entry** (item 4), then Stage D's remainder: the lock-view camera, the
    escape-the-system trigger.
 
 ## 9. Deferred
 
-- **A button that morphs the ship into a TIE-fighter-like ship with boosters at the back**
-  (Chris, 2026-09-01, bedtime). Two hulls, one craft: the dart for hover, a TIE-ish body
-  with rear boosters for cruise, and a morph between them on a key (or on the mode switch,
-  which would make the two ships visibly two ships). Same six-facet, no-assets approach.
+- ~~A button that morphs the ship into a TIE-fighter-like ship~~ Built 2026-09-03 on the
+  mode switch, not a key (§8b item 9).
 
 - **Is space flight Newtonian or Elite?** (Chris, 2026-09-01: "ship's behaviour needs to
   change once in space, but let's get more in space first.") Newtonian is what exists:

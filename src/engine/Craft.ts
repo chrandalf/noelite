@@ -15,7 +15,7 @@
 // this straight from Node.
 import * as THREE from 'three'
 import type { Terrain } from '../world/height.ts'
-import { terrainOf } from '../world/height.ts'
+import { terrainOf, padOf } from '../world/height.ts'
 import { groundRadius, surfaceNormal, slopeDeg, setGroundClock } from '../world/terrain.ts'
 import { wind } from '../world/weather.ts'
 import { atmosphereDensity } from '../world/atmosphere.ts'
@@ -25,6 +25,7 @@ import {
   HULL_CLEARANCE, LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE, FIXED_DT,
   BOOST_MULT, GROUND_EFFECT_HEIGHT, GROUND_EFFECT_ACCEL_G, GROUND_EFFECT_DAMP, GRAVITY_FALLOFF, RCS_ACCEL,
   CRUISE_ENTER, CRUISE_EXIT, CRUISE_FLOOR, CRUISE_ALIGN_TAU, CRUISE_MAX, CRUISE_BRAKE, CRUISE_DECEL, CRUISE_SECONDS, CRUISE_SPOOL,
+  FUEL_TANK, FUEL_HOVER_BURN, FUEL_CRUISE_BURN, FUEL_RCS_BURN, FUEL_PAD_REFILL, FUEL_SOLAR_TRICKLE, FUEL_RELIGHT, PAD_RADIUS,
 } from '../world/config.ts'
 
 /**
@@ -86,6 +87,10 @@ export class Craft {
   readonly wind = new THREE.Vector3()
   landings = 0
   crashes = 0
+  /** Units in the tank, 0..FUEL_TANK. Dry means the engine and the RCS do nothing. */
+  fuel = FUEL_TANK
+  /** Units per second going out of the tank this substep, for the endurance readout. */
+  burn = 0
   /** Set by the last contact, for the HUD and the harness. */
   lastContact = { vUp: 0, vH: 0, tilt: 0, slope: 0 }
 
@@ -148,6 +153,17 @@ export class Craft {
   /** Speed beyond which gravity never brings you back. */
   escapeSpeed(): number { const r = this.pos.length(); return Math.sqrt(2 * gravityAt(r, this.terrain) * r) }
 
+  /** Seconds the tank lasts at the current burn; Infinity when nothing is burning. */
+  endurance(): number { return this.burn > 0 ? this.fuel / this.burn : Infinity }
+  /** Within PAD_RADIUS of the reference body's pad, measured along the ground. */
+  onPad(): boolean {
+    const site = padOf(this.terrain)
+    if (!site) return false
+    this.up.copy(this.pos).normalize()
+    const cos = this.up.x * site.dir.x + this.up.y * site.dir.y + this.up.z * site.dir.z
+    return Math.acos(Math.min(1, cos)) * this.terrain.radius < PAD_RADIUS
+  }
+
   /**
    * Attitude assist. Pitch and roll inputs that swing the thrust axis (body up)
    * toward `target` (unit, local frame). A P-controller on angular velocity whose
@@ -206,6 +222,8 @@ export class Craft {
     this.state = 'landed'
     this.thrusting = false
     this.cruise = false
+    this.fuel = FUEL_TANK
+    this.burn = 0
     this.accumulator = 0
     this.frameAt(this.time)
     this.syncHelio()
@@ -238,12 +256,18 @@ export class Craft {
 
   /** One exact substep. The harness calls this directly. */
   substep(h: number, c: Controls): void {
+    // A dry tank: the controls still move but nothing answers. In the air the engine dies
+    // with the last drop; on the ground it will not light again on less than FUEL_RELIGHT.
+    const dry = this.fuel <= 0 || (this.state === 'landed' && this.fuel < FUEL_RELIGHT)
+    if (dry && (c.thrust || c.lateral || c.vertical || c.fore)) c = { ...c, thrust: 0, lateral: 0, vertical: 0, fore: 0 }
     this.thrusting = c.thrust > 0
     this.refChanged = false
     setGroundClock(this.time)
     if (this.state !== 'flying') {
       if (this.state === 'landed' && (c.thrust > 0 || c.vertical > 0)) this.state = 'flying'
       else {
+        this.burn = 0
+        if (this.state === 'landed') this.fuel = Math.min(FUEL_TANK, this.fuel + (this.onPad() ? FUEL_PAD_REFILL : FUEL_SOLAR_TRICKLE) * h)
         // Ride the body: the rest pose is body-fixed, the heliocentric state follows it.
         this.time += h
         this.frameAt(this.time)
@@ -295,6 +319,12 @@ export class Craft {
 
     const mainThrust = THRUST_ACCEL * c.thrust * (1 + c.boost * (BOOST_MULT - 1))
     const cap = this.cap()
+    // What this substep costs. Boost multiplies burn the way it multiplies thrust; the
+    // cruise brake burns like the cruise engine; the RCS sips.
+    this.burn = c.thrust * (this.cruise ? FUEL_CRUISE_BURN : FUEL_HOVER_BURN) * (1 + c.boost * (BOOST_MULT - 1))
+      + (this.cruise && c.vertical < 0 ? FUEL_CRUISE_BURN * CRUISE_BRAKE : 0)
+      + FUEL_RCS_BURN * (Math.abs(c.lateral) + (this.cruise ? 0 : Math.abs(c.vertical)) + Math.abs(c.fore))
+    this.fuel = Math.max(0, this.fuel - this.burn * h)
     if (this.cruise) {
       // Cruise: the engine fires along the nose, spooled so full thrust reaches whatever
       // the cap is in about CRUISE_SPOOL seconds, and / is a brake on the same scale.

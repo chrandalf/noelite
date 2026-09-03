@@ -41,7 +41,7 @@ import { Clouds } from './engine/Clouds.ts'
 import { CloudPuffs } from './engine/CloudPuffs.ts'
 import { front, rainOf, cloudOf, moonDirection, TIDE_AMPLITUDE } from './world/weather.ts'
 import { setGroundClock } from './world/terrain.ts'
-import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE } from './world/config.ts'
+import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE , FUEL_TANK } from './world/config.ts'
 
 const q = new URLSearchParams(location.search)
 const mode: 'fly' | 'free' = q.get('mode') === 'free' ? 'free' : 'fly'
@@ -213,6 +213,7 @@ const lights = { v: document.getElementById('l-v')!, d: document.getElementById(
 altimeter.hidden = mode !== 'fly'
 const light = (el: HTMLElement, text: string, ok: boolean, armed: boolean) => { el.textContent = text; el.className = armed ? (ok ? 'ok' : 'bad') : '' }
 const atmosEl = document.getElementById('atmos')!
+const fuelEl = document.getElementById('fuel')!
 // Drag orbits the chase camera, wheel zooms, C resets.
 {
   let dragging = false, lx = 0, ly = 0
@@ -371,6 +372,14 @@ renderer.setAnimationLoop((now) => {
     const rho = craft.atmosphere()
     atmosEl.textContent = rho > 0 ? `ATMOS ${(rho * 100).toFixed(0)}%   WIND ${windNow.toFixed(0)} m/s${rainNow > 0 ? `   RAIN ${(rainNow * 100).toFixed(0)}%` : cloudNow > 0.5 ? '   OVERCAST' : ''}` : 'VACUUM'
     atmosEl.className = rho > 0 ? '' : 'vacuum'
+    // Fuel: the tank, what it costs right now, and how long that lasts. Shouts under 20%, and when dry.
+    {
+      const pct = (100 * craft.fuel / FUEL_TANK)
+      const endure = craft.endurance()
+      const refuel = craft.state === 'landed' && craft.fuel < FUEL_TANK ? (craft.onPad() ? '   REFUELLING' : '   SOLAR') : ''
+      fuelEl.textContent = craft.fuel <= 0 ? 'FUEL DRY' + refuel : `FUEL ${pct.toFixed(0)}%${Number.isFinite(endure) ? `   ${fmtTime(endure)} at this burn` : ''}${refuel}`
+      fuelEl.className = 'atmos ' + (craft.fuel <= 0 ? 'dry' : pct < 20 ? 'low' : '')
+    }
     // Nav markers once the ground stops being the obvious reference.
     const showNav = flying && (altitude > 80 || rho < 0.5)
     markers.place('planet', dir.clone().negate(), camera, showNav)

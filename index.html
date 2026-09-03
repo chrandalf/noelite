@@ -35,6 +35,8 @@
       #altimeter.critical .marker { background: #ff8; }
       #altimeter .atmos { text-align: right; opacity: 0.75; }
       #altimeter .atmos.vacuum { color: #ffd56a; opacity: 1; letter-spacing: 0.2em; }
+      #altimeter #fuel.low { color: #ffd56a; opacity: 1; }
+      #altimeter #fuel.dry { color: #ffb0a0; opacity: 1; letter-spacing: 0.2em; }
       #altimeter[hidden] { display: none; }
       .nav {
         position: fixed; transform: translate(-50%, -50%); pointer-events: none;
@@ -65,6 +67,7 @@
         </div>
         <div class="state" id="alt-state"></div>
         <div class="atmos" id="atmos"></div>
+        <div class="atmos" id="fuel"></div>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>

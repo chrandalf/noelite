@@ -9,7 +9,7 @@ import { findLandable, groundRadius } from '../src/world/terrain.ts'
 import { HOME, height, padOf } from '../src/world/height.ts'
 import { body, bodyVelocity, bodyPosition, bodySpin } from '../src/world/system.ts'
 import { wind } from '../src/world/weather.ts'
-import { FIXED_DT, DRAG, LAND_MAX_VSPEED, GROUND_EFFECT_HEIGHT, CRUISE_MAX, CRUISE_DECEL, CRUISE_SECONDS } from '../src/world/config.ts'
+import { FIXED_DT, DRAG, LAND_MAX_VSPEED, GROUND_EFFECT_HEIGHT, CRUISE_MAX, CRUISE_DECEL, CRUISE_SECONDS, THRUST_ACCEL, BOOST_MULT, FUEL_TANK, FUEL_HOVER_BURN, FUEL_CRUISE_BURN, FUEL_PAD_REFILL, FUEL_SOLAR_TRICKLE, FUEL_RELIGHT } from '../src/world/config.ts'
 const GRAVITY = HOME.g, ATMOSPHERE_HEIGHT = HOME.air
 const BODY_UP = new THREE.Vector3(0, 1, 0), BODY_FWD = new THREE.Vector3(0, 0, -1)
 
@@ -328,6 +328,67 @@ for (const [id, start] of [['home-1', 150_000], ['home', 400_000]]) {
   const calm = run(false), gale = run(true)
   const along = gale.drift.clone().normalize().dot(gale.c.wind.clone().normalize())
   check('the wind pushes a falling craft downwind', gale.drift.length() > 1 && along > 0.9 && calm.drift.length() < 0.05, `drift ${gale.drift.length().toFixed(2)} m/s in 3 s (calm: ${calm.drift.length().toFixed(2)}), cos to wind ${along.toFixed(2)}, wind ${gale.c.wind.length().toFixed(1)} m/s`)
+}
+
+
+// 23. Fuel: the tank is the first number that gates reach (DESIGN §10b). Burn, dry, refill, trickle, cruise, boost.
+{
+  const near = (a, b, tol) => Math.abs(a - b) <= tol
+  // Sitting on the pad costs nothing.
+  const c = fresh()
+  until(c, () => false, 5, () => IDLE)
+  check('a full tank on the pad stays full', c.fuel === FUEL_TANK && c.burn === 0, `${c.fuel.toFixed(2)} / ${FUEL_TANK}`)
+  // Ten seconds of full thrust costs FUEL_HOVER_BURN a second.
+  until(c, () => false, 10, () => T(1))
+  check('ten seconds of full hover thrust burns the hover rate', near(c.fuel, FUEL_TANK - 10 * FUEL_HOVER_BURN, 0.02), `${c.fuel.toFixed(2)} left, burn ${c.burn.toFixed(3)}/s, endurance ${c.endurance().toFixed(0)} s`)
+  // Boost multiplies burn the way it multiplies thrust.
+  const f0 = c.fuel
+  until(c, () => false, 2, () => T(1, 0, 0, 0, 1))
+  check('boost burns BOOST_MULT times as fast', near(f0 - c.fuel, 2 * FUEL_HOVER_BURN * BOOST_MULT, 0.02), `${(f0 - c.fuel).toFixed(2)} in 2 s`)
+  // A full tank hovers at home for over ten minutes: a design number, not a physics one.
+  const hoverMinutes = FUEL_TANK / (FUEL_HOVER_BURN * HOME.g / THRUST_ACCEL) / 60
+  check('a full tank hovers at home for over ten minutes', hoverMinutes > 10, `${hoverMinutes.toFixed(1)} min`)
+  // Dry on the ground: the engine will not light until the sun has put FUEL_RELIGHT back.
+  const awayDir = pad.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), 0.03).normalize()
+  const d = new Craft(HOME); d.windy = false
+  d.spawnOn(awayDir, new THREE.Vector3(1, 0, 0), 'radial'); d.fuel = 0
+  until(d, () => false, 3, () => T(1))
+  check('a dry tank off the pad does not lift off', d.state === 'landed' && !d.thrusting && d.fuel > 0, `state ${d.state}, ${d.fuel.toFixed(2)} units after 3 s of holding the throttle`)
+  const tLight = until(d, (c) => c.state === 'flying', 60, () => T(1))
+  check('and lights again once the sun has put a relight in', d.state === 'flying' && near(3 + tLight, FUEL_RELIGHT / FUEL_SOLAR_TRICKLE, 0.1), `lit after ${(3 + tLight).toFixed(1)} s`)
+  const dp = fresh(); dp.fuel = 0
+  const tPad = until(dp, (c) => c.state === 'flying', 10, () => T(1))
+  check('a dry tank on the pad is flying again within a second', dp.state === 'flying' && tPad < 1, `lit after ${tPad.toFixed(2)} s`)
+  // Run dry in the air and the engine dies with the tank; hold the throttle and you still crash.
+  const e = fresh(); e.fuel = 1.0
+  until(e, () => false, 3, () => T(1))
+  const tDry = until(e, (c) => c.fuel <= 0, 30, () => T(1))
+  const tEnd = until(e, (c) => c.state !== 'flying', 90, () => T(1))
+  check('the engine dies with the tank and the throttle cannot save you', e.fuel === 0 && !e.thrusting && e.state === 'crashed', `dry after ${(3 + tDry).toFixed(1)} s, ${e.state} ${tEnd.toFixed(1)} s later at v↑ ${e.lastContact.vUp.toFixed(1)}`)
+  // Landed on the pad, the tank refills fast.
+  const p = fresh(); p.fuel = 10
+  until(p, () => false, 5, () => IDLE)
+  check('the pad refuels', p.onPad() && near(p.fuel, 10 + 5 * FUEL_PAD_REFILL, 0.05), `${p.fuel.toFixed(1)} after 5 s`)
+  until(p, () => false, 30, () => IDLE)
+  check('and never past the brim', p.fuel === FUEL_TANK, `${p.fuel}`)
+  // Landed off the pad, the solar cells trickle.
+  const off = new Craft(HOME); off.windy = false
+  const away = pad.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), 0.03).normalize()
+  off.spawnOn(away, new THREE.Vector3(1, 0, 0), 'radial'); off.fuel = 0
+  until(off, () => false, 10, () => IDLE)
+  check('off the pad the ground trickles from sunlight, slowly', !off.onPad() && near(off.fuel, 10 * FUEL_SOLAR_TRICKLE, 0.05) && FUEL_SOLAR_TRICKLE < FUEL_PAD_REFILL / 10, `${off.fuel.toFixed(2)} after 10 s, ${((away.angleTo(pad)) * HOME.radius / 1000).toFixed(1)} km from the pad`)
+  // Cruise burns its own rate while thrusting and nothing while coasting.
+  const k = new Craft(HOME); k.windy = false
+  k.placeAbove(body('home'), pad, 12000)
+  until(k, (c) => c.cruise, 2, () => IDLE)
+  const k0 = k.fuel
+  until(k, () => false, 5, () => T(1))
+  const burnt = k0 - k.fuel
+  const k1 = k.fuel
+  until(k, () => false, 5, () => IDLE)
+  check('cruise burns the cruise rate under thrust and nothing coasting', k.cruise && near(burnt, 5 * FUEL_CRUISE_BURN, 0.02) && k.fuel === k1, `${burnt.toFixed(2)} in 5 s of thrust, ${(k1 - k.fuel).toFixed(3)} in 5 s of coasting`)
+  // The moon trip from test 19 costs a fraction of the tank: reach is fuel, and home to the moon is the first rung.
+  check('home to the moon at full boost costs under half a tank', 40 * FUEL_CRUISE_BURN * BOOST_MULT < FUEL_TANK / 2, `${(40 * FUEL_CRUISE_BURN * BOOST_MULT).toFixed(0)} units for 40 s at full boost`)
 }
 
 console.log(`\n${pass}/${pass + fail} checks`)
