@@ -285,11 +285,26 @@ type Target = { name: string; rel: THREE.Vector3; radius: number; field: Field |
 // Stations: one per terrestrial body, drawn in its group, a target after the bodies.
 const stationViews: { view: BodyView; sv: StationView }[] = []
 for (const v of views) { const sv = buildStation(v.terrain); if (sv) { v.group.add(sv.group); stationViews.push({ view: v, sv }) } }
-const targets: Target[] = [
+// Tab cycles the bodies and stations; V cycles the nearest rock clusters (Chris, 2026-09-03:
+// "the tabbing should be on planets ... select the clusters but not mixing them").
+const bodyTargets: Target[] = [
   ...views.map((v) => ({ name: v.body.name, rel: v.rel, radius: v.body.radius, field: null, station: null })),
   ...stationViews.map((s) => ({ name: s.sv.station.name, rel: new THREE.Vector3(), radius: 0, field: null, station: { view: s.view, st: s.sv.station } })),
-  ...FIELDS.map((f) => ({ name: f.name, rel: new THREE.Vector3(), radius: 0, field: f, station: null })),
 ]
+const fieldTargets: Target[] = FIELDS.map((f) => ({ name: f.name, rel: new THREE.Vector3(), radius: 0, field: f, station: null }))
+const targets: Target[] = [...bodyTargets, ...fieldTargets]
+/** The eight nearest clusters at the moment V was pressed, nearest first; V steps through them. */
+let nearFields: Target[] = []
+let fieldIndex = -1
+let target: Target = bodyTargets[0]
+const fp = new THREE.Vector3()
+function nextField(): void {
+  if (fieldIndex < 0 || !nearFields.includes(target)) {
+    nearFields = fieldTargets.map((t) => ({ t, d: fieldPosition(t.field!, craft.time, fp).distanceTo(craft.hpos) })).sort((a, b) => a.d - b.d).slice(0, 8).map((x) => x.t)
+    fieldIndex = 0
+  } else fieldIndex = (fieldIndex + 1) % nearFields.length
+  target = nearFields[fieldIndex]
+}
 const asteroids = new Asteroids()
 world.add(asteroids.group)
 asteroids.group.visible = mode === 'fly'
@@ -303,7 +318,8 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyM') beeper.muted = !beeper.muted
   if (e.code === 'KeyC') chase.reset()
   if (e.code === 'KeyO') orbitAP.engaged = !orbitAP.engaged && craft.state === 'flying'
-  if (e.code === 'Tab') { e.preventDefault(); targetIndex = (targetIndex + 1) % targets.length }
+  if (e.code === 'Tab') { e.preventDefault(); if (bodyTargets.includes(target)) targetIndex = (targetIndex + (e.shiftKey ? bodyTargets.length - 1 : 1)) % bodyTargets.length; target = bodyTargets[targetIndex]; fieldIndex = -1 }
+  if (e.code === 'KeyV') nextField()
 })
 function respawn() { craft.spawnOn(pad, new THREE.Vector3(1, 0, 0), 'surface', home); if (refView.body !== craft.ref) switchFrame(); crashedAt = null }
 
@@ -364,7 +380,7 @@ renderer.setAnimationLoop((now) => {
     if (orbitAP.engaged && (c.thrust || c.pitch || c.roll || c.yaw || c.vertical || c.lateral || c.fore || craft.state !== 'flying')) orbitAP.engaged = false
     if (orbitAP.engaged) c = orbitAP.controls(craft)
     const assist = orbitAP.engaged ? null : input.assist()
-    const tgt = targets[targetIndex]
+    const tgt = target
     toTarget.copy(tgt.rel).sub(craft.pos)
     if (assist && craft.state === 'flying') {
       dir.copy(craft.pos).normalize()
@@ -480,7 +496,7 @@ renderer.setAnimationLoop((now) => {
     const apLine = orbitAP.engaged ? `   AUTOPILOT ${orbitAP.phase.toUpperCase()} ${craft.ref.name}  park ${((orbitAP.parkRadius(craft) - craft.terrain.radius) / 1000).toFixed(0)} km at ${orbitAP.parkSpeed(craft).toFixed(0)} m/s` : ''
     const rn = craft.rockNear
     const rockLine = rn.rock && rn.dist < 30000 ? `   ROCK ${fmtDist(rn.dist)}${rn.dist < 2000 ? (rn.rock.ice ? '  ICE' : '  STONE') : ''}  (F fires)` : ''
-    const spaceLine = rho < 1 ? `${craft.cruise ? `CRUISE  cap ${fmtSpeed(craft.cap())}` : 'HOVER'}${apLine}   SOI ${craft.ref.name}   orbit ${vOrb.toFixed(0)}   escape ${vEsc.toFixed(0)}   ${craft.cruise ? '' : vIn > vEsc ? '!! ESCAPING !!' : vIn > vOrb ? 'above orbital' : ''}   target ${tgt.name}${rockLine}\n` : ''
+    const spaceLine = rho < 1 ? `${craft.cruise ? `CRUISE  cap ${fmtSpeed(craft.cap())}` : 'HOVER'}${apLine}   SOI ${craft.ref.name}   orbit ${vOrb.toFixed(0)}   escape ${vEsc.toFixed(0)}   ${craft.cruise ? '' : vIn > vEsc ? '!! ESCAPING !!' : vIn > vOrb ? 'above orbital' : ''}   target ${tgt.name}${tgt.field ? ` (${fieldIndex + 1} of ${nearFields.length} nearest, V)` : ' (Tab)'}${rockLine}\n` : ''
     line = `alt ${altitude.toFixed(1).padStart(6)} m   v↑ ${vUp.toFixed(1).padStart(5)} m/s   spd ${fmtSpeed(spd).padStart(9)}   tilt ${tilt.toFixed(0).padStart(2)}°   ${craft.state.toUpperCase()}   landings ${craft.landings}  crashes ${craft.crashes}\n` + spaceLine +
       (craft.state === 'crashed' ? `contact: ${craft.burned ? 'HULL BURNED THROUGH  ' : craft.hitRock ? 'ROCK  ' : ''}v↑ ${lc.vUp.toFixed(1)}  drift ${lc.vH.toFixed(1)}  tilt ${lc.tilt.toFixed(0)}°  slope ${lc.slope.toFixed(0)}°   R to respawn\n` : '') +
       `Esc  menu and controls   ${fps} fps   chunks ${refView.lod?.liveCount ?? 0}`

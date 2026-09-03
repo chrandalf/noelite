@@ -3,7 +3,7 @@
 // thruster (pushes forward). Nothing analogue yet; that is the honest Zarch version.
 import type { Controls } from './Craft.ts'
 
-const CODES = ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyQ', 'KeyE', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ShiftLeft', 'ShiftRight', 'KeyX', 'KeyZ', 'KeyT', 'Comma', 'Period', 'Slash', 'Quote', 'KeyF']
+const CODES = ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyQ', 'KeyE', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ShiftLeft', 'ShiftRight', 'KeyX', 'KeyZ', 'KeyT', 'Comma', 'Period', 'Slash', 'Quote', 'KeyF', 'KeyV']
 
 export class KeyInput {
   private readonly down = new Set<string>()

@@ -197,7 +197,7 @@ export function stationOf(t: Terrain): Station | null {
       const c = Math.cos((i * Math.PI) / 2) * k, sn = Math.sin((i * Math.PI) / 2) * k
       return { dir: norm({ x: d.x + ax.x * c + ay.x * sn, y: d.y + ax.y * c + ay.y * sn, z: d.z + ax.z * c + ay.z * sn }), n: i + 1 }
     })
-    st = { name: `${t.id === 'home' ? 'Vale' : t.id} Station`, site, pads: padDirs }
+    st = { name: `${body(t.id).name} Station`, site, pads: padDirs }
     stations.set(t.id, st)
   }
   return st
