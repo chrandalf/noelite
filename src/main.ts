@@ -435,7 +435,7 @@ renderer.setAnimationLoop((now) => {
         sound.pad(3)
         const st = bodyTargets.find((t) => t.station && t.station.view.body === home)
         if (st) { target = st; targetIndex = bodyTargets.indexOf(st) }
-        introEl.textContent = st ? `STATION  .  ${fmtDist(st.rel.distanceTo(craft.pos) * DISPLAY_SCALE)}` : ''
+        introEl.textContent = st ? `STATION  .  ${fmtDist(st.rel.distanceTo(craft.pos))}` : ''
         setTimeout(() => sound.pad(0), 45000)
       }
       if (phase === 'done' && ph > 10) introEl.hidden = true
@@ -577,7 +577,7 @@ renderer.setAnimationLoop((now) => {
       cleared = `  cleared pad ${bestN}`
     }
     const eta = closing > 1 && tSurf / closing < 86400 ? `  ETA ${fmtTime(tSurf / closing)}` : ''
-    markers.place('target', tDir, camera, showNav || cleared !== '', `${tgt.name}  ${fmtDist(tSurf * DISPLAY_SCALE)}  ${closing >= 0 ? '↓' : '↑'}${fmtSpeed(Math.abs(closing))}${eta}${cleared}`)
+    markers.place('target', tDir, camera, showNav || cleared !== '', `${tgt.name}  ${fmtDist(tSurf * (tgt.station ? 1 : DISPLAY_SCALE))}  ${closing >= 0 ? '↓' : '↑'}${fmtSpeed(Math.abs(closing))}${eta}${cleared}`)
     const lc = craft.lastContact
     const vOrb = craft.orbitalSpeed(), vEsc = craft.escapeSpeed(), spd = craft.speed(), vIn = craft.inertialSpeed()
     const apLine = orbitAP.engaged ? `   AUTOPILOT ${orbitAP.phase.toUpperCase()} ${craft.ref.name}  park ${((orbitAP.parkRadius(craft) - craft.terrain.radius) / 1000).toFixed(0)} km at ${orbitAP.parkSpeed(craft).toFixed(0)} m/s` : ''
