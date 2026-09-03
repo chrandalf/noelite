@@ -384,6 +384,23 @@ Every step is playable. That's the point of the ordering.
    frame at home's distance moves at 650 km/s. Measured: home to 60 km over the moon in
    39 s with a 169 km/s peak; 5,000 km out, 20 s of boost reaches 5,563 km/s. Elite
    Dangerous's answer, and the right one.
+   **Second pass, 2026-09-03, from Chris's first evening at the moon:** "getting into the
+   close proximity of the moon quite hard, needs a more shallow entry and a way of getting
+   the craft close to the surface ... the craft went in at the wrong angle ... the top
+   thrust didn't really do much, was a hassle not fun." The near-body cap was referenced
+   to the ground (150 m/s at the surface), so at the 2.5 km hover floor it was 1,600 m/s,
+   and the harness had that written in as the pass condition. On an airless moon nothing
+   slows you after the hand-off and hover has 18 m/s²: 1.6 s to the ground. **The body cap
+   is now referenced to the floor:** 60 m/s at the floor, √(60² + 2·500·(d − floor)) above
+   it, (d − floor)/7 s far out (`Craft.bodyCap`, `CRUISE_FLOOR_SPEED`). Cruise brings you
+   to the floor at 60 m/s in whatever direction you were going, so a shallow approach
+   works: cruise round at 3 km, dip the nose, arrive in hover at walking pace with time to
+   tilt and land. Rocks keep the old surface-referenced profile (`cruiseCap`, 150 m/s at
+   contact); the target cap uses whichever fits the target. The reference body's gap is
+   its real altitude now, not the distance to its sphere, so mountains count. The harness:
+   the moon hands over at 61 m/s at 2,497 m and a plain tilt-and-descend lands from there;
+   the full-boost dive on home hands over at 65 m/s. The "top thrust did nothing" was the
+   cruise brake bug found the same evening (it pushed backwards without limit).
 4. ~~**Re-entry.**~~ Done 2026-09-03 (`config.ts` HEAT_*/HULL_*/HOVER_MAX_SPEED,
    `Craft.hull/damage/burned/heatTarget`, flight harness 26), built on the research
    report's XRVessels findings rather than the line above. **Hull heat is an equilibrium
@@ -404,14 +421,18 @@ Every step is playable. That's the point of the ordering.
    564 m doing 506 m/s; a braked entry, 380 m/s into the air then the brake to 249, comes
    through at 21% with no damage; heat goes as √ρ and v³ in the shape check. **What it
    found:** the cruise brake pushed you backwards without limit when held (the entry
-   craft was at 5 × 10¹⁸ m); it now stops at zero along the nose. **The honest caveat:**
-   there is no shallow coasting entry in this flight model, because the cruise assist
-   bleeds gravity's pull off your velocity along with everything else across the nose,
-   so every entry is a dive whose speed the cap sets; and home's air is 2 km deep under
-   a 2.5 km hover floor, so the corridor is the last two kilometres. It is a speed you
-   hold with the brake and a gauge that tells you when, which is the Elite lesson from
-   the report (generous tolerance, demanding presentation). A deeper air would make it a
-   longer corridor; that is Chris's dial. DRAG stays at 0.004.
+   craft was at 5 × 10¹⁸ m); it now stops at zero along the nose. **Then the moon pass
+   (item 3, second pass) moved the cap to the floor, and re-entry moved to Marram:** home's
+   air (2 km) lies under the hover floor (2.5 km), so coming home is benign, which is right
+   for the first rung; Marram's air is 4 km deep, so the last 1.5 km of cruise is in air
+   at up to 1,200 m/s, and that is where re-entry lives. HEAT_K 4e-5, HEAT_TAU 2 s. The
+   harness: a full-boost dive into Marram burns through at 2,580 m; a braked entry held at
+   300 m/s comes through at 25%. The heat shield (a purchasable that raises HULL_LIMIT) is
+   the gate to Venus, as §10b says. There is no shallow coasting entry in this flight
+   model, because the cruise assist bleeds gravity's pull off your velocity along with
+   everything across the nose; every entry is a dive whose speed the cap sets, and the
+   corridor is a speed you hold with the brake against a gauge that shouts. The giant's
+   40 km of air will be the same thing with no floor to land on. DRAG stays at 0.004.
 5. ~~**Orbit autopilot**~~ Done 2026-09-02 (`src/engine/Autopilot.ts`, the O key). It flies
    the pilot's own controls: under the floor it climbs; in cruise it wants a velocity,
    inward at gap/30 s blending into circular speed sideways as the gap closes, and since

@@ -377,6 +377,7 @@ renderer.setAnimationLoop((now) => {
     // A target within 30° of the nose caps cruise so you arrive at it; otherwise only the nearest body does.
     tmp.set(0, 0, -1).applyQuaternion(craft.quat)
     craft.arrive = toTarget.lengthSq() > 0 && tmp.dot(toTarget) / toTarget.length() > 0.86 ? toTarget.length() - tgt.radius : Infinity
+    craft.arriveFloor = tgt.field === null
     craft.step(dt, c)
     if (input.fire() && !orbitAP.engaged) craft.fire()
     if (craft.hits.length) { asteroids.hits(craft.hits, craft.time); craft.hits.length = 0 }

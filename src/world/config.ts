@@ -91,14 +91,23 @@ export const CRUISE_FLOOR = 2500
 /** Seconds for velocity across the nose to bleed away: turn, and your speed comes with you. */
 export const CRUISE_ALIGN_TAU = 1.2
 /**
- * m/s, the cruise cap right next to a body. Near a body the cap is the speed you could
- * brake from before reaching the surface, √(CRUISE_MAX² + 2·CRUISE_DECEL·d); far from
- * anything it is d / CRUISE_SECONDS, so at full speed you are never more than a few
- * seconds from the nearest thing and the same rule reels you in on arrival. Elite
- * Dangerous's supercruise, which is the one that has been played for a decade. With a
- * target ahead the rule keys off the target's surface too. The cap is a hard clamp.
+ * m/s, the cruise cap right next to a rock (or any surface without a hover floor). Near
+ * a surface the cap is the speed you could brake from before reaching it,
+ * √(CRUISE_MAX² + 2·CRUISE_DECEL·d); far from anything it is d / CRUISE_SECONDS, so at
+ * full speed you are never more than a few seconds from the nearest thing and the same
+ * rule reels you in on arrival. Elite Dangerous's supercruise, which is the one that has
+ * been played for a decade. With a target ahead the rule keys off the target too. The cap
+ * is a hard clamp.
  */
 export const CRUISE_MAX = 150
+/**
+ * m/s at the hover floor over a body: the speed cruise hands you to hover at. The body
+ * cap is √(CRUISE_FLOOR_SPEED² + 2·CRUISE_DECEL·(d − CRUISE_FLOOR)), referenced to the
+ * floor and not the ground, because the hand-off happens at the floor and hover has
+ * 18 m/s² to work with. Chris, 2026-09-03, on the moon: "the craft went in at the wrong
+ * angle ... was a hassle not fun". Before this the moon handed you over at 1,600 m/s.
+ */
+export const CRUISE_FLOOR_SPEED = 60
 /** m/s², the near-body deceleration profile. Takes over from the linear rule inside ~50 km. */
 export const CRUISE_DECEL = 500
 /** Seconds. Far-field cap = distance to the nearest surface / this. 7 is the ED "0:06" feel. */
@@ -155,12 +164,12 @@ export const ICE_REACH = 3000
  * ramp is XRVessels' conductive-cooling fraction, which falls to HEAT_RAMP_MIN in thick
  * air so fast flight near the deck warms the hull without cooking it. Degrees over ambient.
  */
-export const HEAT_K = 2.5e-5
+export const HEAT_K = 4e-5
 export const HEAT_RAMP_LO = 0.07
 export const HEAT_RAMP_HI = 0.9
 export const HEAT_RAMP_MIN = 0.095
 /** Seconds for the hull to rise most of the way to its target. */
-export const HEAT_TAU = 3
+export const HEAT_TAU = 2
 /** Cooling: this fraction of the excess a second, never slower than COOL_MIN degrees a second. */
 export const COOL_RATE = 0.02
 export const COOL_MIN = 0.4

@@ -6,11 +6,11 @@ import * as THREE from 'three'
 import { Craft, IDLE } from '../src/engine/Craft.ts'
 import { OrbitAutopilot } from '../src/engine/Autopilot.ts'
 import { findLandable, groundRadius } from '../src/world/terrain.ts'
-import { HOME, height, padOf, stationOf } from '../src/world/height.ts'
+import { HOME, height, padOf, stationOf, terrainOf } from '../src/world/height.ts'
 import { body, bodyVelocity, bodyPosition, bodySpin } from '../src/world/system.ts'
 import { wind } from '../src/world/weather.ts'
 import { FIELDS, resetRocks } from '../src/world/asteroids.ts'
-import { FIXED_DT, DRAG, LAND_MAX_VSPEED, GROUND_EFFECT_HEIGHT, CRUISE_MAX, CRUISE_DECEL, CRUISE_SECONDS, THRUST_ACCEL, BOOST_MULT, FUEL_TANK, FUEL_HOVER_BURN, FUEL_CRUISE_BURN, FUEL_PAD_REFILL, FUEL_SOLAR_TRICKLE, FUEL_RELIGHT, GUN_RANGE, GUN_COOLDOWN, BOLT_SPEED, HULL_LIMIT, HOVER_MAX_SPEED } from '../src/world/config.ts'
+import { FIXED_DT, DRAG, LAND_MAX_VSPEED, GROUND_EFFECT_HEIGHT, CRUISE_MAX, CRUISE_DECEL, CRUISE_SECONDS, THRUST_ACCEL, BOOST_MULT, FUEL_TANK, FUEL_HOVER_BURN, FUEL_CRUISE_BURN, FUEL_PAD_REFILL, FUEL_SOLAR_TRICKLE, FUEL_RELIGHT, GUN_RANGE, GUN_COOLDOWN, BOLT_SPEED, HULL_LIMIT, HOVER_MAX_SPEED, CRUISE_FLOOR, CRUISE_FLOOR_SPEED } from '../src/world/config.ts'
 const GRAVITY = HOME.g, ATMOSPHERE_HEIGHT = HOME.air
 const BODY_UP = new THREE.Vector3(0, 1, 0), BODY_FWD = new THREE.Vector3(0, 0, -1)
 
@@ -202,7 +202,7 @@ const L1 = land()
     worst = Math.max(worst, c.vel.dot(nose) / c.cap())
     return T(1, a.pitch, a.roll, a.yaw, 1)
   })
-  check('diving at full boost never exceeds the cap along the nose, and the air burns the hull through', worst < 1.02 && c.state === 'crashed' && c.burned, `from ${(top / 1000).toFixed(0)} km: worst ${(worst * 100).toFixed(0)}% of cap, ${c.burned ? 'burned' : c.state} at ${c.altitude().toFixed(0)} m doing ${(-c.lastContact.vUp).toFixed(0)} m/s, hull ${(100 * c.hull / HULL_LIMIT).toFixed(0)}%`)
+  check('diving at full boost never exceeds the cap along the nose, and hands you to hover gently at the floor', worst < 1.02 && c.state === 'flying' && !c.cruise && c.speed() < CRUISE_FLOOR_SPEED * 1.3 && Math.abs(c.altitude() - CRUISE_FLOOR) < 300, `from ${(top / 1000).toFixed(0)} km: worst ${(worst * 100).toFixed(0)}% of cap, hover at ${c.altitude().toFixed(0)} m doing ${c.speed().toFixed(0)} m/s`)
 }
 
 // 16. Stage C: the moon is a real place. Hang over it, fall, land, ride it, lift off with it.
@@ -243,11 +243,11 @@ const L1 = land()
   const c = new Craft(HOME); c.windy = false; c.time = 5000
   c.placeAbove(body('home'), new THREE.Vector3(0, 0, 1), 5_000_000)
   const t = until(c, () => false, 20, () => T(1, 0, 0, 0, 1))
-  const capFar = c.cruiseCap(c.proximity)
+  const capFar = c.cap()
   check('5,000 km out, 20 s of boost reaches the far-field cap', c.cruise && c.speed() > capFar * 0.95 && c.speed() <= capFar * 1.01, `${(c.speed() / 1000).toFixed(0)} km/s vs cap ${(capFar / 1000).toFixed(0)} km/s (d/${CRUISE_SECONDS} s) after ${t.toFixed(0)} s`)
   c.arrive = 100_000
   until(c, () => false, 3, () => T(1, 0, 0, 0, 1))
-  check('a target 100 km ahead caps the speed within 3 s', c.speed() <= c.cruiseCap(100_000) * 1.01, `${(c.speed() / 1000).toFixed(1)} km/s vs ${(c.cruiseCap(100_000) / 1000).toFixed(1)} km/s`)
+  check('a target 100 km ahead caps the speed within 3 s', c.speed() <= c.bodyCap(100_000) * 1.01, `${(c.speed() / 1000).toFixed(1)} km/s vs ${(c.bodyCap(100_000) / 1000).toFixed(1)} km/s`)
 }
 // 19. The transfer: from 100 km over home, aim at the moon and boost. Pace is a design requirement.
 {
@@ -266,7 +266,19 @@ const L1 = land()
   })
   check('home to 60 km over the moon in under four minutes', c.ref === moon && t < 240, `${t.toFixed(0)} s, peak ${(peak / 1000).toFixed(0)} km/s, arrived doing ${(c.speed() / 1000).toFixed(1)} km/s at ${(c.altitude() / 1000).toFixed(0)} km`)
   const t2 = until(c, (c) => !c.cruise || c.state !== 'flying', 120, (t, c) => { const d = toMoon(c); c.arrive = d.length() - moon.radius; const a = c.aimControls(d.normalize()); return T(1, a.pitch, a.roll, a.yaw, 1) })
-  check('and the cap hands it to hover at the moon under 1.6 km/s', c.state === 'flying' && !c.cruise && c.speed() < 1700 && c.ref === moon, `${t2.toFixed(0)} s more, ${c.speed().toFixed(0)} m/s at ${c.altitude().toFixed(0)} m, ${c.cruise ? 'cruise' : 'hover'}`)
+  check('and the cap hands it to hover at the moon gently, at the floor', c.state === 'flying' && !c.cruise && c.speed() < CRUISE_FLOOR_SPEED * 1.3 && c.ref === moon && Math.abs(c.altitude() - CRUISE_FLOOR) < 300, `${t2.toFixed(0)} s more, ${c.speed().toFixed(0)} m/s at ${c.altitude().toFixed(0)} m, ${c.cruise ? 'cruise' : 'hover'}`)
+  // From hover at the floor a landing is routine: kill the fall, come down, touch.
+  // Tilt against the drift, then hold a descent rate. A pilot's landing, in eight lines.
+  const t3 = until(c, (c) => c.state !== 'flying', 240, (t, c) => {
+    const up = c.pos.clone().normalize()
+    const vH = c.vel.clone().addScaledVector(up, -c.vel.dot(up))
+    const lean = Math.min(0.7, vH.length() * 0.02)
+    const aim = vH.lengthSq() > 0 ? up.clone().addScaledVector(vH.clone().normalize(), -lean).normalize() : up
+    const a = c.aimControls(aim)
+    const want = c.altitude() > 100 ? -25 : -3
+    return T(vH.length() > 4 || c.vUp() < want ? 1 : 0, a.pitch, a.roll, a.yaw)
+  })
+  check('and from there a plain descent lands on the moon', c.state === 'landed' && c.ref === moon, `${c.state} after ${t3.toFixed(0)} s at v↑ ${c.lastContact.vUp.toFixed(1)}`)
 }
 
 // 20. The sea is ground: put down on deep water and you float, level, at sea level.
@@ -489,14 +501,23 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol
   const t1 = Craft.heatTarget(0.04, 500), t2 = Craft.heatTarget(0.16, 500), t8 = Craft.heatTarget(0.04, 1000)
   check('heat goes as the square root of density', Math.abs(t2 / t1 - 2 * (1 - 0.905 * (0.16 - 0.07) / 0.83)) < 0.02, `×${(t2 / t1).toFixed(2)} for 4× the air`)
   check('and as the cube of speed', Math.abs(t8 / t1 - 8) < 1e-9, `×${(t8 / t1).toFixed(2)} for 2× the speed`)
-  check('fast flight in thick air warms the hull without cooking it', Craft.heatTarget(1, 300) < 0.1 * HULL_LIMIT, `${(100 * Craft.heatTarget(1, 300) / HULL_LIMIT).toFixed(0)}% at 300 m/s on the deck`)
+  check('fast flight in thick air warms the hull without cooking it', Craft.heatTarget(1, 300) < 0.15 * HULL_LIMIT, `${(100 * Craft.heatTarget(1, 300) / HULL_LIMIT).toFixed(0)}% at 300 m/s on the deck`)
   // Ordinary flight is cold.
   const c = fresh()
   until(c, () => false, 30, (t) => T(t < 4 ? 1 : 0.55, t < 4 ? 0 : 0.3))
   check('a hover dash near the ground leaves the hull cold', c.hull < 0.05 * HULL_LIMIT, `${(100 * c.hull / HULL_LIMIT).toFixed(1)}% at ${c.speed().toFixed(0)} m/s`)
-  // A braked entry: from rest at 60 km (where the autopilot would leave you), nose at nadir, 380 m/s into the air, then brake to under 250 for hover. Lives, with a warm hull.
+  // Home's air (2 km) lies under the hover floor (2.5 km), so coming home is benign. Marram's air is 4 km deep:
+  // the last 1.5 km of cruise is in air, and that is where re-entry lives (the heat shield is the gate to Venus, §10b).
+  const marram = body('terra-a'), mPad = padOf(terrainOf(marram)), mDir = new THREE.Vector3(mPad.dir.x, mPad.dir.y, mPad.dir.z)
+  const dv = new Craft(HOME); dv.windy = false
+  dv.placeAbove(marram, mDir, 60_000)
+  until(dv, (c) => c.cruise, 2, () => IDLE)
+  const nadir0 = new THREE.Vector3()
+  until(dv, (c) => c.state !== 'flying' || !c.cruise, 300, (t, c) => { nadir0.copy(c.pos).normalize().negate(); const a = c.aimControls(nadir0); return T(1, a.pitch, a.roll, a.yaw, 1) })
+  check("a full-boost dive into Marram's air burns the hull through before the floor", dv.state === 'crashed' && dv.burned, `${dv.burned ? 'burned' : dv.state} at ${dv.altitude().toFixed(0)} m doing ${(-dv.lastContact.vUp).toFixed(0)} m/s`)
+  // A braked entry: from rest at 60 km (where the autopilot would leave you), nose at nadir, 300 m/s through the air, then the floor. Lives, with a warm hull.
   const e = new Craft(HOME); e.windy = false
-  e.placeAbove(body('home'), pad, 60_000)
+  e.placeAbove(marram, mDir, 60_000)
   until(e, (c) => c.cruise, 2, () => IDLE)
   const nadir = new THREE.Vector3()
   let peak = 0, handedAt = -1, everCruiseInAir = false
@@ -505,13 +526,12 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol
     const a = c.aimControls(nadir)
     peak = Math.max(peak, c.hull)
     if (c.atmosphere() > 0) everCruiseInAir = true
-    // Fly down at a held speed: thrust under it, brake over it. 380 m/s into the air (home's is only
-    // 2 km deep, so the corridor is the last two kilometres), then 200 for the hand-off to hover.
-    const want = c.altitude() < 1100 ? 200 : 380
+    // Fly down at a held speed: thrust under it, brake over it. 300 m/s through the upper air, then let the cap hand over at the floor.
+    const want = 300
     return T(c.speed() < want - 30 ? 1 : 0, a.pitch, a.roll, a.yaw, 0, 0, c.speed() > want ? -1 : 0)
   })
   handedAt = e.speed()
-  check('a braked entry comes through to hover with a warm hull and no damage', e.state === 'flying' && !e.cruise && e.damage === 0 && peak > 0.2 * HULL_LIMIT && peak < HULL_LIMIT && everCruiseInAir, `peak hull ${(100 * peak / HULL_LIMIT).toFixed(0)}%, hover at ${handedAt.toFixed(0)} m/s, ${e.altitude().toFixed(0)} m`)
+  check('a braked entry into Marram comes through to hover with a warm hull and no damage', e.state === 'flying' && !e.cruise && e.damage === 0 && peak > 0.1 * HULL_LIMIT && peak < HULL_LIMIT && everCruiseInAir, `peak hull ${(100 * peak / HULL_LIMIT).toFixed(0)}%, hover at ${handedAt.toFixed(0)} m/s, ${e.altitude().toFixed(0)} m`)
   check('hover only engages under HOVER_MAX_SPEED', handedAt < HOVER_MAX_SPEED, `${handedAt.toFixed(0)} m/s`)
   until(e, () => false, 20, () => IDLE)
   check('and the hull cools once the speed is off, slowly', e.hull < peak * 0.8, `${(100 * e.hull / HULL_LIMIT).toFixed(0)}% twenty seconds later, from ${(100 * peak / HULL_LIMIT).toFixed(0)}%`)

@@ -25,7 +25,7 @@ import {
   DRAG, THRUST_ACCEL, ANG_ACCEL, ANG_DAMP,
   HULL_CLEARANCE, LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE, FIXED_DT,
   BOOST_MULT, GROUND_EFFECT_HEIGHT, GROUND_EFFECT_ACCEL_G, GROUND_EFFECT_DAMP, GRAVITY_FALLOFF, RCS_ACCEL,
-  CRUISE_ENTER, CRUISE_EXIT, CRUISE_FLOOR, CRUISE_ALIGN_TAU, CRUISE_MAX, CRUISE_BRAKE, CRUISE_DECEL, CRUISE_SECONDS, CRUISE_SPOOL,
+  CRUISE_ENTER, CRUISE_EXIT, CRUISE_FLOOR, CRUISE_ALIGN_TAU, CRUISE_MAX, CRUISE_FLOOR_SPEED, CRUISE_BRAKE, CRUISE_DECEL, CRUISE_SECONDS, CRUISE_SPOOL,
   FUEL_TANK, FUEL_HOVER_BURN, FUEL_CRUISE_BURN, FUEL_RCS_BURN, FUEL_PAD_REFILL, FUEL_SOLAR_TRICKLE, FUEL_RELIGHT, PAD_RADIUS,
   GUN_RANGE, GUN_COOLDOWN, ICE_REACH, BOLT_SPEED,
   HEAT_K, HEAT_RAMP_LO, HEAT_RAMP_HI, HEAT_RAMP_MIN, HEAT_TAU, COOL_RATE, COOL_MIN, HULL_LIMIT, DAMAGE_TAU, HOVER_MAX_SPEED,
@@ -84,10 +84,15 @@ export class Craft {
    * altitude, so an airless moon still gets a hover landing.
    */
   cruise = false
-  /** Metres to the nearest body's surface, whichever body that is. Drives the cruise cap and thrust gain. */
+  /** Metres to the nearest thing: the reference body's ground below, another body's sphere, or a rock. Drives the thrust gain. */
   proximity = Infinity
+  /** Metres to the ground of the reference body, and to the nearest other body's surface. The two cap profiles key off these. */
+  private bodyGap = Infinity
+  private otherGap = Infinity
   /** Metres to the surface of the target ahead, set by whoever knows the target; Infinity for none. Caps cruise too, so you arrive. */
   arrive = Infinity
+  /** True when `arrive` is a body with a hover floor (the floor profile applies), false for a rock field or a station in space. */
+  arriveFloor = true
   /** Weather on. The harness turns it off for tests that are not about weather. */
   windy = true
   /** The wind at the craft, m/s, local frame. Zero in vacuum. */
@@ -223,13 +228,21 @@ export class Craft {
     return { pitch: -clamp(k * tz - this.angVel.x), roll: -clamp(-k * tx - this.angVel.z), yaw: 0 }
   }
 
-  /** The cruise speed allowed at distance d from a surface: brakeable near it, d / CRUISE_SECONDS far from it. */
+  /** The cruise speed allowed at distance d from a surface with no hover floor (a rock): brakeable to CRUISE_MAX at it, d / CRUISE_SECONDS far from it. */
   cruiseCap(d: number): number {
     d = Math.max(0, d)
     return Math.max(Math.sqrt(CRUISE_MAX * CRUISE_MAX + 2 * CRUISE_DECEL * d), d / CRUISE_SECONDS)
   }
-  /** The cap in force now: the nearest body's, or the target's if that is tighter. */
-  cap(): number { return Math.min(this.cruiseCap(this.proximity), this.cruiseCap(this.arrive)) }
+  /** The cruise speed allowed d metres over a body's ground: CRUISE_FLOOR_SPEED at the hover floor, brakeable above it, d / CRUISE_SECONDS far out. */
+  bodyCap(d: number): number {
+    d = Math.max(0, d)
+    const over = Math.max(0, d - CRUISE_FLOOR)
+    return Math.max(Math.sqrt(CRUISE_FLOOR_SPEED * CRUISE_FLOOR_SPEED + 2 * CRUISE_DECEL * over), over / CRUISE_SECONDS)
+  }
+  /** The cap in force now: the reference body's ground, any other body, the nearest rock, or the target, whichever is tightest. */
+  cap(): number {
+    return Math.min(this.bodyCap(this.bodyGap), this.bodyCap(this.otherGap), this.cruiseCap(this.rockNear.dist), this.arriveFloor ? this.bodyCap(this.arrive) : this.cruiseCap(this.arrive))
+  }
 
   /** Vertical speed, positive up, relative to the ground. */
   vUp(): number { return this.vel.dot(this.up.copy(this.pos).normalize()) }
@@ -351,15 +364,14 @@ export class Craft {
 
     // Gravity from every body, and how close the nearest surface is.
     this.acc.set(0, 0, 0)
-    let nearest = Infinity
+    this.otherGap = Infinity
     for (const b of SYSTEM) {
       bodyPosition(b, this.time, this.tmp).sub(this.hpos)
       const r2 = this.tmp.lengthSq(), r = Math.sqrt(r2)
       this.acc.addScaledVector(this.tmp, b.mu / (r2 * r))
-      nearest = Math.min(nearest, r - b.radius)
+      if (b !== this.ref) this.otherGap = Math.min(this.otherGap, r - b.radius)
     }
     nearestRock(this.hpos, this.time, this.rockNear)
-    nearest = Math.min(nearest, this.rockNear.dist)
     this.fieldWeight = 0
     if (this.rockNear.rock && this.hold < 1) {
       const f = this.rockNear.rock.field
@@ -368,7 +380,6 @@ export class Craft {
       // The field's velocity over and above the reference body's own.
       if (this.fieldWeight > 0) fieldVelocity(f, this.time, this.fieldVel).sub(this.bVel)
     }
-    this.proximity = Math.max(0, nearest)
     // A rock is a wall. Inside its surface (plus the hull) you are wreckage; the cap
     // brings you in gently if you aim at one, but nothing stops you flying into it.
     if (this.rockNear.rock && this.rockNear.dist < HULL_CLEARANCE) {
@@ -383,13 +394,15 @@ export class Craft {
     this.up.copy(this.rel).divideScalar(r)
     this.localDir.copy(this.up).applyQuaternion(this.spinInv)
     const alt = r - groundRadius(this.localDir, this.terrain)
+    this.bodyGap = Math.max(0, alt)
+    this.proximity = Math.max(0, Math.min(this.bodyGap, this.otherGap, this.rockNear.dist))
     const rhoNow = atmosphereDensity(alt, this.terrain.air)
     this.frameVelAt(this.rel, this.frameVel)
     this.vRel.copy(this.hvel).sub(this.frameVel)
     // Into hover on density or the floor, but only once you are slow enough: above
     // HOVER_MAX_SPEED you are still re-entering, in cruise, with the air dragging and the
     // hull heating, and the way out is to flip and brake (DESIGN §8b item 4).
-    if (this.cruise ? (rhoNow > CRUISE_EXIT || alt < CRUISE_FLOOR) && this.vRel.length() < HOVER_MAX_SPEED : rhoNow < CRUISE_ENTER && alt > CRUISE_FLOOR * 1.2) this.cruise = !this.cruise
+    if (this.cruise ? (rhoNow > CRUISE_EXIT || alt < CRUISE_FLOOR) && (rhoNow <= 0 || this.vRel.length() < HOVER_MAX_SPEED) : rhoNow < CRUISE_ENTER && alt > CRUISE_FLOOR * 1.2) this.cruise = !this.cruise
     this.hold = holdAt(alt)
     this.frameVelAt(this.rel, this.frameVel)
     this.vRel.copy(this.hvel).sub(this.frameVel)
