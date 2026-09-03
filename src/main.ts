@@ -50,7 +50,7 @@ import { Clouds } from './engine/Clouds.ts'
 import { CloudPuffs } from './engine/CloudPuffs.ts'
 import { front, rainOf, cloudOf, moonDirection, TIDE_AMPLITUDE } from './world/weather.ts'
 import { setGroundClock } from './world/terrain.ts'
-import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE , FUEL_TANK, HULL_CLEARANCE, HULL_LIMIT, HULL_WARN, HULL_GLOW, CLOUD_BASE_FRAC, DISPLAY_SCALE } from './world/config.ts'
+import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE , FUEL_TANK, HULL_CLEARANCE, HULL_LIMIT, HULL_WARN, HULL_GLOW, CLOUD_BASE_FRAC, shownDistance } from './world/config.ts'
 
 const q = new URLSearchParams(location.search)
 const mode: 'fly' | 'free' = q.get('mode') === 'free' ? 'free' : 'fly'
@@ -517,7 +517,9 @@ renderer.setAnimationLoop((now) => {
     const armed = flying && altitude < 60
     const frac = Math.min(1, Math.max(0, altitude / 120))
     altFill.style.height = `${frac * 100}%`; altMarker.style.bottom = `${frac * 100}%`
-    altNum.textContent = altitude < 100 ? altitude.toFixed(1) : altitude.toFixed(0)
+    // The number is the shown altitude: honest to 500 m, then growing with the log toward the planet's real scale.
+    const shownAlt = shownDistance(Math.max(0, altitude))
+    altNum.textContent = altitude < 100 ? altitude.toFixed(1) : shownAlt < 100_000 ? shownAlt.toFixed(0) : `${(shownAlt / 1000).toFixed(0)}k`
     altimeter.className = !flying ? '' : altitude < 15 ? 'critical' : altitude < 40 ? 'low' : ''
     light(lights.v, `V↑ ${vUp.toFixed(1)}`, vUp > -LAND_MAX_VSPEED, armed)
     light(lights.d, `DRIFT ${drift.toFixed(1)}`, drift < LAND_MAX_HSPEED, armed)
@@ -577,14 +579,14 @@ renderer.setAnimationLoop((now) => {
       cleared = `  cleared pad ${bestN}`
     }
     const eta = closing > 1 && tSurf / closing < 86400 ? `  ETA ${fmtTime(tSurf / closing)}` : ''
-    markers.place('target', tDir, camera, showNav || cleared !== '', `${tgt.name}  ${fmtDist(tSurf * (tgt.station ? 1 : DISPLAY_SCALE))}  ${closing >= 0 ? '↓' : '↑'}${fmtSpeed(Math.abs(closing))}${eta}${cleared}`)
+    markers.place('target', tDir, camera, showNav || cleared !== '', `${tgt.name}  ${fmtDist(tgt.station ? tSurf : shownDistance(tSurf))}  ${closing >= 0 ? '↓' : '↑'}${fmtSpeed(Math.abs(closing))}${eta}${cleared}`)
     const lc = craft.lastContact
     const vOrb = craft.orbitalSpeed(), vEsc = craft.escapeSpeed(), spd = craft.speed(), vIn = craft.inertialSpeed()
     const apLine = orbitAP.engaged ? `   AUTOPILOT ${orbitAP.phase.toUpperCase()} ${craft.ref.name}  park ${((orbitAP.parkRadius(craft) - craft.terrain.radius) / 1000).toFixed(0)} km at ${orbitAP.parkSpeed(craft).toFixed(0)} m/s` : ''
     const rn = craft.rockNear
     const rockLine = rn.rock && rn.dist < 30000 ? `   ROCK ${fmtDist(rn.dist)}${rn.dist < 2000 ? (rn.rock.ice ? '  ICE' : '  STONE') : ''}${craft.cruise ? '  (F fires)' : '  (cannons stowed in hover)'}` : ''
     const spaceLine = rho < 1 ? `${craft.cruise ? `CRUISE  cap ${fmtSpeed(craft.cap())}` : 'HOVER'}${apLine}   SOI ${craft.ref.name}   orbit ${vOrb.toFixed(0)}   escape ${vEsc.toFixed(0)}   ${craft.cruise ? '' : vIn > vEsc ? '!! ESCAPING !!' : vIn > vOrb ? 'above orbital' : ''}   target ${tgt.name}${tgt.field ? ` (${fieldIndex + 1} of ${nearFields.length} nearest, V)` : ' (Tab)'}${rockLine}\n` : ''
-    line = `alt ${altitude.toFixed(1).padStart(6)} m   v↑ ${vUp.toFixed(1).padStart(5)} m/s   spd ${fmtSpeed(spd).padStart(9)}   tilt ${tilt.toFixed(0).padStart(2)}°   ${craft.state.toUpperCase()}   landings ${craft.landings}  crashes ${craft.crashes}\n` + spaceLine +
+    line = `alt ${(altitude < 500 ? altitude.toFixed(1) : shownDistance(altitude).toFixed(0)).padStart(6)} m   v↑ ${vUp.toFixed(1).padStart(5)} m/s   spd ${fmtSpeed(spd).padStart(9)}   tilt ${tilt.toFixed(0).padStart(2)}°   ${craft.state.toUpperCase()}   landings ${craft.landings}  crashes ${craft.crashes}\n` + spaceLine +
       (craft.state === 'crashed' ? `contact: ${craft.burned ? 'HULL BURNED THROUGH  ' : craft.hitRock ? 'ROCK  ' : ''}v↑ ${lc.vUp.toFixed(1)}  drift ${lc.vH.toFixed(1)}  tilt ${lc.tilt.toFixed(0)}°  slope ${lc.slope.toFixed(0)}°   R to respawn\n` : '') +
       `Esc  menu and controls   ${fps} fps   chunks ${refView.lod?.liveCount ?? 0}`
   } else {

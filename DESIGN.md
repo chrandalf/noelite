@@ -607,9 +607,11 @@ Every step is playable. That's the point of the ordering.
    under the horizon) while a second sun on the far bodies' layer keeps the moon's phase;
    the fill's floor is 7%. Also that evening: **fuel lasts four times as long** (Chris ran
    dry at the moon: burn rates quartered, 49 minutes of hover), and **distances to other
-   places read at the model's scale**, ×159, so the moon is 384,000 km away and the sun
-   149 million, while altitude, speed and anything on the same body stay honest ("scale
-   realism without the actual size"). The cannons deploy with the wings and fire only in cruise; the orbital cloud
+   places read at the model's scale**: the factor grows with the log of the distance from 1
+   at 500 m to 159 by 100 km (`shownDistance`), so 100 m over the pad reads 100 m, the top
+   of the air 4 km, a parked orbit 40 km, and the moon 384,000 km, no seam; speed, ETA and
+   anything on the same body stay honest ("scale realism without the actual size"; "would
+   it scale better if it was log scale ... begin to expand it when it gets to 500 m"). The cannons deploy with the wings and fire only in cruise; the orbital cloud
    shell is drawn per pixel by noise. **Not yet:** the fall from 40 km as the payoff of the
    first flight out (the report's candidate B), a music cue on first orbit, ZzFX one-shots.
    Next: crashes with debris and a repair bill, then cargo.

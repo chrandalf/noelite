@@ -195,3 +195,20 @@ export const GUN_MUZZLE = { x: 2.2, y: -0.35, z: -3.4 }
  * numbers appear to be real ... it's about scale realism without the actual size."
  */
 export const DISPLAY_SCALE = 159
+/**
+ * The scale is not a step. The factor on a shown distance grows with the log of the
+ * distance, 1 below DISPLAY_SCALE_FROM and the full DISPLAY_SCALE by DISPLAY_SCALE_TO,
+ * so 100 m over the pad reads 100 m, the top of the air reads a few kilometres, a parked
+ * orbit reads tens, and the moon reads 384,000 km with no seam between. Chris, 2026-09-03:
+ * "would it scale better if it was log scale? ... begin to expand it when it gets to
+ * 500 m." Altitude and distances to other bodies and clusters; never speed, never ETA,
+ * never anything on the same body.
+ */
+export const DISPLAY_SCALE_FROM = 500
+export const DISPLAY_SCALE_TO = 100_000
+export function shownDistance(d: number): number {
+  if (d <= DISPLAY_SCALE_FROM) return d
+  const x = Math.min(1, (Math.log(d) - Math.log(DISPLAY_SCALE_FROM)) / (Math.log(DISPLAY_SCALE_TO) - Math.log(DISPLAY_SCALE_FROM)))
+  // Geometric: the factor's logarithm ramps, so the start is gentle (two percent of 159 would already be ×4).
+  return d * Math.pow(DISPLAY_SCALE, Math.pow(x, 1.6))
+}
