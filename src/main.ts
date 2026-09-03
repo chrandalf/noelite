@@ -30,7 +30,7 @@ import { ChaseCam } from './engine/ChaseCam.ts'
 import { buildCraftMesh } from './engine/craftMesh.ts'
 import { GroundShadow } from './engine/GroundShadow.ts'
 import { Dust } from './engine/Dust.ts'
-import { Beeper } from './engine/Beeper.ts'
+import { Sound } from './engine/Sound.ts'
 import { Sky } from './engine/Sky.ts'
 import { NavMarkers } from './engine/NavMarkers.ts'
 import { waterOf, height, HOME, terrainOf, padOf, stationOf, type Terrain, type Station } from './world/height.ts'
@@ -180,7 +180,7 @@ const shadow = new GroundShadow(HOME)
 const dust = new Dust(HOME)
 const rain = new Rain()
 const puffs = new CloudPuffs()
-const beeper = new Beeper()
+const sound = new Sound()
 homeView.group.add(shadow.mesh, dust.points, rain.lines, puffs.mesh)
 shadow.mesh.visible = dust.points.visible = mode === 'fly'
 /** The view whose frame the scene is drawn in: the craft's reference body. Ship, shadow and dust live in it. */
@@ -311,11 +311,11 @@ asteroids.group.visible = mode === 'fly'
 let targetIndex = 0
 const toTarget = new THREE.Vector3()
 addEventListener('keydown', (e) => {
-  beeper.arm()
+  sound.arm()
   if (e.code === 'Escape') { paused = !paused; menu.hidden = !paused; return }
   if (mode !== 'fly' || paused) return
   if (e.code === 'KeyR') respawn()
-  if (e.code === 'KeyM') beeper.muted = !beeper.muted
+  if (e.code === 'KeyM') sound.muted = !sound.muted
   if (e.code === 'KeyC') chase.reset()
   if (e.code === 'KeyO') orbitAP.engaged = !orbitAP.engaged && craft.state === 'flying'
   if (e.code === 'Tab') { e.preventDefault(); if (bodyTargets.includes(target)) targetIndex = (targetIndex + (e.shiftKey ? bodyTargets.length - 1 : 1)) % bodyTargets.length; target = bodyTargets[targetIndex]; fieldIndex = -1 }
@@ -395,8 +395,8 @@ renderer.setAnimationLoop((now) => {
     craft.arrive = toTarget.lengthSq() > 0 && tmp.dot(toTarget) / toTarget.length() > 0.86 ? toTarget.length() - tgt.radius : Infinity
     craft.arriveFloor = tgt.field === null
     craft.step(dt, c)
-    if (input.fire() && !orbitAP.engaged) craft.fire()
-    if (craft.hits.length) { asteroids.hits(craft.hits, craft.time); craft.hits.length = 0 }
+    if (input.fire() && !orbitAP.engaged && craft.fire()) sound.shot()
+    if (craft.hits.length) { asteroids.hits(craft.hits, craft.time); for (const h of craft.hits) sound.hit(h.broke); craft.hits.length = 0 }
     if (refView.body !== craft.ref) switchFrame()
     if (craft.state === 'crashed') { crashedAt ??= now; if (now - crashedAt > 2000) respawn() }
     ship.quaternion.copy(craft.quat)
@@ -432,7 +432,7 @@ renderer.setAnimationLoop((now) => {
     if (!off.has('rain')) rain.update(dt, craft.pos, craft.wind, rainNow, craft.atmosphere())
     if (!off.has('clouds')) puffs.update(craft.pos, craft.terrain, craft.time)
     if (off.has('flame')) { flame.visible = false; for (const f of morph.cruiseFlames) f.visible = false }
-    beeper.update(now / 1000, altitude, flying)
+    sound.update(now / 1000, craft, c, craft.atmosphere())
 
     // Altimeter and the four landing lights. They arm below 60 m so they mean something.
     const vUp = craft.vUp(), tilt = craft.tilt()
