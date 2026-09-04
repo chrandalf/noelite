@@ -274,6 +274,10 @@ const orbitAP = new OrbitAutopilot()
 const hud = document.getElementById('hud')!
 const menu = document.getElementById('menu')!
 const introEl = document.getElementById('intro')!
+/** The opening's letterbox. 1 = bars fully in (a fifth of the frame between them), 0 = open. */
+const bars = Array.from(document.querySelectorAll<HTMLElement>('.bar'))
+let barFrac = intro ? 1 : 0
+const BAR_VH = 11
 /** Escape. The sim stops, the picture stays, the menu shows the controls. */
 let paused = q.get('menu') === '1'
 menu.hidden = !paused
@@ -446,6 +450,14 @@ renderer.setAnimationLoop((now) => {
         setTimeout(() => sound.pad(0), 45000)
       }
       if (phase === 'done' && ph > 10) introEl.hidden = true
+    }
+    // The letterbox opens on your climb, not on a clock: held on the pad, opening from 2 to 60 m up.
+    {
+      const want = phase === 'off' || phase === 'done' ? 0 : craft.state === 'landed' ? 1 : 1 - Math.min(1, Math.max(0, (craft.altitude() - 2) / 58))
+      barFrac += (want - barFrac) * Math.min(1, 4 * dt)
+      if (Math.abs(want - barFrac) < 0.002) barFrac = want
+      const h = barFrac > 0 ? `${(barFrac * BAR_VH).toFixed(2)}vh` : '0'
+      for (const b of bars) if (b.style.height !== h) b.style.height = h
     }
     if (burn > 0 && elapsed < burn) c = { ...c, thrust: 1 }
     // The orbit autopilot flies until you touch anything.
@@ -655,6 +667,8 @@ void tmp
 // For the harnesses.
 ;(window as unknown as { __noelite: unknown }).__noelite = {
   mode, planet, craft, input, free, views, asteroids, ship,
+  /** The opening's phase and the letterbox, for the probes. */
+  phase: () => phase, barFrac: () => barFrac,
   /** True only once the LOD has updated since the last place() and its queue is empty. */
   ready: () => updates > placedAt + 1 && planet.pendingCount === 0,
   /** Free mode: put the camera at p looking at a. */

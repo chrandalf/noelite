@@ -20,6 +20,9 @@
         transition: opacity 1.2s;
       }
       #intro[hidden] { display: none; }
+      /* The opening's letterbox: two bars that hold while you are on the pad and open as you climb. */
+      .bar { position: fixed; left: 0; right: 0; height: 0; background: #000; z-index: 5; pointer-events: none; }
+      .bar.top { top: 0; } .bar.bottom { bottom: 0; }
       #altimeter .boot { visibility: hidden; }
       #menu {
         position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center;
@@ -79,6 +82,7 @@
   <body>
     <div id="hud"></div>
     <div id="intro" hidden></div>
+    <div class="bar top"></div><div class="bar bottom"></div>
     <div id="menu" hidden>
       <div class="card">
         <h1>PAUSED</h1>

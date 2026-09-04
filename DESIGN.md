@@ -801,3 +801,32 @@ there so the last hours are spent flying, not standing at a counter.
 that gates anything). The giant's Galilean moons come back (one line each in the roster;
 the outpost sits on one). Re-entry's heat shield is a purchasable, which is why re-entry is
 still first: it is the gate to Venus.
+
+## 10c. Chris's brief, morning of 2026-09-04, after flying 09-03's build
+
+His verdicts on the four he had not seen: Dawn Shift "was good, I liked the effect, how it
+started dark then became light in an epic fashion". Wants it more epic: "you know how No
+Man's Sky starts with a very slightly smaller screen then as you take off it expands." The
+log-blended distances and the base are "good, I like the base". The assist he has not tried.
+
+His additions: "We need more bases dotted around the globe too, so we can land. I'm thinking
+we need some sort of vehicle that comes out the ship after landing that we can roam around
+in. I'm also thinking we should be able to get a digger out and dig for stuff after using a
+scanner to scan for valuables, this will all be part of the trading ecosystem."
+
+**What I built straight away: the letterbox.** Two black bars, 11% of the frame each, in
+through the dark, the boot and the hover, and they open on the climb, not on a clock: 2 m to
+60 m above the pad, smoothed. `?intro=0` has no bars. Probe: hold Space from the pad and read
+bar height against altitude; it must never grow while climbing and be gone above 80 m.
+
+**Where I stand on the rest.** Bases: yes, seeded from the terrain like the forests, a
+handful per living body, so the same world always has the same bases and a planet still feels
+empty between them. Scanner and digger: better than the winch in §10. Scan, land, dig, carry
+makes the scan the destination and the dig the wait, and it reads straight off the goods
+table (ore from belts, crystal from canyons, ice from the moon). It replaces "hover near a
+pod site" as the way raw goods leave the ground. The rover: a second vehicle with its own
+physics, camera, controls and a deploy, and nothing to drive to yet. It comes after goods
+exist, as the thing that lets you dig further from where you put the ship down.
+
+**Order from here:** letterbox (done), scattered bases, crashes (§10), scanner and dig, then
+money and the shop, cargo pods, the economy, the Coriolis. Rover after that.
