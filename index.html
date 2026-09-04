@@ -20,6 +20,9 @@
         transition: opacity 1.2s;
       }
       #intro[hidden] { display: none; }
+      /* The game talking back: a pod aboard, a sale, no room. Above the readout, centred. */
+      #toast { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); font: 14px ui-monospace, Menlo, Consolas, monospace; color: #fff; letter-spacing: 0.22em; padding: 6px 14px; background: #000a; border: 1px solid #9fe3a066; border-radius: 4px; pointer-events: none; white-space: nowrap; }
+      #toast[hidden] { display: none; }
       /* The arrival card: the body's name, big and spaced, and a line of what it is. */
       #title {
         position: fixed; left: 0; right: 0; top: 18vh; text-align: center; pointer-events: none;
@@ -71,12 +74,16 @@
       #altimeter.cracked .scale { border-color: #e06a5a; box-shadow: inset 0 0 6px #e06a5a55; }
       #altimeter.cracked .readout { text-shadow: 1.5px 0 #e06a5acc, -1px 1px #0008; }
       #altimeter.cracked .lights span { border-color: #e06a5a66; }
-      #altimeter .atmos { text-align: right; opacity: 0.75; }
+      #altimeter .atmos { text-align: right; opacity: 0.75; min-height: 1.35em; }   /* a line that comes and goes must not shift the rest */
       #altimeter .atmos.vacuum { color: #ffd56a; opacity: 1; letter-spacing: 0.2em; }
       #altimeter #fuel.low { color: #ffd56a; opacity: 1; }
       #altimeter #bank { color: #e8e0a0; }
       #altimeter #bank.low { color: #ffb0a0; opacity: 1; }
       #menu #company { flex-basis: 100%; }
+      #menu #town { flex-basis: 100%; }
+      #menu #town[hidden] { display: none; }
+      #menu #town pre { margin: 0; font: inherit; color: #d8e8d8; white-space: pre; }
+      #altimeter #cargo { color: #c8e0ff; }
       #menu #company pre { margin: 0; font: inherit; color: #d8e8d8; white-space: pre; }
       #menu #company .keys { margin-top: 6px; opacity: 0.7; }
       #menu #company .save { margin-top: 4px; opacity: 0.55; }
@@ -122,11 +129,13 @@
   <body>
     <div id="hud"></div>
     <div id="intro" hidden></div>
+    <div id="toast" hidden></div>
     <div class="bar top"></div><div class="bar bottom"></div>
     <div id="title"><h1></h1><hr /><p></p></div>
     <div id="menu" hidden>
       <div class="card">
         <h1>PAUSED</h1>
+        <div id="town" hidden><h2>TOWN</h2><pre></pre></div>
         <div id="company"><h2>COMPANY</h2><pre></pre><div class="keys">[ repay 500    ] borrow 500    interest 2% a day on the loan    S save</div><div class="save"></div></div>
         <div><h2>FLIGHT</h2><table>
           <tr><td>Space</td><td>thrust: up in hover, along the nose in cruise</td></tr>
@@ -139,6 +148,7 @@
           <tr><td>'</td><td>rear thruster, pushes forward</td></tr>
           <tr><td>F</td><td>the cannons: hold to fire; they only come out in cruise</td></tr>
           <tr><td>G</td><td>the scanner: pings the nearest seam on this body onto the compass</td></tr>
+          <tr><td>U</td><td>landed on a seam: dig a pod; landed at a town: sell what you carry</td></tr>
         </table></div>
         <div><h2>ASSISTS</h2><table>
           <tr><td>X</td><td>retro: point against your velocity</td></tr>
@@ -186,6 +196,7 @@
         <div class="atmos" id="fuel"></div>
         <div class="atmos" id="hull"></div>
         <div class="atmos" id="bank"></div>
+        <div class="atmos" id="cargo"></div>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>

@@ -4,12 +4,13 @@
 // chunk count stays bounded, the finest level is reached on the ground, the
 // coarsest is used in orbit, and the tree is stable at rest (no flicker).
 //
-//   node tools/verify-lod.mjs [http://localhost:5175/]
+//   node tools/verify-lod.mjs [${BASE}/]
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { readdirSync, existsSync } from 'node:fs'
 import { height, HOME } from '../src/world/height.ts'
 import { MAX_LEVEL } from '../src/world/lod.ts'
+const BASE = process.env.NOELITE_URL ?? 'http://localhost:5175'   // a second dev server (npm run dev -- --port 5176) for work alongside play
 
 const require = createRequire('/mnt/c/Users/chris/code/80sadventure/package.json')
 const puppeteer = require('puppeteer')
@@ -18,7 +19,7 @@ function chrome() {
   for (const b of readdirSync(dir).sort().reverse()) { const p = join(dir, b, 'chrome-linux64', 'chrome'); if (existsSync(p)) return p }
 }
 
-const base = process.argv[2] ?? 'http://localhost:5175/'
+const base = process.argv[2] ?? BASE + '/'
 const url = base + (base.includes('?') ? '&' : '?') + 'mode=free'
 const MAX_CHUNKS = 400
 const R = HOME.radius

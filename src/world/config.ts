@@ -88,6 +88,8 @@ export const GRAVITY_FALLOFF = 2
 
 /** Reaction-control thrusters: side, top and rear. m/s², body frame, no boost. Enough to stop, not to go. */
 export const RCS_ACCEL = 3.5
+/** In hover, / pushes down this hard on top of the RCS: a dive from height, with the assist's floor still under you. Chris, 2026-09-04: "takes ages to get to the ground". */
+export const DIVE_ACCEL = 14
 
 // ---- Cruise: how the ship flies once the air runs out (from the third flight, 2026-09-01). ----
 
@@ -173,6 +175,22 @@ export const FUEL_PRICE = 2
 export const REPAIR_PRICE = 600
 /** The excess on a replacement hull after a wreck. Charged even into the red: a crash never ends the game. */
 export const INSURANCE = 500
+
+// ---- Cargo and the dig (DESIGN §10, §10e-2, §10g). Guesses, all of them.
+/** Pods the hull carries, tonnes per pod, and the dry ship's tonnes the pods are felt against. */
+export const CARGO_PODS = 3
+export const POD_TONNES = 4
+export const SHIP_TONNES = 12
+/** Drag area grows this much per pod. */
+export const POD_DRAG = 0.15
+/** Seconds to dig one pod out of a seam, landed inside its radius. */
+export const DIG_SECONDS = 20
+/** Credits per tonne a town pays at base for each good; a town short of it pays up to 60% more. */
+export const GOOD_PRICE = { water: 20, timber: 35, ore: 60, salt: 30, crystal: 480, ice: 45, helium: 220, sulphur: 90 } as const
+/** A town takes goods it has no use for at this share of base. */
+export const UNWANTED_SHARE = 0.5
+/** Seconds of a production cycle: population and building are reckoned per cycle. */
+export const CYCLE = 200
 export const ICE_FUEL_MAX = 60
 /** Metres a bolt flies before it dies, the seconds between shots, and how fast a bolt leaves the gun (relative to the ship). Chris, 2026-09-03: "need to see more a projectile shot." */
 export const GUN_RANGE = 3000

@@ -6,8 +6,10 @@ import * as THREE from 'three'
 import type { Craft } from '../engine/Craft.ts'
 import { Wreck } from '../engine/Wreck.ts'
 import { Bank } from './economy.ts'
-import { body } from './system.ts'
+import { body, SYSTEM } from './system.ts'
 import { terrainOf } from './height.ts'
+import { saveTowns, loadTowns, type TownSave } from './town.ts'
+import { seamsOf, type Good } from './seams.ts'
 
 export type SaveV1 = {
   v: 1
@@ -20,6 +22,10 @@ export type SaveV1 = {
   bank: ReturnType<Bank['toJSON']>
   craft: { ref: string; dir: number[]; heading: number[]; fuel: number; damage: number; gearBent: boolean; landings: number; crashes: number }
   wrecks: { body: string; wreck: ReturnType<Wreck['toJSON']> }[]
+  /** Towns that have changed from seed, and seams that have been dug; both optional for older saves. */
+  towns?: TownSave[]
+  seams?: { body: string; i: number; richness: number }[]
+  cargo?: { good: Good; tonnes: number }[]
 }
 
 const FWD = new THREE.Vector3(0, 0, -1)
@@ -34,6 +40,9 @@ export function snapshot(craft: Craft, bank: Bank, wrecks: { body: string; wreck
     bank: bank.toJSON(),
     craft: { ref: craft.ref.id, dir: dir.toArray(), heading: heading.toArray(), fuel: craft.fuel, damage: craft.damage, gearBent: craft.gearBent, landings: craft.landings, crashes: craft.crashes },
     wrecks: wrecks.map((w) => ({ body: w.body, wreck: w.wreck.toJSON() })),
+    towns: saveTowns(),
+    seams: dugSeams(),
+    cargo: craft.cargo.map((c) => ({ ...c })),
   }
 }
 
@@ -52,11 +61,25 @@ export function restore(craft: Craft | null, s: SaveV1): { bank: Bank; wrecks: {
     craft.gearBent = s.craft.gearBent
     craft.landings = s.craft.landings
     craft.crashes = s.craft.crashes
+    craft.cargo.length = 0
+    for (const c of s.cargo ?? []) craft.cargo.push({ ...c })
   }
+  loadTowns(s.towns)
+  for (const d of s.seams ?? []) { const list = seamsOf(terrainOf(body(d.body))); if (list[d.i]) list[d.i].richness = d.richness }
   const wrecks = s.wrecks.map((w) => ({ body: w.body, wreck: Wreck.restore(terrainOf(body(w.body)), w.wreck) }))
   return { bank: Bank.fromJSON(s.bank), wrecks }
 }
 
 export function isSave(j: unknown): j is SaveV1 {
   return typeof j === 'object' && j !== null && (j as { v?: unknown }).v === 1 && typeof (j as { craft?: unknown }).craft === 'object'
+}
+
+/** Every seam that is not what the seed made it: dug into. */
+function dugSeams(): { body: string; i: number; richness: number }[] {
+  const out: { body: string; i: number; richness: number }[] = []
+  for (const b of SYSTEM) {
+    if (b.kind === 'sun' || b.kind === 'giant') continue
+    seamsOf(terrainOf(b)).forEach((s, i) => { if (s.dug) out.push({ body: b.id, i, richness: s.richness }) })
+  }
+  return out
 }

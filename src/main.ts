@@ -24,6 +24,8 @@
 //   ?outpost=3         start landed on home's third outpost (-3: hanging 300 m over it)
 //   ?assist=0          landing assist off (so a drop is a drop)
 //   G                  the scanner: pings the nearest seam on this body within range onto the compass
+//   U                  landed on a seam: dig a pod; landed at a town: sell what you carry
+//   ?seam=home:3       start landed on the fourth seam of a body (0-based)
 //   ?reset=1           forget the save (company, ship, wrecks) and start again; any placement
 //                      parameter (?over ?outpost ?station ?field ?t) also starts on that spot, books kept
 import * as THREE from 'three'
@@ -48,6 +50,7 @@ import { Wreck, buildWreckMeshes, syncWreckMeshes } from './engine/Wreck.ts'
 import { Bank } from './world/economy.ts'
 import { snapshot, restore, isSave } from './world/save.ts'
 import { seamsOf, type Seam } from './world/seams.ts'
+import { allTowns, townsOn, current, shortfall, priceAt, sell, tick as tickTown, type Town } from './world/town.ts'
 import { slopeDeg } from './world/terrain.ts'
 import { atmosphereDensity, buildAtmosphereShell } from './world/atmosphere.ts'
 import { SYSTEM, SETTLED, body, bodyPosition, bodySpin, type Body } from './world/system.ts'
@@ -61,14 +64,14 @@ import { Clouds } from './engine/Clouds.ts'
 import { CloudPuffs } from './engine/CloudPuffs.ts'
 import { front, rainOf, cloudOf, moonDirection, TIDE_AMPLITUDE } from './world/weather.ts'
 import { setGroundClock } from './world/terrain.ts'
-import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE , FUEL_TANK, HULL_CLEARANCE, HULL_LIMIT, HULL_WARN, HULL_GLOW, CLOUD_BASE_FRAC, WRECK_HOLD, FUEL_PRICE, REPAIR_PRICE, LOAN_STEP, INSURANCE, shownDistance } from './world/config.ts'
+import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE , FUEL_TANK, HULL_CLEARANCE, HULL_LIMIT, HULL_WARN, HULL_GLOW, CLOUD_BASE_FRAC, WRECK_HOLD, FUEL_PRICE, REPAIR_PRICE, LOAN_STEP, INSURANCE, DIG_SECONDS, POD_TONNES, shownDistance } from './world/config.ts'
 
 const q = new URLSearchParams(location.search)
 /** The save on disk, read once. ?reset=1 forgets it. A placement parameter starts you where it says, books kept. */
 const SAVE_KEY = 'noelite.save'
 const loadSave = () => { try { if (q.get('reset') === '1') localStorage.removeItem(SAVE_KEY); const raw = localStorage.getItem(SAVE_KEY); const j: unknown = raw ? JSON.parse(raw) : null; return isSave(j) ? j : null } catch { return null } }
 const saved = loadSave()
-const placed = ['over', 'outpost', 'station', 'field', 't'].some((k) => q.get(k) !== null)
+const placed = ['over', 'outpost', 'station', 'field', 't', 'seam'].some((k) => q.get(k) !== null)
 const mode: 'fly' | 'free' = q.get('mode') === 'free' ? 'free' : 'fly'
 // Dawn Shift: the opening. On by default on a plain start (no URL parameters), ?intro=1 forces
 // it, ?intro=0 skips it. Cold open on the pad in the dark, 103 s before sunrise (tools/sun-times).
@@ -205,6 +208,12 @@ ship.renderOrder = 2
 // distance) and Three multiplies matrices in float32, which puts it 100 m from where the
 // camera is looking. Bodies never showed this: their frames are 40 km across.
 world.add(ship)
+// Cargo pods, Lander style: drums clamped under the wings and on the spine, one per pod carried.
+const pods: THREE.Mesh[] = [[-2.0, -0.55, 1.4], [2.0, -0.55, 1.4], [0, -0.95, 1.9]].map(([x, y, z]) => {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 1.7, 8), new THREE.MeshLambertMaterial({ color: 0xc9a24a }))
+  ;(m.material as THREE.Material).name = 'pod'
+  m.rotation.x = Math.PI / 2; m.position.set(x, y, z); m.visible = false; ship.add(m); return m
+})
 ship.visible = mode === 'fly'
 const padSite = padOf(HOME)!
 const pad = new THREE.Vector3(padSite.dir.x, padSite.dir.y, padSite.dir.z)
@@ -291,6 +300,14 @@ craft.spawnOn(pad, new THREE.Vector3(1, 0, 0), 'surface', home)
     else console.warn(`?outpost=${op}: home has ${outpostsOf(HOME).length} outposts`)
   }
 }
+// ?seam=<body id>:<n> starts landed on that body's nth seam (0-based), for the dig.
+{
+  const sp = q.get('seam')
+  if (sp !== null) {
+    const [id, n] = sp.split(':'); const b = body(id); const list = seamsOf(terrainOf(b)); const sm = list[Number(n) || 0]
+    if (sm) craft.spawnOn(new THREE.Vector3(sm.dir.x, sm.dir.y, sm.dir.z), new THREE.Vector3(1, 0, 0), 'surface', b)
+  }
+}
 // ?assist=0 turns the landing assist off.
 if (q.get('assist') === '0') craft.assist = false
 // ?fuel=<units> starts with that much in the tank.
@@ -309,6 +326,50 @@ if (q.get('fuel') !== null) craft.fuel = Math.max(0, Math.min(FUEL_TANK, Number(
 const markers = new NavMarkers(document.body)
 const compass = new Compass(document.body)
 const compassItems: CompassItem[] = []
+// The first loop (DESIGN §10e-2, §10g): dig at a seam, carry, sell at a town. Towns run all the time.
+const cargoEl = document.getElementById('cargo')!, townEl = document.getElementById('town')!, townPre = townEl.querySelector('pre')!
+/** Seconds into the current dig, or -1. */
+let digging = -1
+/** The town the ship is landed at, if any: the pad's town. */
+const townHere = (): Town | null => {
+  const h = craft.padHere(); if (!h) return null
+  const id = h.station ? `${craft.ref.id}:station` : h.outpost ? `${craft.ref.id}:${h.outpost.n}` : null
+  return id ? townsOn(craft.terrain).find((t) => t.id === id) ?? null : null
+}
+const use = () => {
+  if (craft.state !== 'landed') return
+  const seam = craft.seamHere()
+  if (seam) {
+    if (digging >= 0) return
+    if (!craft.canLoad()) { toast('NO ROOM: THREE PODS'); return }
+    if (seam.richness <= 0) { toast('SEAM WORKED OUT'); return }
+    digging = 0; sound.click(); return
+  }
+  const town = townHere()
+  if (town) {
+    if (!craft.cargo.length) { toast('NOTHING TO SELL'); return }
+    let paid = 0
+    for (const c of craft.cargo) paid += sell(town, c.good, c.tonnes)
+    bank.earn(craft.time, 'SALE', paid)
+    craft.cargo.length = 0
+    toast(`SOLD FOR ${credits(paid)}`); sound.chime(); saveGame(); renderCompany()
+  }
+}
+/** A line on the intro element for a few seconds: the game talking back. */
+let toastUntil = 0
+const toastEl = document.getElementById('toast')!
+const toast = (msg: string) => { toastEl.hidden = false; toastEl.textContent = msg; toastUntil = elapsed + 4 }
+const renderTown = () => {
+  const town = townHere()
+  townEl.hidden = !town
+  if (!town) return
+  const p = current(town), sf = shortfall(town)
+  const stock = (Object.entries(town.stock) as [string, number][]).filter(([, v]) => v > 0.05).map(([g, v]) => `${g} ${v.toFixed(1)} t`).join('   ') || 'nothing'
+  const shorts = (Object.entries(sf) as [string, number][]).filter(([, v]) => v >= 0.05)
+  const job = p ? `${p.name}: ${Math.round(100 * p.progress / p.labour)}% built${shorts.length ? ', short of ' + shorts.map(([g, v]) => `${v.toFixed(1)} t ${g}`).join(', ') : ', all materials in'}` : 'nothing left on the works list'
+  const buys = craft.cargo.length ? '\n\nBUYS   ' + craft.cargo.map((c) => `${c.good} at ${priceAt(town, c.good as never).toFixed(0)} cr/t`).join('   ') + '   ·   U sells' : ''
+  townPre.textContent = `${town.name.toUpperCase()}   ${town.population} people\nSTOCK  ${stock}\nBUILDING  ${job}\nBUILT  ${town.built.join(', ') || 'nothing yet'}${buys}`
+}
 // The scanner (DESIGN §10g): G pings; for a while the nearest seam in range sits on the
 // compass as a blip with its good and distance, and the beeper quickens as you close.
 const SCAN_RANGE = 25_000
@@ -357,7 +418,15 @@ altimeter.hidden = mode !== 'fly'
   bootParts.push(part('.lights'), part('.scale, .readout'), part('#fuel'), part('.state, .atmos:not(#fuel)'))
   if (intro) for (const ps of bootParts) for (const e of ps) e.style.visibility = 'hidden'
 }
-const light = (el: HTMLElement, text: string, ok: boolean, armed: boolean) => { el.textContent = text; el.className = armed ? (ok ? 'ok' : 'bad') : '' }
+// A light holds its colour until the value is clear of the limit by a tenth, so a reading sitting on the line does not flicker (Chris, 2026-09-04).
+const lightState = new WeakMap<HTMLElement, boolean>()
+const light = (el: HTMLElement, text: string, value: number, limit: number, armed: boolean) => {
+  el.textContent = text
+  const was = lightState.get(el) ?? true
+  const ok = value < limit * 0.9 ? true : value > limit * 1.1 ? false : was
+  lightState.set(el, ok)
+  el.className = armed ? (ok ? 'ok' : 'bad') : ''
+}
 const atmosEl = document.getElementById('atmos')!
 const fuelEl = document.getElementById('fuel')!
 const hullEl = document.getElementById('hull')!
@@ -407,7 +476,8 @@ const GLOW = new THREE.Color(0xff5a1a)
     chase.orbitPitch = Math.min(ChaseCam.MAX_PITCH, Math.max(-ChaseCam.MAX_PITCH, chase.orbitPitch + (e.clientY - ly) * 0.006))
     lx = e.clientX; ly = e.clientY
   })
-  addEventListener('wheel', (e) => { if (mode === 'fly') chase.zoom = Math.min(3, Math.max(0.4, chase.zoom * Math.pow(1.1, e.deltaY / 100))) }, { passive: true })
+  // Not while the menu is up: scrolling the menu used to zoom the camera, and the camera is the ear (Chris, 2026-09-04: "sound disappeared after going into the menu").
+  addEventListener('wheel', (e) => { if (mode === 'fly' && !paused) chase.zoom = Math.min(3, Math.max(0.4, chase.zoom * Math.pow(1.1, e.deltaY / 100))) }, { passive: true })
 }
 
 const dir = new THREE.Vector3(), tmp = new THREE.Vector3(), sunDir = new THREE.Vector3()
@@ -470,7 +540,7 @@ let targetIndex = 0
 const toTarget = new THREE.Vector3()
 addEventListener('keydown', (e) => {
   sound.arm()
-  if (e.code === 'Escape') { paused = !paused; menu.hidden = !paused; if (paused) renderCompany(); return }
+  if (e.code === 'Escape') { paused = !paused; menu.hidden = !paused; if (paused) { renderCompany(); renderTown() } return }
   if (paused) {
     if (e.code === 'BracketRight') { bank.borrow(craft.time, LOAN_STEP); renderCompany(); saveBank() }
     if (e.code === 'BracketLeft') { bank.repay(craft.time, LOAN_STEP); renderCompany(); saveBank() }
@@ -485,6 +555,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyM') sound.muted = !sound.muted
   if (e.code === 'KeyC') chase.reset()
   if (e.code === 'KeyG' && mode === 'fly') scan()
+  if (e.code === 'KeyU' && mode === 'fly') use()
   if (e.code === 'KeyO') orbitAP.engaged = !orbitAP.engaged && craft.state === 'flying'
   if (e.code === 'Tab') { e.preventDefault(); if (bodyTargets.includes(target)) targetIndex = (targetIndex + (e.shiftKey ? bodyTargets.length - 1 : 1)) % bodyTargets.length; target = bodyTargets[targetIndex]; fieldIndex = -1 }
   if (e.code === 'KeyV') nextField()
@@ -637,6 +708,21 @@ renderer.setAnimationLoop((now) => {
     if (craft.bought.repair > 0) { const cost = craft.bought.repair * REPAIR_PRICE; bank.spend(craft.time, 'REPAIR', cost, false); pending.repair += cost; craft.bought.repair = 0 }
     else if (pending.repair > 0) { bank.note(craft.time, 'REPAIR', -pending.repair); pending.repair = 0; saveBank() }
     bank.accrue(dt, craft.time)
+    for (const tw of allTowns()) tickTown(tw, dt)
+    // The dig: landed inside a seam, a pod fills over DIG_SECONDS; lifting off abandons it.
+    if (digging >= 0) {
+      const seam = craft.seamHere()
+      if (!seam || craft.state !== 'landed') { digging = -1 }
+      else {
+        digging += dt
+        if (digging >= DIG_SECONDS) {
+          const took = Math.min(POD_TONNES, seam.richness); seam.richness -= took; seam.dug = true
+          craft.load(seam.good, took); digging = -1
+          toast(`${seam.good.toUpperCase()} ${took.toFixed(0)} t ABOARD   ·   ${seam.richness.toFixed(0)} t LEFT`); sound.chime(); saveGame()
+        }
+      }
+    }
+    if (toastUntil > 0 && elapsed > toastUntil) { toastEl.hidden = true; toastUntil = 0 }
     if (elapsed - savedAt > 5) { savedAt = elapsed; saveGame() }
     if (input.fire() && !orbitAP.engaged) { const b = craft.fire(); if (b) { sound.shot(); flashUntil[b.side > 0 ? 1 : 0] = now + 60 } }
     morph.flashes[0].visible = now < flashUntil[0]; morph.flashes[1].visible = now < flashUntil[1]
@@ -730,10 +816,10 @@ renderer.setAnimationLoop((now) => {
     const shownAlt = shownDistance(Math.max(0, altitude))
     altNum.textContent = altitude < 100 ? altitude.toFixed(1) : shownAlt < 100_000 ? shownAlt.toFixed(0) : `${(shownAlt / 1000).toFixed(0)}k`
     altimeter.className = !flying ? '' : altitude < 15 ? 'critical' : altitude < 40 ? 'low' : ''
-    light(lights.v, `V↑ ${vUp.toFixed(1)}`, vUp > -LAND_MAX_VSPEED, armed)
-    light(lights.d, `DRIFT ${drift.toFixed(1)}`, drift < LAND_MAX_HSPEED, armed)
-    light(lights.t, `TILT ${tilt.toFixed(0)}°`, tilt < LAND_MAX_TILT, armed)
-    light(lights.s, `SLOPE ${slope.toFixed(0)}°`, slope < LAND_MAX_SLOPE, armed)
+    light(lights.v, `V↑ ${vUp.toFixed(1)}`, -vUp, LAND_MAX_VSPEED, armed)
+    light(lights.d, `DRIFT ${drift.toFixed(1)}`, drift, LAND_MAX_HSPEED, armed)
+    light(lights.t, `TILT ${tilt.toFixed(0)}°`, tilt, LAND_MAX_TILT, armed)
+    light(lights.s, `SLOPE ${slope.toFixed(0)}°`, slope, LAND_MAX_SLOPE, armed)
     const here = craft.state === 'landed' ? craft.padHere() : null
     altState.textContent = craft.state === 'landed' ? (here?.station ? `DOCKED  PAD ${here.pad}` : here?.outpost ? `ON THE PAD  ${here.outpost.name.toUpperCase()}` : here ? 'ON THE PAD' : 'DOWN') : craft.state === 'crashed' ? (craft.sunk ? 'SUNK' : craft.burned ? 'BURNED' : 'WRECKED') : `${gearDown > 0.5 ? 'GEAR ↓' : 'GEAR ↑'}${craft.assisting ? '   ASSIST' : ''}`
     altimeter.classList.toggle('cracked', craft.gearBent)
@@ -754,6 +840,9 @@ renderer.setAnimationLoop((now) => {
       hullEl.textContent = over > 0.05 || craft.damage > 0 ? `HULL ${(over * 100).toFixed(0)}%${craft.damage > 0 ? `   DAMAGE ${(craft.damage * 100).toFixed(0)}%` : ''}${craft.gearBent ? '   GEAR BENT' : ''}${craft.cruise && rho > 0 ? '   RE-ENTRY: flip and brake' : ''}` : ''
       hullEl.className = 'atmos ' + (over > 1 ? 'dry' : over > HULL_WARN ? 'low' : '')
       bankEl.textContent = `${credits(bank.balance)}${bank.loan > 0 ? `   LOAN ${credits(bank.loan)}` : ''}`
+      const seamHere = craft.state === 'landed' ? craft.seamHere() : null
+      cargoEl.textContent = digging >= 0 ? `DIGGING ${Math.round(100 * digging / DIG_SECONDS)}%` : craft.cargo.length ? `CARGO ${craft.cargo.map((c) => `${c.good.toUpperCase()} ${c.tonnes.toFixed(0)} t`).join(' · ')}` : seamHere ? `ON SEAM  ${seamHere.good.toUpperCase()} ${seamHere.richness.toFixed(0)} t   U digs` : townHere() ? '' : ''
+      for (let i = 0; i < pods.length; i++) pods[i].visible = i < craft.cargo.length
       bankEl.className = 'atmos' + (bank.balance < 200 ? ' low' : '')
       const glow = Math.min(1, Math.max(0, (over - HULL_GLOW) / (HULL_WARN - HULL_GLOW)))
       shipMaterial.emissive.copy(GLOW).multiplyScalar(glow * 0.9)
@@ -884,7 +973,7 @@ void tmp
   mode, planet, craft, input, free, views, asteroids, ship,
   /** The opening's phase and the letterbox, for the probes. */
   phase: () => phase, barFrac: () => barFrac, titleBody: () => titleBody,
-  outposts: outpostViews, wrecks, bank, scan, scanHit: () => scanHit,
+  outposts: outpostViews, wrecks, bank, scan, scanHit: () => scanHit, use, digging: () => digging, townHere, towns: allTowns,
   /** True only once the LOD has updated since the last place() and its queue is empty. */
   ready: () => updates > placedAt + 1 && planet.pendingCount === 0,
   /** Free mode: put the camera at p looking at a. */

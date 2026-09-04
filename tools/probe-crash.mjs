@@ -7,6 +7,7 @@ import { createRequire } from 'node:module'
 const require = createRequire('/mnt/c/Users/chris/code/80sadventure/package.json')
 const puppeteer = require('puppeteer')
 import { join } from 'node:path'; import { readdirSync, existsSync } from 'node:fs'
+const BASE = process.env.NOELITE_URL ?? 'http://localhost:5175'   // a second dev server (npm run dev -- --port 5176) for work alongside play
 const chrome = () => { const d = join(process.env.HOME, '.cache/puppeteer/chrome'); for (const b of readdirSync(d).sort().reverse()) { const p = join(d, b, 'chrome-linux64', 'chrome'); if (existsSync(p)) return p } }
 const out = process.argv[2] ?? '.'
 const browser = await puppeteer.launch({ executablePath: chrome(), args: ['--no-sandbox', '--use-gl=swiftshader', '--enable-unsafe-swiftshader'] })
@@ -16,7 +17,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 let bad = 0
 const fail = (m) => { console.log('FAIL ' + m); bad++ }
 // No wait for the LOD here: the drop starts on the first frame and the hold runs on game time.
-const go = async (url) => { await page.goto('http://localhost:5175/' + url, { waitUntil: 'domcontentloaded' }); await page.waitForFunction(() => globalThis.__noelite !== undefined, { timeout: 30000, polling: 100 }) }
+const go = async (url) => { await page.goto(BASE + '/' + url, { waitUntil: 'domcontentloaded' }); await page.waitForFunction(() => globalThis.__noelite !== undefined, { timeout: 30000, polling: 100 }) }
 const ready = () => page.waitForFunction(() => globalThis.__noelite.ready() === true, { timeout: 90000, polling: 250 }).catch(() => console.error('WARN: LOD queue did not drain'))
 const state = () => page.evaluate(() => globalThis.__noelite.craft.state)
 const read = () => page.evaluate(() => { const n = globalThis.__noelite; const w = n.wrecks.at(-1); return { state: n.craft.state, sunk: n.craft.sunk, damage: +n.craft.damage.toFixed(2), gearBent: n.craft.gearBent, shipVisible: n.ship.visible, wrecks: n.wrecks.length, pieces: w ? w.wreck.pieces.length : 0, settled: w ? w.wreck.settled() : null, inScene: w ? w.meshes.every((m) => m.parent !== null) : null, alt: document.getElementById('alt-state').textContent, hull: document.getElementById('hull').textContent, cracked: document.getElementById('altimeter').classList.contains('cracked') } })

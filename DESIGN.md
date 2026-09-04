@@ -1115,3 +1115,31 @@ scanner: a ping, and for twelve seconds the nearest seam within 25 km sits on th
 as a blip with its good, tonnage and distance, the beeper quickening from every two
 seconds at range to four a second on top of it. Nothing in range says so. Digging waits
 on cargo. Range and hold are the first scanner upgrade.
+
+**Backlog added 2026-09-04, late (Chris):** a **demo mode**, the computer playing the game
+so a new player sees how it works: an attract loop that takes off, scans, digs, flies to a
+town, sells, and comes back, on the same controllers the harnesses use, with the HUD live.
+A **jet mode**: a second flight model in air, wings and lift, banking turns, a stall, nose
+down to get somewhere fast, flicked to and from the hover ship with a key; "current is
+quite floaty, takes ages to get to the ground from a height." Until then `/` in hover is
+a dive: the top thruster pushes down harder than before and the assist still catches you.
+
+**The first loop, built 2026-09-04 late (items 1 to 3 of the list).** `src/world/town.ts`:
+every outpost and station is a town with a population, a stock, a works list (a
+warehouse, a water plant, a bigger pad, a workshop, a rail spur; bills in tonnes, labour
+in worker-seconds) and a built list. Workers drink water and lick salt from the stock;
+watered and salted the town grows 4% a cycle, thirsty it shrinks 6% to a floor of four.
+The current job advances by workers × the share of its bill on hand and can never get
+further than what has been delivered, drawing materials in as it goes; the workers
+eating the salt meant for the job is a real stall, and the harness has it. A town pays
+base for a good, up to 60% over when its current job is short of it, half for what it
+has no use for. Cargo: three pods of four tonnes on the hull, drawn as drums under the
+wings and on the spine; mass divides thrust, RCS and turning and multiplies drag, so a
+full ship climbs a third as fast and rolls half as fast. **U** landed on a seam digs a pod
+in twenty seconds (the seam remembers, the save keeps it); **U** landed at a town sells
+everything aboard. The panel shows ON SEAM, DIGGING, CARGO; the pause menu shows the
+town: people, stock, the job and what it is short of, what it has built, what it would
+pay for what you carry. Towns run all the time. `tools/verify-town.mjs` (23) and
+`tools/probe-loop.mjs`. Also tonight: the wheel no longer zooms the camera (the ear)
+while the menu scrolls, the landing lights hold their colour until a reading is a tenth
+clear of its limit, the panel lines keep their height, and `/` in hover is a dive.

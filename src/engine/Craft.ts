@@ -16,6 +16,7 @@
 import * as THREE from 'three'
 import type { Terrain } from '../world/height.ts'
 import { terrainOf, padOf, stationOf, outpostsOf, type Station, type Outpost } from '../world/height.ts'
+import { seamsOf, type Seam, type Good } from '../world/seams.ts'
 import { groundRadius, surfaceNormal, slopeDeg, setGroundClock, isDry } from '../world/terrain.ts'
 import { wind } from '../world/weather.ts'
 import { atmosphereDensity } from '../world/atmosphere.ts'
@@ -27,7 +28,7 @@ import {
   BOOST_MULT, GROUND_EFFECT_HEIGHT, GROUND_EFFECT_ACCEL_G, GROUND_EFFECT_DAMP, GRAVITY_FALLOFF, RCS_ACCEL,
   CRUISE_ENTER, CRUISE_EXIT, CRUISE_FLOOR, CRUISE_ALIGN_TAU, CRUISE_MAX, CRUISE_FLOOR_SPEED, CRUISE_BRAKE, CRUISE_DECEL, CRUISE_SECONDS, CRUISE_SPOOL,
   FUEL_TANK, FUEL_HOVER_BURN, FUEL_CRUISE_BURN, FUEL_RCS_BURN, FUEL_PAD_REFILL, FUEL_SOLAR_TRICKLE, FUEL_RELIGHT, PAD_RADIUS,
-  CRASH_DAMAGE_SCALE, CRASH_MIN_DAMAGE, FUEL_PRICE, REPAIR_PRICE,
+  CRASH_DAMAGE_SCALE, CRASH_MIN_DAMAGE, FUEL_PRICE, REPAIR_PRICE, CARGO_PODS, POD_TONNES, SHIP_TONNES, POD_DRAG, DIVE_ACCEL,
   GUN_RANGE, GUN_COOLDOWN, ICE_REACH, BOLT_SPEED,
   GUN_MUZZLE, HEAT_K, HEAT_RAMP_LO, HEAT_RAMP_HI, HEAT_RAMP_MIN, HEAT_TAU, COOL_RATE, COOL_MIN, HULL_LIMIT, DAMAGE_TAU, HOVER_MAX_SPEED,
 } from '../world/config.ts'
@@ -139,6 +140,22 @@ export class Craft {
   credit = Infinity
   /** What the ship took at pads since the game last drained it: fuel units and hull repaired (0..1). The game charges these. */
   readonly bought = { fuel: 0, repair: 0 }
+  /** The pods on the hull (DESIGN §10): each a good and its tonnes. Mass is felt three ways: thrust, turning and drag. */
+  readonly cargo: { good: Good; tonnes: number }[] = []
+  cargoTonnes(): number { let t = 0; for (const c of this.cargo) t += c.tonnes; return t }
+  /** How much heavier the ship is with what it carries: 1 empty. Divides every acceleration. */
+  massFactor(): number { return 1 + this.cargoTonnes() / SHIP_TONNES }
+  /** Room for another pod? */
+  canLoad(): boolean { return this.cargo.length < CARGO_PODS }
+  /** Put a pod aboard; false if there is no room. */
+  load(good: Good, tonnes = POD_TONNES): boolean { if (!this.canLoad()) return false; this.cargo.push({ good, tonnes }); return true }
+  /** The seam the craft is landed inside, if any. */
+  seamHere(): Seam | null {
+    if (this.state !== 'landed') return null
+    this.up.copy(this.pos).normalize()
+    for (const s of seamsOf(this.terrain)) if (Math.acos(Math.min(1, this.up.x * s.dir.x + this.up.y * s.dir.y + this.up.z * s.dir.z)) * this.terrain.radius < s.radius) return s
+    return null
+  }
   /** Contact velocity in the local frame at the last touchdown or crash, for the debris. */
   readonly contactVel = new THREE.Vector3()
   /** Bolts in flight, heliocentric. A pool; `alive` says which count. */
@@ -466,9 +483,11 @@ export class Craft {
     // Near the ground the attitude holds against the ground, which turns under an
     // inertial craft at 9° a minute on a 40-minute day; by twice CRUISE_FLOOR it holds
     // against the stars. Rotation, not force: blending it is harmless.
-    this.angVel.x -= c.pitch * ANG_ACCEL * h
-    this.angVel.z -= c.roll * ANG_ACCEL * h
-    this.angVel.y -= c.yaw * ANG_ACCEL * 0.6 * h
+    // Loaded, the ship turns as it climbs: slower by its mass.
+    const mass = this.massFactor()
+    this.angVel.x -= (c.pitch * ANG_ACCEL * h) / mass
+    this.angVel.z -= (c.roll * ANG_ACCEL * h) / mass
+    this.angVel.y -= (c.yaw * ANG_ACCEL * 0.6 * h) / mass
     this.angVel.multiplyScalar(Math.exp(-ANG_DAMP * h))
     this.dq.set(this.angVel.x * h * 0.5, this.angVel.y * h * 0.5, this.angVel.z * h * 0.5, 1).normalize()
     this.hquat.multiply(this.dq).normalize()
@@ -478,7 +497,7 @@ export class Craft {
       this.hquat.premultiply(this.dq).normalize()
     }
 
-    const mainThrust = THRUST_ACCEL * c.thrust * (1 + c.boost * (BOOST_MULT - 1))
+    const mainThrust = (THRUST_ACCEL * c.thrust * (1 + c.boost * (BOOST_MULT - 1))) / mass
     const cap = this.cap()
     // What this substep costs. Boost multiplies burn the way it multiplies thrust; the
     // cruise brake burns like the cruise engine; the RCS sips.
@@ -506,8 +525,10 @@ export class Craft {
     // RCS: small pushes along the body axes. Translation without tilting. In cruise the
     // top thruster is the brake instead, handled above.
     if (c.lateral || (c.vertical && !this.cruise) || c.fore) {
-      this.rcs.set(c.lateral, this.cruise ? 0 : c.vertical, -c.fore).multiplyScalar(RCS_ACCEL).applyQuaternion(this.hquat)
+      this.rcs.set(c.lateral, this.cruise ? 0 : c.vertical, -c.fore).multiplyScalar(RCS_ACCEL / mass).applyQuaternion(this.hquat)
       this.acc.add(this.rcs)
+      // The dive: / in hover, off the pad, pushes down toward the ground; the assist's floor still holds.
+      if (!this.cruise && c.vertical < 0 && this.state === 'flying') this.acc.addScaledVector(this.up, (-DIVE_ACCEL * -c.vertical) / mass)
     }
     // Ground effect. A cushion in the last few metres, plus damping against
     // descent, both fading to nothing at GROUND_EFFECT_HEIGHT. It is the ground
@@ -525,7 +546,7 @@ export class Craft {
       this.tmp.copy(this.wind).applyQuaternion(this.spin)
       this.tmp.subVectors(this.vRel, this.tmp)
       const speed = this.tmp.length()
-      if (speed > 0) this.acc.addScaledVector(this.tmp, -DRAG * rhoNow * speed)
+      if (speed > 0) this.acc.addScaledVector(this.tmp, (-DRAG * rhoNow * speed * (1 + POD_DRAG * this.cargo.length)) / mass)
       this.heat(rhoNow, speed, h)
     } else { this.wind.set(0, 0, 0); this.heat(0, 0, h) }
     if (this.damage >= 1) { this.burnUp(); return }

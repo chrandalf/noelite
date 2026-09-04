@@ -6,11 +6,12 @@ import { createRequire } from 'node:module'
 const require = createRequire('/mnt/c/Users/chris/code/80sadventure/package.json')
 const puppeteer = require('puppeteer')
 import { join } from 'node:path'; import { readdirSync, existsSync } from 'node:fs'
+const BASE = process.env.NOELITE_URL ?? 'http://localhost:5175'   // a second dev server (npm run dev -- --port 5176) for work alongside play
 const chrome = () => { const d = join(process.env.HOME, '.cache/puppeteer/chrome'); for (const b of readdirSync(d).sort().reverse()) { const p = join(d, b, 'chrome-linux64', 'chrome'); if (existsSync(p)) return p } }
 const browser = await puppeteer.launch({ executablePath: chrome(), args: ['--no-sandbox', '--use-gl=swiftshader', '--enable-unsafe-swiftshader'] })
 const page = await browser.newPage(); await page.setViewport({ width: 960, height: 600 })
 page.on('pageerror', (e) => console.error('PAGE ERROR:', e.message))
-await page.goto('http://localhost:5175/', { waitUntil: 'domcontentloaded' })
+await page.goto(BASE + '/', { waitUntil: 'domcontentloaded' })
 await page.waitForFunction(() => globalThis.__noelite?.ready?.() === true, { timeout: 90000, polling: 250 })
 const read = () => page.evaluate(() => { const n = globalThis.__noelite; return { alt: +n.craft.altitude().toFixed(1), state: n.craft.state, bar: document.querySelector('.bar').style.height, phase: n.phase(), fuel: +n.craft.fuel.toFixed(1), thr: n.craft.thrusting, ctl: n.input.read().thrust } })
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -44,7 +45,7 @@ console.log(gone === null ? 'FAIL bars never opened' : `bars gone at ${gone} m`)
 const cardLater = await page.evaluate(() => document.getElementById('title').classList.contains('on'))
 if (cardLater) { console.log('FAIL the arrival card should have gone by the time you are 100 m up'); bad++ }
 // Arriving at the moon gets its own card.
-await page.goto('http://localhost:5175/?over=home-1:2000&t=700', { waitUntil: 'domcontentloaded' })
+await page.goto(BASE + '/?over=home-1:2000&t=700', { waitUntil: 'domcontentloaded' })
 await page.waitForFunction(() => globalThis.__noelite?.titleBody?.() !== null, { timeout: 60000, polling: 250 })
 const moon = await page.evaluate(() => ({ on: document.getElementById('title').classList.contains('on'), name: document.querySelector('#title h1').textContent, line: document.querySelector('#title p').textContent }))
 console.log('moon ', moon)

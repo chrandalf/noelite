@@ -582,6 +582,17 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol
   check('after a crash and respawn, three seconds of thrust lifts it straight', g.state === 'flying' && g.altitude() > 15 && g.tilt() < 6, `alt ${g.altitude().toFixed(1)} m, tilt ${g.tilt().toFixed(1)}°`)
 }
 
+// 27b. The dive: / from 2 km gets you down fast, and the assist still lands it.
+{
+  const d = new Craft(HOME); d.windy = false
+  d.placeAbove(body('home'), pad, 2000)
+  until(d, () => false, 8, () => ({ ...IDLE, vertical: -1 }))
+  const vDive = -d.vUp()
+  check('holding / from 2 km reaches a proper dive inside 8 s', vDive > 60, `${vDive.toFixed(0)} m/s down at ${d.altitude().toFixed(0)} m`)
+  const tD = until(d, (c) => c.state !== 'flying', 120, () => ({ ...IDLE, vertical: -1 }))
+  check('and held all the way down the assist still lands it', d.state === 'landed', `${d.state} after ${(8 + tD).toFixed(0)} s at v↑ ${d.lastContact.vUp.toFixed(1)}`)
+}
+
 // 28. Crashes (DESIGN §10): contact damage from speed, a hard landing short of a whole hull,
 // a wreck at one, debris that comes to rest on the ground near the site, water that sinks.
 {

@@ -5,13 +5,14 @@ import { createRequire } from 'node:module'
 const require = createRequire('/mnt/c/Users/chris/code/80sadventure/package.json')
 const puppeteer = require('puppeteer')
 import { join } from 'node:path'; import { readdirSync, existsSync } from 'node:fs'
+const BASE = process.env.NOELITE_URL ?? 'http://localhost:5175'   // a second dev server (npm run dev -- --port 5176) for work alongside play
 const chrome = () => { const d = join(process.env.HOME, '.cache/puppeteer/chrome'); for (const b of readdirSync(d).sort().reverse()) { const p = join(d, b, 'chrome-linux64', 'chrome'); if (existsSync(p)) return p } }
 const browser = await puppeteer.launch({ executablePath: chrome(), args: ['--no-sandbox', '--use-gl=swiftshader', '--enable-unsafe-swiftshader'] })
 const page = await browser.newPage(); await page.setViewport({ width: 960, height: 600 })
 page.on('pageerror', (e) => console.error('PAGE ERROR:', e.message))
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 let bad = 0; const fail = (m) => { console.log('FAIL ' + m); bad++ }
-await page.goto('http://localhost:5175/?over=home:2000&t=700&pitch=0.2', { waitUntil: 'domcontentloaded' })
+await page.goto(BASE + '/?over=home:2000&t=700&pitch=0.2', { waitUntil: 'domcontentloaded' })
 await page.waitForFunction(() => globalThis.__noelite?.ready?.() === true, { timeout: 90000, polling: 250 })
 await page.keyboard.press('KeyG'); await sleep(700)
 const r = await page.evaluate(() => { const n = globalThis.__noelite; const h = n.scanHit(); const el = [...document.querySelectorAll('#compass .tick.seam')][0]; return { hit: h ? { good: h.seam.good, t: h.seam.richness, km: +(h.rel.distanceTo(n.craft.pos) / 1000).toFixed(1) } : null, tick: el ? el.textContent : null } })

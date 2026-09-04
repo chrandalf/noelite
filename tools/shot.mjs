@@ -5,6 +5,7 @@ const require = createRequire('/mnt/c/Users/chris/code/80sadventure/package.json
 const puppeteer = require('puppeteer')
 import { join } from 'node:path'
 import { readdirSync, existsSync } from 'node:fs'
+const BASE = process.env.NOELITE_URL ?? 'http://localhost:5175'   // a second dev server (npm run dev -- --port 5176) for work alongside play
 
 // puppeteer pins a Chrome build it never installed. Use the newest one actually on the box.
 function chrome() {
@@ -14,7 +15,7 @@ function chrome() {
   }
 }
 
-const [out = 'shot.png', url = 'http://localhost:5175/'] = process.argv.slice(2)
+const [out = 'shot.png', url = BASE + '/'] = process.argv.slice(2)
 const browser = await puppeteer.launch({ executablePath: chrome(), args: ['--no-sandbox', '--use-gl=swiftshader', '--enable-unsafe-swiftshader'] })
 const page = await browser.newPage()
 await page.setViewport({ width: 960, height: 600 })

@@ -10,7 +10,7 @@ import { SYSTEM, body } from './system.ts'
 import { rng } from './noise.ts'
 
 export type Good = 'water' | 'timber' | 'ore' | 'salt' | 'crystal' | 'ice' | 'helium' | 'sulphur'
-export type Seam = { dir: UnitVector; h: number; good: Good; /** Tonnes in the ground. */ richness: number; /** Metres: land inside it to dig. */ radius: number; tier: 1 | 2 | 3 }
+export type Seam = { dir: UnitVector; h: number; good: Good; /** Tonnes in the ground. */ richness: number; /** Metres: land inside it to dig. */ radius: number; tier: 1 | 2 | 3; /** True once dug into, so the save keeps what is left. */ dug?: boolean }
 
 export const SEAMS_PER_BODY = 12
 /** A dwarf gets half a dozen; there is only so much ground. */
