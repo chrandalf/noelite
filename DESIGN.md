@@ -921,10 +921,41 @@ weather, re-entry. Subcontracting is the clever bit: a route you have proven pay
 runs without you, and the carrier is a real ship you can watch, delayed by the same
 weather. Research report to come in `research/trade-economy-2026-09-04.md`.
 
-**Build order for the spine:** (1) money: a balance, a starting loan and interest, credits
-on the HUD, fuel and repair charged, a ledger in the pause menu; (2) industries: one per
+**Later the same evening, Chris:** "Once industries get big enough, we need to see routes on
+the planets underway with train lines being connected between them, will add to the trade.
+You watch them be built, as the infrastructure on a planet gets bigger because of the extra
+trade routes, it expands and grows out to other planets."
+
+**My read of that.** Infrastructure is a function of delivered volume, the Tycoon rule that
+a served industry grows. Each industry has a level from what has been delivered to it. At
+a threshold a pair of industries you have kept supplied gets a rail line: a great-circle
+track laid segment by segment over game time, visible from the air, bridges over water and
+cuts through hills, and once it is finished a train runs it, a moving mesh on the arc. A
+connected pair then trades on its own at a thin margin, which pushes your money to the
+legs rail cannot do: between bodies, through weather, the first delivery to a place with
+no line yet. When a body's network is dense enough its station launches its own freighters
+on visible transfer orbits to the next body, which is how the world grows out without you,
+and the subcontractor in the brief is the first, smallest case of the same idea. Cost: a
+track is a line on a sphere with a height sample per segment, a train is a point moving
+along it. It is cheap to draw and the harness can check that a track never leaves the
+ground and a train never leaves the track.
+
+**Money, built 2026-09-04 evening.** `src/world/economy.ts`, a Bank: balance, loan,
+ledger, `spend` (refused when short), `earn`, `accrue` (interest continuous, booked per
+whole credit), `borrow` to LOAN_MAX, `repay`. Craft gets `credit` (set by the game each
+step) and `bought` counters; a pad sells fuel at FUEL_PRICE a unit while the credit lasts,
+the sun trickles free, a station repairs at REPAIR_PRICE a hull and straightens the gear at
+zero. The game charges continuously and books one FUEL or REPAIR line when the fill stops.
+The panel shows the balance and the loan; the pause menu has a COMPANY block with the last
+ten lines; `[` repays 500, `]` borrows 500; saved in localStorage every five seconds and on
+every line, `?reset=1` forgets it. Start: 2,000 cash, 2,000 loan, 2% a day, 10,000 cap.
+`tools/verify-economy.mjs` (14) and `tools/probe-bank.mjs`. Every number is a guess.
+
+**Build order for the spine:** (1) money (done): a balance, a starting loan and interest,
+credits on the HUD, fuel and repair charged, a ledger in the pause menu; (2) industries: one per
 outpost and at the station, typed from the terrain, with stock, production and demand;
 (3) goods and cargo pods with mass on the hull; (4) the contract board: deliver, fetch,
 dig; (5) routes: a recurring contract, a bonus for on-time; (6) subcontractors: a carrier
 ship that flies the route visibly for a cut; (7) the shop: tank, drive, heat shield,
-pods, scanner, digger, gear.
+pods, scanner, digger, gear; (8) industry levels from delivered volume, rail between
+served pairs built over time, trains on them, then freighters between bodies.

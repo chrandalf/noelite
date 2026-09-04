@@ -158,6 +158,19 @@ export const PAD_RADIUS = 20
 export const ROCK_HP_PER_METRE = 1 / 40
 /** Fuel units an ice rock gives per metre of radius, and the most any one rock gives. A 40 m ice rock is a fifth of a tank. */
 export const ICE_FUEL_PER_METRE = 0.5
+
+// ---- Money (DESIGN §10e). Credits. Every number here is a first guess for Chris to tune.
+/** What you start with, and the loan you start owing (OpenTTD's shape: cash equal to the loan). */
+export const START_CASH = 2000
+export const START_LOAN = 2000
+export const LOAN_MAX = 10_000
+export const LOAN_STEP = 500
+/** Interest on the loan per game day (DAY_LENGTH), charged continuously. */
+export const LOAN_RATE_PER_DAY = 0.02
+/** Credits per unit of fuel at a pad; a full tank is FUEL_TANK × this. */
+export const FUEL_PRICE = 2
+/** Credits to repair a whole hull (damage 1 → 0) at a station. */
+export const REPAIR_PRICE = 600
 export const ICE_FUEL_MAX = 60
 /** Metres a bolt flies before it dies, the seconds between shots, and how fast a bolt leaves the gun (relative to the ship). Chris, 2026-09-03: "need to see more a projectile shot." */
 export const GUN_RANGE = 3000

@@ -74,6 +74,11 @@
       #altimeter .atmos { text-align: right; opacity: 0.75; }
       #altimeter .atmos.vacuum { color: #ffd56a; opacity: 1; letter-spacing: 0.2em; }
       #altimeter #fuel.low { color: #ffd56a; opacity: 1; }
+      #altimeter #bank { color: #e8e0a0; }
+      #altimeter #bank.low { color: #ffb0a0; opacity: 1; }
+      #menu #company { flex-basis: 100%; }
+      #menu #company pre { margin: 0; font: inherit; color: #d8e8d8; white-space: pre; }
+      #menu #company .keys { margin-top: 6px; opacity: 0.7; }
       #altimeter #fuel.dry { color: #ffb0a0; opacity: 1; letter-spacing: 0.2em; }
       #altimeter[hidden] { display: none; }
       .nav {
@@ -141,6 +146,7 @@
           <tr><td>Esc</td><td>pause, and this menu</td></tr>
           <tr><td>?intro=0</td><td>in the address bar skips the opening</td></tr>
         </table></div>
+        <div id="company"><h2>COMPANY</h2><pre></pre><div class="keys">[ repay 500    ] borrow 500    interest 2% a day on the loan</div></div>
         <div class="foot">Esc to fly</div>
       </div>
     </div>
@@ -157,6 +163,7 @@
         <div class="atmos" id="atmos"></div>
         <div class="atmos" id="fuel"></div>
         <div class="atmos" id="hull"></div>
+        <div class="atmos" id="bank"></div>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>

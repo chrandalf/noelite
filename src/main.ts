@@ -23,6 +23,7 @@
 //   ?station=2         start landed on pad 2 of home's station (0: hanging 300 m over it)
 //   ?outpost=3         start landed on home's third outpost (-3: hanging 300 m over it)
 //   ?assist=0          landing assist off (so a drop is a drop)
+//   ?reset=1           forget the company (money, loan, ledger) and start again
 import * as THREE from 'three'
 import { PlanetLOD } from './world/lod.ts'
 import { FlyCam } from './engine/FlyCam.ts'
@@ -41,6 +42,7 @@ import { buildPad } from './engine/Pad.ts'
 import { buildStation, updateStation, type StationView } from './engine/Station.ts'
 import { buildBase, updateBase, type BaseView } from './engine/Base.ts'
 import { Wreck, buildWreckMeshes, syncWreckMeshes } from './engine/Wreck.ts'
+import { Bank } from './world/economy.ts'
 import { slopeDeg } from './world/terrain.ts'
 import { atmosphereDensity, buildAtmosphereShell } from './world/atmosphere.ts'
 import { SYSTEM, body, bodyPosition, bodySpin, type Body } from './world/system.ts'
@@ -54,7 +56,7 @@ import { Clouds } from './engine/Clouds.ts'
 import { CloudPuffs } from './engine/CloudPuffs.ts'
 import { front, rainOf, cloudOf, moonDirection, TIDE_AMPLITUDE } from './world/weather.ts'
 import { setGroundClock } from './world/terrain.ts'
-import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE , FUEL_TANK, HULL_CLEARANCE, HULL_LIMIT, HULL_WARN, HULL_GLOW, CLOUD_BASE_FRAC, WRECK_HOLD, shownDistance } from './world/config.ts'
+import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE , FUEL_TANK, HULL_CLEARANCE, HULL_LIMIT, HULL_WARN, HULL_GLOW, CLOUD_BASE_FRAC, WRECK_HOLD, FUEL_PRICE, REPAIR_PRICE, LOAN_STEP, shownDistance } from './world/config.ts'
 
 const q = new URLSearchParams(location.search)
 const mode: 'fly' | 'free' = q.get('mode') === 'free' ? 'free' : 'fly'
@@ -333,6 +335,20 @@ const light = (el: HTMLElement, text: string, ok: boolean, armed: boolean) => { 
 const atmosEl = document.getElementById('atmos')!
 const fuelEl = document.getElementById('fuel')!
 const hullEl = document.getElementById('hull')!
+// The company (DESIGN §10e): money, a loan, a ledger; saved in the browser, ?reset=1 forgets it.
+const bankEl = document.getElementById('bank')!, companyEl = document.querySelector<HTMLElement>('#company pre')!
+const SAVE_KEY = 'noelite.company'
+const loadBank = (): Bank => { try { if (q.get('reset') === '1') localStorage.removeItem(SAVE_KEY); const raw = localStorage.getItem(SAVE_KEY); return Bank.fromJSON(raw ? JSON.parse(raw) : null) } catch { return new Bank() } }
+const bank = loadBank()
+let savedAt = 0
+/** Running pad charges, booked as one FUEL or REPAIR line when the fill stops. */
+const pending = { fuel: 0, repair: 0 }
+const saveBank = () => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(bank)) } catch { /* private window, or storage off: the company lives for the session */ } }
+const credits = (v: number) => `${Math.round(v).toLocaleString('en-GB')} cr`
+const renderCompany = () => {
+  const lines = bank.ledger.slice(-10).reverse().map((e) => `${localTime(e.t)}   ${e.what.padEnd(10)} ${(e.amount >= 0 ? '+' : '') + Math.round(e.amount).toLocaleString('en-GB').padStart(8)}`)
+  companyEl.textContent = `BALANCE ${credits(bank.balance).padStart(12)}      LOAN ${credits(bank.loan).padStart(12)}\n\n${lines.join('\n') || 'no transactions yet'}`
+}
 const GLOW = new THREE.Color(0xff5a1a)
 // Drag orbits the chase camera, wheel zooms, C resets.
 {
@@ -409,7 +425,12 @@ let targetIndex = 0
 const toTarget = new THREE.Vector3()
 addEventListener('keydown', (e) => {
   sound.arm()
-  if (e.code === 'Escape') { paused = !paused; menu.hidden = !paused; return }
+  if (e.code === 'Escape') { paused = !paused; menu.hidden = !paused; if (paused) renderCompany(); return }
+  if (paused) {
+    if (e.code === 'BracketRight') { bank.borrow(craft.time, LOAN_STEP); renderCompany(); saveBank() }
+    if (e.code === 'BracketLeft') { bank.repay(craft.time, LOAN_STEP); renderCompany(); saveBank() }
+    return
+  }
   if (mode !== 'fly' || paused) return
   if (phase === 'dark' && elapsed > 1) { phase = 'boot'; phaseAt = elapsed; sound.standby = false; sound.reactor(); return }
   if (phase === 'dark' || phase === 'boot') return
@@ -546,7 +567,15 @@ renderer.setAnimationLoop((now) => {
     tmp.set(0, 0, -1).applyQuaternion(craft.quat)
     craft.arrive = toTarget.lengthSq() > 0 && tmp.dot(toTarget) / toTarget.length() > 0.86 ? toTarget.length() - tgt.radius : Infinity
     craft.arriveFloor = tgt.field === null
+    craft.credit = bank.balance
     craft.step(dt, c)
+    // Charge what the pad sold; the loan earns its keep; save now and then.
+    if (craft.bought.fuel > 0) { const cost = craft.bought.fuel * FUEL_PRICE; bank.spend(craft.time, 'FUEL', cost, false); pending.fuel += cost; craft.bought.fuel = 0 }
+    else if (pending.fuel > 0) { bank.note(craft.time, 'FUEL', -pending.fuel); pending.fuel = 0; saveBank() }
+    if (craft.bought.repair > 0) { const cost = craft.bought.repair * REPAIR_PRICE; bank.spend(craft.time, 'REPAIR', cost, false); pending.repair += cost; craft.bought.repair = 0 }
+    else if (pending.repair > 0) { bank.note(craft.time, 'REPAIR', -pending.repair); pending.repair = 0; saveBank() }
+    bank.accrue(dt, craft.time)
+    if (elapsed - savedAt > 5) { savedAt = elapsed; saveBank() }
     if (input.fire() && !orbitAP.engaged) { const b = craft.fire(); if (b) { sound.shot(); flashUntil[b.side > 0 ? 1 : 0] = now + 60 } }
     morph.flashes[0].visible = now < flashUntil[0]; morph.flashes[1].visible = now < flashUntil[1]
     if (craft.hits.length) { asteroids.hits(craft.hits, craft.time); for (const h of craft.hits) { sound.hit(h.broke); if (h.fuel > 0) sound.chime() }; craft.hits.length = 0 }
@@ -664,6 +693,8 @@ renderer.setAnimationLoop((now) => {
       const over = craft.hull / HULL_LIMIT
       hullEl.textContent = over > 0.05 || craft.damage > 0 ? `HULL ${(over * 100).toFixed(0)}%${craft.damage > 0 ? `   DAMAGE ${(craft.damage * 100).toFixed(0)}%` : ''}${craft.gearBent ? '   GEAR BENT' : ''}${craft.cruise && rho > 0 ? '   RE-ENTRY: flip and brake' : ''}` : ''
       hullEl.className = 'atmos ' + (over > 1 ? 'dry' : over > HULL_WARN ? 'low' : '')
+      bankEl.textContent = `${credits(bank.balance)}${bank.loan > 0 ? `   LOAN ${credits(bank.loan)}` : ''}`
+      bankEl.className = 'atmos' + (bank.balance < 200 ? ' low' : '')
       const glow = Math.min(1, Math.max(0, (over - HULL_GLOW) / (HULL_WARN - HULL_GLOW)))
       shipMaterial.emissive.copy(GLOW).multiplyScalar(glow * 0.9)
       for (const m of glowMats) m.emissive.copy(GLOW).multiplyScalar(glow * 0.7)
@@ -773,7 +804,7 @@ void tmp
   mode, planet, craft, input, free, views, asteroids, ship,
   /** The opening's phase and the letterbox, for the probes. */
   phase: () => phase, barFrac: () => barFrac, titleBody: () => titleBody,
-  outposts: outpostViews, wrecks,
+  outposts: outpostViews, wrecks, bank,
   /** True only once the LOD has updated since the last place() and its queue is empty. */
   ready: () => updates > placedAt + 1 && planet.pendingCount === 0,
   /** Free mode: put the camera at p looking at a. */

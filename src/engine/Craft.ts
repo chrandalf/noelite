@@ -27,7 +27,7 @@ import {
   BOOST_MULT, GROUND_EFFECT_HEIGHT, GROUND_EFFECT_ACCEL_G, GROUND_EFFECT_DAMP, GRAVITY_FALLOFF, RCS_ACCEL,
   CRUISE_ENTER, CRUISE_EXIT, CRUISE_FLOOR, CRUISE_ALIGN_TAU, CRUISE_MAX, CRUISE_FLOOR_SPEED, CRUISE_BRAKE, CRUISE_DECEL, CRUISE_SECONDS, CRUISE_SPOOL,
   FUEL_TANK, FUEL_HOVER_BURN, FUEL_CRUISE_BURN, FUEL_RCS_BURN, FUEL_PAD_REFILL, FUEL_SOLAR_TRICKLE, FUEL_RELIGHT, PAD_RADIUS,
-  CRASH_DAMAGE_SCALE, CRASH_MIN_DAMAGE,
+  CRASH_DAMAGE_SCALE, CRASH_MIN_DAMAGE, FUEL_PRICE, REPAIR_PRICE,
   GUN_RANGE, GUN_COOLDOWN, ICE_REACH, BOLT_SPEED,
   GUN_MUZZLE, HEAT_K, HEAT_RAMP_LO, HEAT_RAMP_HI, HEAT_RAMP_MIN, HEAT_TAU, COOL_RATE, COOL_MIN, HULL_LIMIT, DAMAGE_TAU, HOVER_MAX_SPEED,
 } from '../world/config.ts'
@@ -135,6 +135,10 @@ export class Craft {
   gearBent = false
   /** The last wreck went into water: no debris, the hull sinks. */
   sunk = false
+  /** Credits the company can spend on this ship right now; the game sets it before each step. Pads and repairs stop when it runs out. */
+  credit = Infinity
+  /** What the ship took at pads since the game last drained it: fuel units and hull repaired (0..1). The game charges these. */
+  readonly bought = { fuel: 0, repair: 0 }
   /** Contact velocity in the local frame at the last touchdown or crash, for the debris. */
   readonly contactVel = new THREE.Vector3()
   /** Bolts in flight, heliocentric. A pool; `alive` says which count. */
@@ -382,9 +386,18 @@ export class Craft {
         this.heat(0, 0, h)
         if (this.state === 'landed') {
           const here = this.padHere()
-          this.fuel = Math.min(FUEL_TANK, this.fuel + (here ? FUEL_PAD_REFILL : FUEL_SOLAR_TRICKLE) * h)
-          // Docked at a station, the hull is patched up. Free until money exists.
-          if (here?.station) { this.damage = Math.max(0, this.damage - 0.05 * h); if (this.damage === 0) this.gearBent = false }
+          // A pad sells fuel while the credit lasts; the sun trickles for free everywhere.
+          if (here) {
+            const take = Math.min(FUEL_TANK - this.fuel, FUEL_PAD_REFILL * h, this.credit / FUEL_PRICE)
+            if (take > 0) { this.fuel += take; this.bought.fuel += take; this.credit -= take * FUEL_PRICE }
+          }
+          this.fuel = Math.min(FUEL_TANK, this.fuel + FUEL_SOLAR_TRICKLE * h)
+          // Docked at a station, the hull is patched up, for money.
+          if (here?.station) {
+            const fix = Math.min(this.damage, 0.05 * h, this.credit / REPAIR_PRICE)
+            if (fix > 0) { this.damage -= fix; this.bought.repair += fix; this.credit -= fix * REPAIR_PRICE }
+            if (this.damage < 1e-6) { this.damage = 0; this.gearBent = false }
+          }
         }
         // Ride the body: the rest pose is body-fixed, the heliocentric state follows it.
         this.time += h
