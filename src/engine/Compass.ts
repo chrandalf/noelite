@@ -11,6 +11,8 @@ const GLYPH: Record<CompassItem['kind'], string> = { body: '●', station: '◆'
 export class Compass {
   readonly root: HTMLElement
   private readonly els = new Map<string, HTMLElement>()
+  /** Last frame's row per tick, so a label keeps its row while it can: rows reassigned every frame flickered. */
+  private readonly rowOf = new Map<string, number>()
   private readonly v = new THREE.Vector3()
   private readonly qInv = new THREE.Quaternion()
 
@@ -40,11 +42,14 @@ export class Compass {
     placed.sort((a, b) => (a.it.selected ? -1 : b.it.selected ? 1 : a.it.d - b.it.d))
     const rows: number[][] = [[], [], [], []]
     const GAP = 0.16   // of the half-width: about 8% of the strip
+    const free = (r: number, x: number) => r >= 0 && r < rows.length && !rows[r].some((y) => Math.abs(y - x) < GAP)
     for (const p of placed) {
       if (p.behind) { p.row = 0; continue }
-      let r = 0
-      while (r < rows.length && rows[r].some((x) => Math.abs(x - p.x) < GAP)) r++
+      const last = this.rowOf.get(p.it.key)
+      let r = last !== undefined && free(last, p.x) ? last : 0
+      if (r === 0 && !free(0, p.x)) { r = 0; while (r < rows.length && !free(r, p.x)) r++ }
       if (r < rows.length) { p.row = r; rows[r].push(p.x) } else p.row = -1
+      this.rowOf.set(p.it.key, p.row)
     }
     for (const p of placed) {
       const it = p.it

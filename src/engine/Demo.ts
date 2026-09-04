@@ -24,6 +24,8 @@ export class Pilot {
   private readonly vH = new THREE.Vector3()
   private readonly lean = new THREE.Vector3()
   private readonly n = new THREE.Vector3()
+  private readonly qInv = new THREE.Quaternion()
+  private readonly tb = new THREE.Vector3()
 
   goTo(p: THREE.Vector3): void { this.target.copy(p); this.leg = 'lift' }
 
@@ -70,6 +72,24 @@ export class Pilot {
 
   private aim(craft: Craft, use: number): { pitch: number; roll: number; yaw: number } {
     this.n.copy(this.up).addScaledVector(this.lean, use).normalize()
-    return craft.aimControls(this.n, 3)
+    const a = craft.aimControls(this.n, 3)
+    // Nose toward where we are going, so the ship flies forwards and reads as flying
+    // somewhere (Chris, 2026-09-04: "the space ship flies backwards"). Yaw on the bearing
+    // to the target in the body frame, damped on the yaw rate; nothing to do when close.
+    if (this.to.length() > DEMO_CLOSE) {
+      this.qInv.copy(craft.quat).invert()
+      this.tb.copy(this.to).applyQuaternion(this.qInv)
+      const bearing = Math.atan2(this.tb.x, -this.tb.z)
+      a.yaw = Math.max(-1, Math.min(1, 2 * bearing + 1.2 * craft.angVel.y))
+    }
+    return a
+  }
+
+  /** Degrees between the nose and the way to the target, across the ground. For the harness. */
+  heading(craft: Craft): number {
+    this.up.copy(craft.pos).normalize()
+    this.to.copy(this.target).sub(craft.pos); this.to.addScaledVector(this.up, -this.to.dot(this.up))
+    this.n.set(0, 0, -1).applyQuaternion(craft.quat); this.n.addScaledVector(this.up, -this.n.dot(this.up))
+    return (this.n.angleTo(this.to) * 180) / Math.PI
   }
 }

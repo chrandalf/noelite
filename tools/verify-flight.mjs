@@ -660,7 +660,9 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol
   const pilot = new Pilot()
   pilot.goTo(seam.d.clone().multiplyScalar(HOME.radius + seam.s.h))
   const far = pilot.distance(c)
-  const t1 = until(c, () => c.state !== 'flying' && pilot.leg === 'down', 1200, () => pilot.controls(c))
+  let worstHeading = 0, samples = 0
+  const t1 = until(c, () => c.state !== 'flying' && pilot.leg === 'down', 1200, () => { const k = pilot.controls(c); if (pilot.leg === 'fly' && pilot.distance(c) > 500 && c.speed() > 10) { samples++; worstHeading = Math.max(worstHeading, pilot.heading(c)) } return k })
+  check('and flies nose first the whole way', samples > 100 && worstHeading < 35, `worst ${worstHeading.toFixed(0)}° off over ${samples} samples`)
   const off1 = pilot.distance(c)
   check('the demo pilot flies to the nearest seam and lands inside it', c.state === 'landed' && c.seamHere() === seam.s, `${(far / 1000).toFixed(1)} km in ${t1.toFixed(0)} s, ${off1.toFixed(1)} m off the centre`)
   const upS = c.pos.clone().normalize()

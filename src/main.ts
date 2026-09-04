@@ -390,16 +390,24 @@ const demoGo = (step: 'seam' | 'town') => {
 }
 const startDemo = () => { if (craft.state === 'crashed') return; demo = true; demoWait = 0; demoGo(craft.cargo.length >= 3 ? 'town' : 'seam') }
 const stopDemo = () => { demo = false; input.override = null; demoEl.hidden = true }
-/** What the demo is pressing and why, from the controls themselves. */
+/** What the demo is pressing and why, from the controls themselves. A key stays on the caption for a third of a second after it was last pressed, because the pilot's throttle is a flicker. */
+const keyHeld = new Map<string, number>()
 const demoCaption = (c: Controls): string => {
-  const keys: string[] = []
-  if (c.thrust) keys.push('SPACE  thrust')
-  if (c.pitch > 0.05) keys.push('W  nose down'); else if (c.pitch < -0.05) keys.push('S  nose up')
-  if (c.roll > 0.05) keys.push('D  roll right'); else if (c.roll < -0.05) keys.push('A  roll left')
-  if (c.vertical < 0) keys.push('/  dive')
+  const press = (on: boolean, k: string) => { if (on) keyHeld.set(k, elapsed) }
+  press(c.thrust > 0, 'SPACE  thrust'); press(c.pitch > 0.05, 'W  nose down'); press(c.pitch < -0.05, 'S  nose up')
+  press(c.roll > 0.05, 'D  roll right'); press(c.roll < -0.05, 'A  roll left'); press(c.yaw > 0.05, 'E  yaw right'); press(c.yaw < -0.05, 'Q  yaw left'); press(c.vertical < 0, '/  dive')
+  const keys = [...keyHeld].filter(([, t]) => elapsed - t < 0.35).map(([k]) => k)
   const doing = demoStep === 'dig' ? `digging: U on a seam fills a pod in ${DIG_SECONDS} s` : demoStep === 'sell' ? 'selling: U at a town sells everything aboard' : demoStep === 'refuel' ? 'refuelling on the pad, then off again' :
     pilot.leg === 'lift' ? `lifting off for ${demoWhere}` : pilot.leg === 'fly' ? `flying to ${demoWhere}, ${fmtDist(pilot.distance(craft))}: lean toward it, ease off to slow` : pilot.leg === 'settle' ? 'over the spot: level, let it sink' : 'hands off: the assist lands it'
   return `DEMO   ${doing}\n${keys.length ? keys.join('    ') : 'no keys: hands off'}\nany key takes over`
+}
+// The purpose line (Chris, 2026-09-04: "looks like there is no purpose"): the nearest town's job and what it is short of, always on the panel; the board's first form.
+const goalEl = document.getElementById('goal')!
+const goalLine = (): string => {
+  const tw = nearest(townsOn(craft.terrain), (x) => x.dir); if (!tw) return ''
+  const p = current(tw); if (!p) return `${tw.name.toUpperCase()}: nothing left to build`
+  const shorts = (Object.entries(shortfall(tw)) as [string, number][]).filter(([, v]) => v >= 0.05)
+  return shorts.length ? `${tw.name.toUpperCase()} WANTS ${shorts.map(([g, v]) => `${Math.ceil(v)} t ${g.toUpperCase()}`).join(', ')} for ${p.name}` : `${tw.name.toUpperCase()} is building ${p.name}, ${Math.round(100 * p.progress / p.labour)}%`
 }
 const renderTown = () => {
   const town = townHere()
@@ -484,9 +492,10 @@ if (saved && mode === 'fly') {
   bank = r.bank
   for (const w of r.wrecks) { const v = views.find((x) => x.body.id === w.body); if (v) placeWreck(w.wreck, v) }
   if (refView.body !== craft.ref) switchFrame()
+  setTimeout(() => toast(`LOADED   ·   ${whereAmI().toUpperCase()}`), 0)
 }
 /** Where the ship is: a pad's name for the save and the menu. */
-const whereAmI = (): string => { const h = craft.padHere(); return h?.station ? `${h.station.name} pad ${h.pad}` : h?.outpost ? h.outpost.name : h ? 'the home pad' : `${craft.ref.name}, open ground` }
+const whereAmI = (): string => { const h = craft.padHere(); const sm = craft.seamHere(); return h?.station ? `${h.station.name} pad ${h.pad}` : h?.outpost ? h.outpost.name : h ? 'the home pad' : sm ? `the ${sm.good} seam on ${craft.ref.name}` : `${craft.ref.name}, open ground` }
 /** Write the save if the ship is on the ground. True if it did. */
 const saveGame = (): boolean => {
   const snap = snapshot(craft, bank, wrecks.map((w) => ({ body: w.view.body.id, wreck: w.wreck })), whereAmI())
@@ -903,6 +912,7 @@ renderer.setAnimationLoop((now) => {
       const seamHere = craft.state === 'landed' ? craft.seamHere() : null
       cargoEl.textContent = digging >= 0 ? `DIGGING ${Math.round(100 * digging / DIG_SECONDS)}%` : craft.cargo.length ? `CARGO ${craft.cargo.map((c) => `${c.good.toUpperCase()} ${c.tonnes.toFixed(0)} t`).join(' · ')}` : seamHere ? `ON SEAM  ${seamHere.good.toUpperCase()} ${seamHere.richness.toFixed(0)} t   U digs` : townHere() ? '' : ''
       for (let i = 0; i < pods.length; i++) pods[i].visible = i < craft.cargo.length
+      if ((frames & 15) === 0) goalEl.textContent = goalLine()
       bankEl.className = 'atmos' + (bank.balance < 200 ? ' low' : '')
       const glow = Math.min(1, Math.max(0, (over - HULL_GLOW) / (HULL_WARN - HULL_GLOW)))
       shipMaterial.emissive.copy(GLOW).multiplyScalar(glow * 0.9)
