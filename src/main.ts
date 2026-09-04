@@ -25,13 +25,14 @@
 //   ?assist=0          landing assist off (so a drop is a drop)
 //   G                  the scanner: pings the nearest seam on this body within range onto the compass
 //   U                  landed on a seam: dig a pod; landed at a town: sell what you carry
+//   P / ?demo=1        the demo: the ship plays the loop itself and says what it is pressing; any key takes over
 //   ?seam=home:3       start landed on the fourth seam of a body (0-based)
 //   ?reset=1           forget the save (company, ship, wrecks) and start again; any placement
 //                      parameter (?over ?outpost ?station ?field ?t) also starts on that spot, books kept
 import * as THREE from 'three'
 import { PlanetLOD } from './world/lod.ts'
 import { FlyCam } from './engine/FlyCam.ts'
-import { Craft, type Controls } from './engine/Craft.ts'
+import { Craft, IDLE, type Controls } from './engine/Craft.ts'
 import { KeyInput } from './engine/Input.ts'
 import { ChaseCam } from './engine/ChaseCam.ts'
 import { buildCraftMesh } from './engine/craftMesh.ts'
@@ -42,6 +43,7 @@ import { Sound } from './engine/Sound.ts'
 import { Sky } from './engine/Sky.ts'
 import { NavMarkers } from './engine/NavMarkers.ts'
 import { Compass, type CompassItem } from './engine/Compass.ts'
+import { Pilot } from './engine/Demo.ts'
 import { waterOf, height, HOME, terrainOf, padOf, stationOf, outpostsOf, type Terrain, type Station, type Outpost } from './world/height.ts'
 import { buildPad } from './engine/Pad.ts'
 import { buildStation, updateStation, type StationView } from './engine/Station.ts'
@@ -359,6 +361,46 @@ const use = () => {
 let toastUntil = 0
 const toastEl = document.getElementById('toast')!
 const toast = (msg: string) => { toastEl.hidden = false; toastEl.textContent = msg; toastUntil = elapsed + 4 }
+// The demo (DESIGN §10d): the pilot flies the loop and the caption says what it is doing
+// and which keys it is pressing, so a new player sees what is supposed to happen.
+const pilot = new Pilot()
+let demo = false
+let demoAuto = q.get('demo') === '1'
+let demoStep: 'seam' | 'dig' | 'town' | 'sell' | 'refuel' = 'seam'
+let demoWait = 0
+let demoWhere = ''
+const demoEl = document.getElementById('demo')!
+const nearest = <T,>(list: T[], dirOf: (x: T) => { x: number; y: number; z: number }): T | null => {
+  const up = craft.pos.clone().normalize(); let best: T | null = null, bestC = -2
+  for (const it of list) { const d = dirOf(it); const c = up.x * d.x + up.y * d.y + up.z * d.z; if (c > bestC) { bestC = c; best = it } }
+  return best
+}
+const demoGo = (step: 'seam' | 'town') => {
+  const t = craft.terrain
+  if (step === 'seam') {
+    const sm = nearest(seamsOf(t).filter((x) => x.richness > 0), (x) => x.dir)
+    if (!sm) { demo = false; return }
+    pilot.goTo(new THREE.Vector3(sm.dir.x, sm.dir.y, sm.dir.z).multiplyScalar(t.radius + sm.h)); demoWhere = `the ${sm.good} seam`
+  } else {
+    const tw = nearest(townsOn(t), (x) => x.dir)
+    if (!tw) { demo = false; return }
+    pilot.goTo(new THREE.Vector3(tw.dir.x, tw.dir.y, tw.dir.z).multiplyScalar(t.radius + tw.h)); demoWhere = tw.name
+  }
+  demoStep = step
+}
+const startDemo = () => { if (craft.state === 'crashed') return; demo = true; demoWait = 0; demoGo(craft.cargo.length >= 3 ? 'town' : 'seam') }
+const stopDemo = () => { demo = false; input.override = null; demoEl.hidden = true }
+/** What the demo is pressing and why, from the controls themselves. */
+const demoCaption = (c: Controls): string => {
+  const keys: string[] = []
+  if (c.thrust) keys.push('SPACE  thrust')
+  if (c.pitch > 0.05) keys.push('W  nose down'); else if (c.pitch < -0.05) keys.push('S  nose up')
+  if (c.roll > 0.05) keys.push('D  roll right'); else if (c.roll < -0.05) keys.push('A  roll left')
+  if (c.vertical < 0) keys.push('/  dive')
+  const doing = demoStep === 'dig' ? `digging: U on a seam fills a pod in ${DIG_SECONDS} s` : demoStep === 'sell' ? 'selling: U at a town sells everything aboard' : demoStep === 'refuel' ? 'refuelling on the pad, then off again' :
+    pilot.leg === 'lift' ? `lifting off for ${demoWhere}` : pilot.leg === 'fly' ? `flying to ${demoWhere}, ${fmtDist(pilot.distance(craft))}: lean toward it, ease off to slow` : pilot.leg === 'settle' ? 'over the spot: level, let it sink' : 'hands off: the assist lands it'
+  return `DEMO   ${doing}\n${keys.length ? keys.join('    ') : 'no keys: hands off'}\nany key takes over`
+}
 const renderTown = () => {
   const town = townHere()
   townEl.hidden = !town
@@ -540,6 +582,8 @@ let targetIndex = 0
 const toTarget = new THREE.Vector3()
 addEventListener('keydown', (e) => {
   sound.arm()
+  if (demo && e.code !== 'Escape') { stopDemo(); toast('YOUR SHIP'); if (e.code === 'KeyP') return }
+  else if (e.code === 'KeyP' && mode === 'fly' && !paused) { startDemo(); return }
   if (e.code === 'Escape') { paused = !paused; menu.hidden = !paused; if (paused) { renderCompany(); renderTown() } return }
   if (paused) {
     if (e.code === 'BracketRight') { bank.borrow(craft.time, LOAN_STEP); renderCompany(); saveBank() }
@@ -700,6 +744,22 @@ renderer.setAnimationLoop((now) => {
     tmp.set(0, 0, -1).applyQuaternion(craft.quat)
     craft.arrive = toTarget.lengthSq() > 0 && tmp.dot(toTarget) / toTarget.length() > 0.86 ? toTarget.length() - tgt.radius : Infinity
     craft.arriveFloor = tgt.field === null
+    // The demo drives the ship through the same override the harnesses use.
+    if (demoAuto && elapsed > 1 && (phase === 'off' || phase === 'done')) { demoAuto = false; startDemo() }
+    if (demo) {
+      if (craft.state === 'landed' && pilot.leg === 'down') {
+        if (demoStep === 'seam') { if (craft.seamHere()) { demoStep = 'dig'; use() } else demoGo('seam') }
+        else if (demoStep === 'dig') { if (digging < 0) { if (craft.canLoad() && (craft.seamHere()?.richness ?? 0) > 0) use(); else demoGo('town') } }
+        else if (demoStep === 'town') { if (townHere()) { demoStep = 'sell'; use(); demoWait = elapsed + 3 } else demoGo('town') }
+        else if (demoStep === 'sell') { if (elapsed > demoWait) demoStep = 'refuel' }
+        else if (demoStep === 'refuel') { if (craft.fuel > 60 || !craft.padHere()) demoGo('seam') }
+      }
+      const dc = pilot.controls(craft)
+      input.override = demoStep === 'dig' || demoStep === 'sell' || demoStep === 'refuel' ? IDLE : dc
+      c = input.override
+      demoEl.hidden = false; demoEl.textContent = demoCaption(c)
+      if (craft.state === 'crashed') stopDemo()
+    }
     craft.credit = bank.balance
     craft.step(dt, c)
     // Charge what the pad sold; the loan earns its keep; save now and then.
@@ -973,7 +1033,7 @@ void tmp
   mode, planet, craft, input, free, views, asteroids, ship,
   /** The opening's phase and the letterbox, for the probes. */
   phase: () => phase, barFrac: () => barFrac, titleBody: () => titleBody,
-  outposts: outpostViews, wrecks, bank, scan, scanHit: () => scanHit, use, digging: () => digging, townHere, towns: allTowns,
+  outposts: outpostViews, wrecks, bank, scan, scanHit: () => scanHit, use, digging: () => digging, townHere, towns: allTowns, startDemo, stopDemo, demo: () => demo, demoStep: () => demoStep, pilot,
   /** True only once the LOD has updated since the last place() and its queue is empty. */
   ready: () => updates > placedAt + 1 && planet.pendingCount === 0,
   /** Free mode: put the camera at p looking at a. */

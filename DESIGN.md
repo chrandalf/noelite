@@ -1176,3 +1176,19 @@ because they are what the story is made of.
 
 Both backlog. The generator is the cheaper of the two and should come before
 subcontractors exist, or the carriers will run out of things to build.
+
+**The demo, built 2026-09-04, late (Chris: "get a demo built so we can watch what's
+supposed to happen, play testing is quite boring" and "show the user what to press").**
+`src/engine/Demo.ts` is a pilot: given a point on the ground it lifts off, climbs to 140 m
+over the ground, leans toward the point against its own drift (a spring on position,
+damped on speed, saturating at 0.85 rad which is where the speed comes from), levels over
+it, sinks, and hands off for the last 30 m so the assist lands it. It makes Controls, the
+same as a keyboard, through the input override the harnesses use. The game's loop on top:
+nearest seam, dig until full or the seam is empty, nearest town, sell, refuel past 60%,
+again. **P** starts it (or `?demo=1`), any key takes the ship back, a crash ends it. The
+caption says what it is doing and why ("flying to Tallow Outpost, 12.3 km: lean toward
+it, ease off to slow") and names the keys it is pressing right now, read off the controls
+themselves (SPACE thrust, W nose down, A roll left, / dive, or "no keys: hands off").
+Flight harness §29: pad to the nearest seam (17.7 km in 452 s, 6 m off) and on to the
+nearest outpost's pad (32.6 km in 782 s, 9 m off), no crash. `tools/probe-demo.mjs`. The
+legs are long because the hover ship is slow in air; the jet mode will shorten them.

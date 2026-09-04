@@ -8,6 +8,9 @@ import { OrbitAutopilot } from '../src/engine/Autopilot.ts'
 import { findLandable, groundRadius } from '../src/world/terrain.ts'
 import { HOME, height, padOf, stationOf, terrainOf } from '../src/world/height.ts'
 import { Wreck } from '../src/engine/Wreck.ts'
+import { Pilot } from '../src/engine/Demo.ts'
+import { seamsOf } from '../src/world/seams.ts'
+import { outpostsOf, PAD_RADIUS } from '../src/world/height.ts'
 import { isDry } from '../src/world/terrain.ts'
 import { rng } from '../src/world/noise.ts'
 import { body, bodyVelocity, bodyPosition, bodySpin } from '../src/world/system.ts'
@@ -647,6 +650,27 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol
   check('a heat-scarred hull wrecks on a 3.5 m drop', sc.state === 'crashed' && sc.damage === 1, `${sc.state}, damage ${sc.damage.toFixed(2)}`)
   const rs = fresh()
   check('a respawn straightens the gear and clears the damage', !rs.gearBent && rs.damage === 0 && !rs.sunk)
+}
+
+// 29. The demo pilot: from the pad to the nearest seam and down inside it; then to the nearest outpost and down on its pad.
+{
+  const c = fresh(); c.windy = false
+  const up = c.pos.clone().normalize()
+  const seam = seamsOf(HOME).map((s) => ({ s, d: new THREE.Vector3(s.dir.x, s.dir.y, s.dir.z) })).sort((a, b) => b.d.dot(up) - a.d.dot(up))[0]
+  const pilot = new Pilot()
+  pilot.goTo(seam.d.clone().multiplyScalar(HOME.radius + seam.s.h))
+  const far = pilot.distance(c)
+  const t1 = until(c, () => c.state !== 'flying' && pilot.leg === 'down', 1200, () => pilot.controls(c))
+  const off1 = pilot.distance(c)
+  check('the demo pilot flies to the nearest seam and lands inside it', c.state === 'landed' && c.seamHere() === seam.s, `${(far / 1000).toFixed(1)} km in ${t1.toFixed(0)} s, ${off1.toFixed(1)} m off the centre`)
+  const upS = c.pos.clone().normalize()
+  const town = outpostsOf(HOME).map((o) => ({ o, d: new THREE.Vector3(o.site.dir.x, o.site.dir.y, o.site.dir.z) })).sort((a, b) => b.d.dot(upS) - a.d.dot(upS))[0]
+  pilot.goTo(town.d.clone().multiplyScalar(HOME.radius + town.o.site.h))
+  const far2 = pilot.distance(c)
+  const t2 = until(c, () => c.state !== 'flying' && pilot.leg === 'down', 1500, () => pilot.controls(c))
+  const off2 = pilot.distance(c)
+  check('then to the nearest outpost and down on its pad', c.state === 'landed' && c.padHere()?.outpost === town.o && off2 < PAD_RADIUS, `${(far2 / 1000).toFixed(1)} km in ${t2.toFixed(0)} s, ${off2.toFixed(1)} m off the centre`)
+  check('without a crash', c.crashes === 0)
 }
 
 console.log(`\n${pass}/${pass + fail} checks`)

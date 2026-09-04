@@ -23,6 +23,9 @@
       /* The game talking back: a pod aboard, a sale, no room. Above the readout, centred. */
       #toast { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); font: 14px ui-monospace, Menlo, Consolas, monospace; color: #fff; letter-spacing: 0.22em; padding: 6px 14px; background: #000a; border: 1px solid #9fe3a066; border-radius: 4px; pointer-events: none; white-space: nowrap; }
       #toast[hidden] { display: none; }
+      /* The demo's caption: what the pilot is doing and the keys it is pressing. */
+      #demo { position: fixed; left: 50%; top: 150px; transform: translateX(-50%); font: 15px ui-monospace, Menlo, Consolas, monospace; color: #fff; letter-spacing: 0.1em; line-height: 1.7; text-align: center; padding: 10px 22px; background: #000b; border: 1px solid #ffd56a88; border-radius: 6px; pointer-events: none; white-space: pre; }
+      #demo[hidden] { display: none; }
       /* The arrival card: the body's name, big and spaced, and a line of what it is. */
       #title {
         position: fixed; left: 0; right: 0; top: 18vh; text-align: center; pointer-events: none;
@@ -130,6 +133,7 @@
     <div id="hud"></div>
     <div id="intro" hidden></div>
     <div id="toast" hidden></div>
+    <div id="demo" hidden></div>
     <div class="bar top"></div><div class="bar bottom"></div>
     <div id="title"><h1></h1><hr /><p></p></div>
     <div id="menu" hidden>
@@ -149,6 +153,7 @@
           <tr><td>F</td><td>the cannons: hold to fire; they only come out in cruise</td></tr>
           <tr><td>G</td><td>the scanner: pings the nearest seam on this body onto the compass</td></tr>
           <tr><td>U</td><td>landed on a seam: dig a pod; landed at a town: sell what you carry</td></tr>
+          <tr><td>P</td><td>the demo: the ship flies the loop itself and shows what it presses; any key takes over</td></tr>
         </table></div>
         <div><h2>ASSISTS</h2><table>
           <tr><td>X</td><td>retro: point against your velocity</td></tr>
