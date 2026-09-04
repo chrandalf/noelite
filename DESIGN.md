@@ -870,3 +870,33 @@ Not done: gear-up landings (the gear is automatic today, there is nothing to for
 
 **Order from here:** letterbox (done), outposts (done), crashes (done), scanner and dig, then
 money and the shop, cargo pods, the economy, the Coriolis. Rover after that.
+
+## 10d. "There needs to be more to do, lots more to do, ideas needed" (Chris, 2026-09-04, evening)
+
+The world has places and consequences now and no reason to cross it. So the spine first:
+**money and a contract board** at every outpost and the station, and every idea below is a
+job type on it. Without the board each toy is tried once.
+
+**On a planet.** Salvage: seeded wrecks of other ships on every body with cargo and a log,
+some pinging a beacon (Wreck.ts already tumbles a hull; reuse it). Rescue: a stranded crew
+at a random site, a front closing in, a clock; land inside 30 m on a slope in wind. Survey:
+scan the tide line at high tide, a front from inside it, a canyon floor, the polar cap.
+Scan and dig (Chris's brief): seams from the terrain, ore in belts, crystal in canyons, salt
+on the flats, ice at the poles. Canyon runs: timed flights down a canyon floor under a
+ceiling. Night freight: cargo that only moves after dark.
+
+**In space.** Rock mining proper: ore rocks worth money, the gun breaks them, a scoop takes
+the chunks. A derelict in orbit: match its orbit, dock, loot. The comet: one body on a long
+Kepler orbit, mostly ice, reachable a week a year. Satellites: deliver a relay to a given
+altitude and inclination; each unlocks a HUD feature (map, beacon, weather ahead). Meteor
+showers on the airless moon.
+
+**Threats.** Weather, heat, fuel, rocks; no enemies yet. One hostile type near the belts,
+late, once trade is worth defending. Combat is a week; not yet.
+
+**The long game.** Build your own outpost by delivering materials to a site you choose. The
+logbook: first landings, records, route times, things you named. The mysteries: seeded ruins
+with the constraint puzzles, a signal body to body, the jump recipe at the end.
+
+**Order I'd build:** money and the board, salvage wrecks, rescue with a clock, scan and dig,
+the comet. The first three reuse what works today.
