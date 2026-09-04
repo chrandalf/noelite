@@ -1022,3 +1022,33 @@ cruise drive 12,000, insulated pod 8,000, cage pod 6,000, heat shield 30,000, dr
 **Build next:** a stock number and the erf price at each station and outpost, industries
 from the terrain, goods and pods with mass, then contracts, then the standing route, then
 the subcontractor.
+
+### 10e-2. The growth rule (Chris, 2026-09-04, late)
+
+Chris: "we're not building the tracks, the tracks will get built slowly once they have the
+resourcing to do it, they need different resources to do different things, then their
+workers are able to freely get on with it."
+
+So the settlement builds itself and you are its supplier. This replaces my "industry level
+from delivered volume" read. The rule:
+
+- Every outpost and station has a **works list**: projects in order, each with a bill of
+  materials and a labour cost. A warehouse (timber, salt), a bigger pad (ore, timber), a
+  water plant (ore), a rail spur to the nearest neighbour (ore for steel, timber for
+  sleepers, a lot of both), a bridge for a spur that crosses water (more ore), a fabricator
+  (crystal, helium), a launch pad for freighters (everything).
+- Materials arrive by delivery, yours or a subcontractor's, and sit in the outpost's stock.
+- **Workers** are the population, which grows with water and food on hand and shrinks
+  without. Build rate = workers on site × (materials on hand ÷ materials needed). No
+  materials, nothing happens; a full store and a busy town, the rail goes up while you watch.
+- The board at each outpost is the works list with what is still missing. That is the
+  contract: "Tallow needs 40 t ore and 20 t timber for the rail to Sable." No separate
+  mission system.
+- A finished project changes the world: the rail draws segment by segment as it is built,
+  a train runs it when done and the two outposts trade on their own; the bigger pad takes
+  bigger ships; the freighter pad sends the outpost's own ships to the next body.
+- The goods table (§10f) is then a list of building materials and worker consumables, which
+  is what gives every good a reason.
+
+Every number is a knob. The shape is the point: you never place a track. You feed a town
+and it grows.
