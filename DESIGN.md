@@ -1192,3 +1192,25 @@ themselves (SPACE thrust, W nose down, A roll left, / dive, or "no keys: hands o
 Flight harness §29: pad to the nearest seam (17.7 km in 452 s, 6 m off) and on to the
 nearest outpost's pad (32.6 km in 782 s, 9 m off), no crash. `tools/probe-demo.mjs`. The
 legs are long because the hover ship is slow in air; the jet mode will shorten them.
+
+**Later the same night.** The pilot cruises the long legs: up through the air, wings out,
+nose on a carrot 5 km ahead along the great circle at 6 km over the ground (a far point
+sits below the horizon on a world this small), the cap doing the speed; inside 7 km of
+the target it noses down with no thrust and the brake, hover takes it at the floor, and
+the hover legs finish. 17.7 km in 180 s and 32.6 km in 187 s, unburned, against 452 and
+782 before. The caption says all of it. **The start** (Chris: "a starfield type menu at
+the start of the game, which allows you to go to the demo or play or load a save"): a
+plain URL shows a starfield with the name and three choices, CONTINUE (with the last
+save's time and place, greyed when there is none), NEW GAME (the opening; with a save it
+asks by starting over on the next load), DEMO (a sandbox: nothing loaded, nothing
+saved). Arrows or W/S, Enter or Space, or click. The game sits frozen behind it.
+`tools/probe-start.mjs`.
+
+**Small hours, 2026-09-05.** The title sits over the real sky: 30 km over the pad a few
+minutes before its dawn, the planet below, the stars, and the sun with a glare, which is
+new: an additive sprite on the sun's bearing, full in vacuum, a breath in thick air,
+gone under the apparent horizon; it stays for the game. DEMO from the title starts in
+place rather than on a fresh page, because a fresh page starts silent until a key is
+pressed and the key hands the ship back (Chris: "no sounds in the demo unless I press
+buttons, but then it cuts out the demo"); the choice itself is now the gesture that
+arms the audio, and a click or tap anywhere does too.

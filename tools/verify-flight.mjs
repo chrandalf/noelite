@@ -661,7 +661,11 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol
   pilot.goTo(seam.d.clone().multiplyScalar(HOME.radius + seam.s.h))
   const far = pilot.distance(c)
   let worstHeading = 0, samples = 0
-  const t1 = until(c, () => c.state !== 'flying' && pilot.leg === 'down', 1200, () => { const k = pilot.controls(c); if (pilot.leg === 'fly' && pilot.distance(c) > 500 && c.speed() > 10) { samples++; worstHeading = Math.max(worstHeading, pilot.heading(c)) } return k })
+  let cruised = false
+  const drive = () => { const k = pilot.controls(c); c.arrive = pilot.leg === 'cruise' ? pilot.arrive(c) : Infinity; c.arriveFloor = true; if (c.cruise) cruised = true; if (pilot.leg === 'fly' && pilot.distance(c) > 500 && c.speed() > 10) { samples++; worstHeading = Math.max(worstHeading, pilot.heading(c)) } return k }
+  const t1 = until(c, () => c.state !== 'flying' && pilot.leg === 'down', 1200, drive)
+  check('a long leg goes up through the air and across in cruise, and comes through it unburned', cruised && !c.burned && c.damage === 0, `cruised ${cruised}, damage ${c.damage.toFixed(2)}`)
+  check('and it is quick about it', t1 < 300, `${t1.toFixed(0)} s for ${(far / 1000).toFixed(1)} km`)
   check('and flies nose first the whole way', samples > 100 && worstHeading < 35, `worst ${worstHeading.toFixed(0)}° off over ${samples} samples`)
   const off1 = pilot.distance(c)
   check('the demo pilot flies to the nearest seam and lands inside it', c.state === 'landed' && c.seamHere() === seam.s, `${(far / 1000).toFixed(1)} km in ${t1.toFixed(0)} s, ${off1.toFixed(1)} m off the centre`)
@@ -669,9 +673,10 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol
   const town = outpostsOf(HOME).map((o) => ({ o, d: new THREE.Vector3(o.site.dir.x, o.site.dir.y, o.site.dir.z) })).sort((a, b) => b.d.dot(upS) - a.d.dot(upS))[0]
   pilot.goTo(town.d.clone().multiplyScalar(HOME.radius + town.o.site.h))
   const far2 = pilot.distance(c)
-  const t2 = until(c, () => c.state !== 'flying' && pilot.leg === 'down', 1500, () => pilot.controls(c))
+  const t2 = until(c, () => c.state !== 'flying' && pilot.leg === 'down', 1500, drive)
   const off2 = pilot.distance(c)
   check('then to the nearest outpost and down on its pad', c.state === 'landed' && c.padHere()?.outpost === town.o && off2 < PAD_RADIUS, `${(far2 / 1000).toFixed(1)} km in ${t2.toFixed(0)} s, ${off2.toFixed(1)} m off the centre`)
+  check('the longer leg cruises too, and is quick', t2 < 400 && !c.burned, `${t2.toFixed(0)} s for ${(far2 / 1000).toFixed(1)} km`)
   check('without a crash', c.crashes === 0)
 }
 

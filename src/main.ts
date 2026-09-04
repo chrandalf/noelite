@@ -27,6 +27,8 @@
 //   U                  landed on a seam: dig a pod; landed at a town: sell what you carry
 //   P / ?demo=1        the demo: the ship plays the loop itself and says what it is pressing; any key takes over
 //   ?seam=home:3       start landed on the fourth seam of a body (0-based)
+//   plain URL          the start: a starfield and Continue / New game / Demo
+//   ?sandbox=1         nothing is loaded or saved (the demo from the start menu runs in it)
 //   ?reset=1           forget the save (company, ship, wrecks) and start again; any placement
 //                      parameter (?over ?outpost ?station ?field ?t) also starts on that spot, books kept
 import * as THREE from 'three'
@@ -71,7 +73,8 @@ import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE , FUEL_
 const q = new URLSearchParams(location.search)
 /** The save on disk, read once. ?reset=1 forgets it. A placement parameter starts you where it says, books kept. */
 const SAVE_KEY = 'noelite.save'
-const loadSave = () => { try { if (q.get('reset') === '1') localStorage.removeItem(SAVE_KEY); const raw = localStorage.getItem(SAVE_KEY); const j: unknown = raw ? JSON.parse(raw) : null; return isSave(j) ? j : null } catch { return null } }
+let sandbox = q.get('sandbox') === '1'
+const loadSave = () => { try { if (q.get('reset') === '1') localStorage.removeItem(SAVE_KEY); if (sandbox) return null; const raw = localStorage.getItem(SAVE_KEY); const j: unknown = raw ? JSON.parse(raw) : null; return isSave(j) ? j : null } catch { return null } }
 const saved = loadSave()
 const placed = ['over', 'outpost', 'station', 'field', 't', 'seam'].some((k) => q.get(k) !== null)
 const mode: 'fly' | 'free' = q.get('mode') === 'free' ? 'free' : 'fly'
@@ -90,6 +93,22 @@ scene.background = new THREE.Color(0x000000)
 const SKY = new THREE.Color(0x5d9be0)
 const sky = new Sky()
 scene.add(sky.group)
+// The sun's glare: a soft additive sprite on the sun's bearing, strongest in vacuum where
+// the sky draws no haze (Chris, 2026-09-04: "the sun glare" on the title). Camera-relative,
+// like the sky; hidden when the sun is under the apparent horizon.
+const glare = (() => {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 256
+  const g = cv.getContext('2d')!
+  const grad = g.createRadialGradient(128, 128, 0, 128, 128, 128)
+  grad.addColorStop(0, 'rgba(255,250,235,1)'); grad.addColorStop(0.08, 'rgba(255,240,210,0.85)'); grad.addColorStop(0.3, 'rgba(255,220,170,0.28)'); grad.addColorStop(0.7, 'rgba(255,200,140,0.06)'); grad.addColorStop(1, 'rgba(255,200,140,0)')
+  g.fillStyle = grad; g.fillRect(0, 0, 256, 256)
+  const tex = new THREE.CanvasTexture(cv)
+  const m = new THREE.SpriteMaterial({ map: tex, blending: THREE.AdditiveBlending, depthTest: false, depthWrite: false, transparent: true })
+  m.name = 'glare'
+  const sp = new THREE.Sprite(m); sp.renderOrder = 3; sp.visible = false
+  scene.add(sp)
+  return sp
+})()
 // Haze inside home's atmosphere, the sky's horizon colour, thinning with density.
 const fog = new THREE.FogExp2(SKY.getHex(), 0)
 scene.fog = fog
@@ -398,7 +417,7 @@ const demoCaption = (c: Controls): string => {
   press(c.roll > 0.05, 'D  roll right'); press(c.roll < -0.05, 'A  roll left'); press(c.yaw > 0.05, 'E  yaw right'); press(c.yaw < -0.05, 'Q  yaw left'); press(c.vertical < 0, '/  dive')
   const keys = [...keyHeld].filter(([, t]) => elapsed - t < 0.35).map(([k]) => k)
   const doing = demoStep === 'dig' ? `digging: U on a seam fills a pod in ${DIG_SECONDS} s` : demoStep === 'sell' ? 'selling: U at a town sells everything aboard' : demoStep === 'refuel' ? 'refuelling on the pad, then off again' :
-    pilot.leg === 'lift' ? `lifting off for ${demoWhere}` : pilot.leg === 'fly' ? `flying to ${demoWhere}, ${fmtDist(pilot.distance(craft))}: lean toward it, ease off to slow` : pilot.leg === 'settle' ? 'over the spot: level, let it sink' : 'hands off: the assist lands it'
+    pilot.leg === 'lift' ? `lifting off for ${demoWhere}` : pilot.leg === 'climb' ? `${fmtDist(pilot.distance(craft))} to ${demoWhere}: too far for hover, climbing out of the air for cruise` : pilot.leg === 'cruise' ? `wings out: cruise to ${demoWhere}, ${fmtDist(pilot.distance(craft))}, nose on the horizon toward it, the cap does the speed` : pilot.leg === 'descend' ? `over ${demoWhere}: nose down, no thrust, brake to hand back to hover` : pilot.leg === 'fly' ? `flying to ${demoWhere}, ${fmtDist(pilot.distance(craft))}: lean toward it, ease off to slow` : pilot.leg === 'settle' ? 'over the spot: level, let it sink' : 'hands off: the assist lands it'
   return `DEMO   ${doing}\n${keys.length ? keys.join('    ') : 'no keys: hands off'}\nany key takes over`
 }
 // The purpose line (Chris, 2026-09-04: "looks like there is no purpose"): the nearest town's job and what it is short of, always on the panel; the board's first form.
@@ -498,6 +517,7 @@ if (saved && mode === 'fly') {
 const whereAmI = (): string => { const h = craft.padHere(); const sm = craft.seamHere(); return h?.station ? `${h.station.name} pad ${h.pad}` : h?.outpost ? h.outpost.name : h ? 'the home pad' : sm ? `the ${sm.good} seam on ${craft.ref.name}` : `${craft.ref.name}, open ground` }
 /** Write the save if the ship is on the ground. True if it did. */
 const saveGame = (): boolean => {
+  if (sandbox) return false
   const snap = snapshot(craft, bank, wrecks.map((w) => ({ body: w.view.body.id, wreck: w.wreck })), whereAmI())
   if (!snap) return false
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(snap)) } catch { /* private window, or storage off: the game lives for the session */ }
@@ -589,8 +609,59 @@ world.add(asteroids.group)
 asteroids.group.visible = mode === 'fly'
 let targetIndex = 0
 const toTarget = new THREE.Vector3()
+// The start (Chris, 2026-09-04: "a starfield type menu at the start of the game, which allows you
+// to go to the demo or play or load a save"). Only on a plain URL. The game sits frozen behind it.
+const startEl = document.getElementById('start')!
+let starting = location.search === '' && mode === 'fly'
+const choices = Array.from(startEl.querySelectorAll<HTMLLIElement>('li'))
+let choice = saved ? 0 : 1
+const drawChoices = () => {
+  for (const li of choices) {
+    const k = li.dataset.choice
+    if (k === 'continue') { li.classList.toggle('off', !saved); li.querySelector('small')!.textContent = saved ? `last save ${lastSave}` : 'no save yet' }
+    li.classList.toggle('on', choices.indexOf(li) === choice)
+  }
+}
+const choose = (k: string | undefined) => {
+  sound.arm()   // the choice is the gesture that unlocks the audio; a fresh page would start silent (Chris, 2026-09-04: "no sounds in the demo")
+  if (k === 'continue' && saved) { leaveStart('continue'); toast(`LOADED   ·   ${whereAmI().toUpperCase()}`) }
+  else if (k === 'new') { if (saved) location.href = '?reset=1&intro=1'; else leaveStart('new') }
+  else if (k === 'demo') { sandbox = true; leaveStart('new'); phase = 'off'; startDemo(); toast('DEMO   ·   SANDBOX, NOTHING IS SAVED   ·   ANY KEY TAKES OVER') }
+}
+/** The title view: high over the pad just before its dawn, the sun on the limb, the stars out, the ship out of shot, the camera drifting round. */
+const titleClock = clock0
+const leaveStart = (how: 'continue' | 'new') => {
+  starting = false; startEl.hidden = true
+  clock0 = titleClock
+  ship.visible = true; chase.reset(); chase.snap()
+  if (how === 'continue' && saved) restore(craft, saved)
+  else craft.spawnOn(pad, new THREE.Vector3(1, 0, 0), 'surface', home)
+  if (refView.body !== craft.ref) switchFrame()
+}
+if (starting) {
+  startEl.hidden = false
+  drawChoices()
+  for (const li of choices) li.addEventListener('click', () => choose(li.dataset.choice))
+  clock0 = 2170   // a few minutes before the pad's dawn: from 30 km up the sun sits on the limb
+  // Nose on the sun's bearing, so the glare sits on the limb ahead with the planet below.
+  const sunHere = bodyPosition(body('sun'), clock0, new THREE.Vector3()).sub(bodyPosition(home, clock0, new THREE.Vector3())).applyQuaternion(bodySpin(home, clock0, new THREE.Quaternion()).invert()).normalize()
+  const heading = sunHere.clone().addScaledVector(pad, -sunHere.dot(pad)).normalize()
+  craft.placeAbove(home, pad, 30_000, heading)
+  ship.visible = false
+  chase.orbitPitch = 0.35; chase.zoom = 3; chase.snap()
+  if (refView.body !== craft.ref) switchFrame()
+}
+addEventListener('pointerdown', () => sound.arm())
 addEventListener('keydown', (e) => {
   sound.arm()
+  if (starting) {
+    if (e.code === 'ArrowUp' || e.code === 'KeyW') choice = (choice + choices.length - 1) % choices.length
+    if (e.code === 'ArrowDown' || e.code === 'KeyS') choice = (choice + 1) % choices.length
+    if (!saved && choice === 0) choice = e.code === 'ArrowUp' || e.code === 'KeyW' ? choices.length - 1 : 1
+    drawChoices()
+    if (e.code === 'Enter' || e.code === 'Space') choose(choices[choice].dataset.choice)
+    e.preventDefault(); return
+  }
   if (demo && e.code !== 'Escape') { stopDemo(); toast('YOUR SHIP'); if (e.code === 'KeyP') return }
   else if (e.code === 'KeyP' && mode === 'fly' && !paused) { startDemo(); return }
   if (e.code === 'Escape') { paused = !paused; menu.hidden = !paused; if (paused) { renderCompany(); renderTown() } return }
@@ -684,10 +755,20 @@ function placeBodies(t: number, frame: Body): void {
   sunDir.copy(sunView.rel).sub(viewPos).normalize()
   sunLight.position.copy(sunView.rel).sub(viewPos)
   farSun.position.copy(sunLight.position)
+  // The glare rides the sun's bearing at a fixed distance, sized for the air: full in vacuum, a breath in thick air.
+  {
+    const rhoHere = craft.atmosphere()
+    const strength = sinAppNow > -0.02 ? 1 - 0.75 * Math.min(1, rhoHere * 3) : 0
+    glare.visible = strength > 0.02
+    if (glare.visible) { glare.position.copy(sunDir).multiplyScalar(400); glare.scale.setScalar(260 * (0.7 + 0.6 * strength)); (glare.material as THREE.SpriteMaterial).opacity = 0.85 * strength }
+  }
 }
 
 renderer.setAnimationLoop((now) => {
-  const dt = paused ? 0 : Math.min(0.1, (now - last) / 1000); last = now; elapsed += dt
+  const rawDt = Math.min(0.1, (now - last) / 1000)
+  const dt = paused || starting ? 0 : rawDt; last = now; elapsed += dt
+  if (starting) { chase.orbitYaw += 0.02 * rawDt; introEl.hidden = true }
+  altimeter.hidden = mode !== 'fly' || starting
   const t = clock0 + elapsed
   let altitude: number, line: string
 
@@ -727,7 +808,7 @@ renderer.setAnimationLoop((now) => {
     }
     // The letterbox opens on your climb, not on a clock: held on the pad, opening from 2 to 60 m up.
     {
-      const want = phase === 'off' || phase === 'done' ? 0 : craft.state === 'landed' ? 1 : 1 - Math.min(1, Math.max(0, (craft.altitude() - 2) / 58))
+      const want = starting ? 1 : phase === 'off' || phase === 'done' ? 0 : craft.state === 'landed' ? 1 : 1 - Math.min(1, Math.max(0, (craft.altitude() - 2) / 58))
       barFrac += (want - barFrac) * Math.min(1, 4 * dt)
       if (Math.abs(want - barFrac) < 0.002) barFrac = want
       const h = barFrac > 0 ? `${(barFrac * BAR_VH).toFixed(2)}vh` : '0'
@@ -764,6 +845,7 @@ renderer.setAnimationLoop((now) => {
         else if (demoStep === 'refuel') { if (craft.fuel > 60 || !craft.padHere()) demoGo('seam') }
       }
       const dc = pilot.controls(craft)
+      if (pilot.leg === 'cruise') { craft.arrive = pilot.arrive(craft); craft.arriveFloor = true }
       input.override = demoStep === 'dig' || demoStep === 'sell' || demoStep === 'refuel' ? IDLE : dc
       c = input.override
       demoEl.hidden = false; demoEl.textContent = demoCaption(c)
@@ -972,7 +1054,7 @@ renderer.setAnimationLoop((now) => {
         if (elapsed > scanBeepAt) { scanBeepAt = elapsed + 0.25 + 1.75 * Math.min(1, len / SCAN_RANGE); sound.click() }
       } else compassItems.push({ key: 'scan', name: 'NO SEAM IN RANGE', dist: '', d: Infinity, dir: dir.clone().negate(), kind: 'seam', selected: false })
     }
-    compass.update(compassItems, camera, !paused && (phase === 'off' || phase === 'done'))
+    compass.update(compassItems, camera, !paused && !starting && (phase === 'off' || phase === 'done'))
     const lc = craft.lastContact
     const vOrb = craft.orbitalSpeed(), vEsc = craft.escapeSpeed(), spd = craft.speed(), vIn = craft.inertialSpeed()
     const apLine = orbitAP.engaged ? `   AUTOPILOT ${orbitAP.phase.toUpperCase()} ${craft.ref.name}  park ${((orbitAP.parkRadius(craft) - craft.terrain.radius) / 1000).toFixed(0)} km at ${orbitAP.parkSpeed(craft).toFixed(0)} m/s` : ''
@@ -1034,7 +1116,7 @@ renderer.setAnimationLoop((now) => {
 
   frames++
   if (now - fpsAt > 500) { fps = Math.round((frames * 1000) / (now - fpsAt)); frames = 0; fpsAt = now }
-  hud.textContent = phase === 'off' || phase === 'done' ? line : ''
+  hud.textContent = !starting && (phase === 'off' || phase === 'done') ? line : ''
 })
 void tmp
 
@@ -1043,7 +1125,7 @@ void tmp
   mode, planet, craft, input, free, views, asteroids, ship,
   /** The opening's phase and the letterbox, for the probes. */
   phase: () => phase, barFrac: () => barFrac, titleBody: () => titleBody,
-  outposts: outpostViews, wrecks, bank, scan, scanHit: () => scanHit, use, digging: () => digging, townHere, towns: allTowns, startDemo, stopDemo, demo: () => demo, demoStep: () => demoStep, pilot,
+  outposts: outpostViews, wrecks, bank, scan, scanHit: () => scanHit, use, digging: () => digging, townHere, towns: allTowns, startDemo, stopDemo, demo: () => demo, demoStep: () => demoStep, pilot, starting: () => starting, sandbox: () => sandbox,
   /** True only once the LOD has updated since the last place() and its queue is empty. */
   ready: () => updates > placedAt + 1 && planet.pendingCount === 0,
   /** Free mode: put the camera at p looking at a. */

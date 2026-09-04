@@ -26,6 +26,19 @@
       /* The demo's caption: what the pilot is doing and the keys it is pressing. */
       #demo { position: fixed; left: 50%; top: 150px; transform: translateX(-50%); font: 15px ui-monospace, Menlo, Consolas, monospace; color: #fff; letter-spacing: 0.1em; line-height: 1.7; text-align: center; padding: 10px 22px; background: #000b; border: 1px solid #ffd56a88; border-radius: 6px; pointer-events: none; white-space: pre; }
       #demo[hidden] { display: none; }
+      /* The start: a starfield, the name, three choices. */
+      /* Over the real sky: the planet below, the sun on the limb, the stars. Chris, 2026-09-04. */
+      #start { position: fixed; inset: 0; z-index: 30; background: transparent; color: #fff; }
+      #start[hidden] { display: none; }
+      #start .card { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); text-align: center; font: 14px ui-monospace, Menlo, Consolas, monospace; letter-spacing: 0.2em; text-shadow: 0 0 12px #000, 0 2px 4px #000; }
+      #start h1 { margin: 0 0 40px; font: 300 clamp(40px, 8vw, 84px) Georgia, "Times New Roman", serif; letter-spacing: 0.5em; padding-left: 0.5em; text-shadow: 0 0 24px #4a7cff66; }
+      #start ul { list-style: none; margin: 0; padding: 0; }
+      #start li { padding: 12px 0; opacity: 0.55; cursor: pointer; }
+      #start li small { display: block; margin-top: 4px; font-size: 11px; letter-spacing: 0.12em; opacity: 0.8; }
+      #start li.on { opacity: 1; text-shadow: 0 0 10px #9fe3a0; }
+      #start li.on::before { content: '▸  '; color: #9fe3a0; }
+      #start li.off { opacity: 0.25; cursor: default; }
+      #start .foot { margin-top: 40px; opacity: 0.5; font-size: 12px; }
       /* The arrival card: the body's name, big and spaced, and a line of what it is. */
       #title {
         position: fixed; left: 0; right: 0; top: 18vh; text-align: center; pointer-events: none;
@@ -135,6 +148,17 @@
     <div id="intro" hidden></div>
     <div id="toast" hidden></div>
     <div id="demo" hidden></div>
+    <div id="start" hidden>
+      <div class="card">
+        <h1>NOELITE</h1>
+        <ul>
+          <li data-choice="continue">CONTINUE<small></small></li>
+          <li data-choice="new">NEW GAME<small>the opening, from the pad at dawn</small></li>
+          <li data-choice="demo">DEMO<small>the ship flies the loop itself and shows the keys; nothing is saved</small></li>
+        </ul>
+        <div class="foot">↑ ↓ choose   ·   ENTER   ·   or click</div>
+      </div>
+    </div>
     <div class="bar top"></div><div class="bar bottom"></div>
     <div id="title"><h1></h1><hr /><p></p></div>
     <div id="menu" hidden>
