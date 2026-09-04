@@ -4,7 +4,7 @@
 // takes a face or a (u, v) the six faces stop agreeing at their seams.
 import { Simplex3 } from './noise.ts'
 import { PLANET_RADIUS, TERRAIN_AMPLITUDE, MASTER_SEED } from './config.ts'
-import { body, type Body, type BodyKind } from './system.ts'
+import { body, SETTLED, type Body, type BodyKind } from './system.ts'
 
 export type UnitVector = { readonly x: number; readonly y: number; readonly z: number }
 export type PlanetSeed = number // uint32
@@ -42,7 +42,7 @@ export const CANYON = 0.6
  * Montes, the lunar highlands); 0.5% is the same small exaggeration home gets.
  */
 const AMPLITUDE_BY_KIND: Record<BodyKind, number> = {
-  sun: 0, hot: 0.005, terrestrial: 0.005, tiny: 0.012, giant: 0, moon: 0.005,
+  sun: 0, hot: 0.005, terrestrial: 0.005, desert: 0.006, ice: 0.004, tiny: 0.012, giant: 0, moon: 0.005,
 }
 
 export function terrainOf(b: Body): Terrain {
@@ -112,7 +112,7 @@ export function baseHeight(p: UnitVector, t: Terrain): number {
   // Ground: cells of ~600 m down to ~150 m in absolute metres, whatever the radius.
   const fd = t.radius / DETAIL_CELL
   const detail = n.fbm(p.x * fd + 7.3, p.y * fd + 7.3, p.z * fd + 7.3, 3)
-  if (t.kind === 'hot' || t.kind === 'moon' || t.kind === 'tiny') {
+  if (t.kind === 'hot' || t.kind === 'moon' || t.kind === 'tiny' || (t.kind === 'ice' && !t.air)) {
     // Airless rock: fold the broad field into crests and basins, and stand ridges on it.
     const folded = 1 - 2 * Math.abs(broad)
     const crests = ridged(n, qx * 3 + 5.5, qy * 3 + 5.5, qz * 3 + 5.5, 5)
@@ -179,7 +179,7 @@ const OUTPOST_NAMES = ['Harrow', 'Kestrel', 'Fallow', 'Brine', 'Tallow', 'Sable'
 
 /** The body's landing pad, found once: a dry, flat, forest-free spot at a reasonable height, spiralling out from (0, 0, 1). */
 export function padOf(t: Terrain): PadSite | null {
-  if (t.water || t.kind !== 'terrestrial' || !t.amplitude) return null
+  if (t.water || !SETTLED.has(t.kind) || !t.amplitude) return null
   let p = pads.get(t.id)
   if (p === undefined) { p = findSite(t, { x: 0, y: 0, z: 1 }, 40, BASE_RADIUS, BASE_BLEND, [], 4, 1.5, 3); pads.set(t.id, p) }
   return p
@@ -191,7 +191,7 @@ export function padOf(t: Terrain): PadSite | null {
  * body from the pad. Chris, 2026-09-03: "we'll have fuel stations as well."
  */
 export function stationOf(t: Terrain): Station | null {
-  if (t.water || t.kind !== 'terrestrial' || !t.amplitude) return null
+  if (t.water || !SETTLED.has(t.kind) || !t.amplitude) return null
   let st = stations.get(t.id)
   if (st === undefined) {
     const pad = padOf(t)
@@ -229,7 +229,7 @@ function norm(v: { x: number; y: number; z: number }): UnitVector {
  * OUTPOST_MIN_APART from the pad, the station and every outpost before it.
  */
 export function outpostsOf(t: Terrain): Outpost[] {
-  if (t.water || t.kind !== 'terrestrial' || !t.amplitude) return []
+  if (t.water || !SETTLED.has(t.kind) || !t.amplitude) return []
   let list = outposts.get(t.id)
   if (list === undefined) {
     list = []

@@ -91,6 +91,26 @@
       .nav.retro { color: #ffc46a; }
       .nav.target { color: #ffffff; font-size: 16px; white-space: nowrap; }
       .nav.outpost { color: #ffd56a; font-size: 14px; white-space: nowrap; }
+      /* The compass strip: ticks at their bearing across the top; ahead is the middle. */
+      #compass { position: fixed; left: 8vw; right: 8vw; top: 10px; height: 130px; pointer-events: none; font: 11px ui-monospace, Menlo, Consolas, monospace; letter-spacing: 0.08em; color: #b8f0b8; }
+      #compass[hidden] { display: none; }
+      #compass .line { position: absolute; left: 0; right: 0; top: 14px; border-top: 1px solid #9fe3a055; }
+      #compass .centre { position: absolute; left: 50%; top: 8px; width: 0; height: 13px; border-left: 1px solid #ffffffaa; }
+      #compass .tick { position: absolute; top: 0; transform: translateX(-50%); text-align: center; white-space: nowrap; opacity: 0.6; }
+      #compass .tick .g { display: block; font-size: 13px; line-height: 14px; height: 14px; }
+      #compass .tick .n { display: block; margin-top: 3px; }
+      #compass .tick .d { display: block; opacity: 0.7; }
+      #compass .tick.on { opacity: 1; color: #fff; text-shadow: 0 0 6px #9fe3a0; }
+      #compass .tick.behind { opacity: 0.35; }
+      #compass .tick.behind .n, #compass .tick.behind .d { display: none; }
+      #compass .tick.down .g { visibility: hidden; }
+      #compass .tick.bare .n, #compass .tick.bare .d { display: none; }
+      #compass .tick.bare { opacity: 0.4; }
+      #compass .tick.down .n::before { content: '·  '; opacity: 0.5; }
+      #compass .tick.station { color: #d8e8ff; }
+      #compass .tick.outpost { color: #ffd56a; }
+      #compass .tick.field { color: #c8b8a0; }
+      #compass .tick.seam { color: #8ff0e0; }
       .nav.edge::after {
         content: ''; position: absolute; left: 50%; top: -14px; width: 0; height: 0;
         border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 10px solid currentColor;

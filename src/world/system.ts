@@ -11,7 +11,9 @@ import * as THREE from 'three'
 import { MASTER_SEED, PLANET_RADIUS, GRAVITY, ATMOSPHERE_HEIGHT, DAY_LENGTH } from './config.ts'
 import { rng } from './noise.ts'
 
-export type BodyKind = 'sun' | 'hot' | 'terrestrial' | 'tiny' | 'giant' | 'moon'
+export type BodyKind = 'sun' | 'hot' | 'terrestrial' | 'desert' | 'ice' | 'tiny' | 'giant' | 'moon'
+/** Kinds with ground you can settle: pads, a station, outposts, seams. */
+export const SETTLED: ReadonlySet<BodyKind> = new Set<BodyKind>(['terrestrial', 'desert', 'ice'])
 
 export type Orbit = {
   /** Semi-major axis (radius, for now), metres. */
@@ -78,8 +80,8 @@ export function buildSystem(seed = MASTER_SEED): Body[] {
       radius: spec.radius, surfaceGravity: spec.g, mu,
       atmosphereHeight: spec.air,
       seaLevel: spec.sea ?? null,
-      // Moons are tidally locked: one rotation per orbit.
-      spinPeriod: spec.kind === 'moon' && orbit ? orbit.period : spec.spin,
+      // Moons are tidally locked: one rotation per orbit. (spin 0 with a parent planet means locked, whatever the kind.)
+      spinPeriod: orbit && parent && parent.kind !== 'sun' && (spec.kind === 'moon' || spec.spin === 0) ? orbit.period : spec.spin,
       spinAxis: new THREE.Vector3(Math.sin(tilt), Math.cos(tilt), 0).normalize(),
       spinPhase0: next() * TWO_PI,
       parent: spec.parent, orbit,
@@ -107,8 +109,23 @@ export function buildSystem(seed = MASTER_SEED): Body[] {
   // Earth, and its moon at a quarter of Earth's Hill radius, as the real one is.
   add({ id: 'home', name: 'Vale', kind: 'terrestrial', radius: PLANET_RADIUS, g: GRAVITY, air: ATMOSPHERE_HEIGHT, spin: DAY_LENGTH, parent: 'sun', a: scaled(149_600_000_000), tilt: 0.41, sea: 0 })
   add({ id: 'home-1', name: 'Vale I', kind: 'moon', radius: scaled(1_737_000), g: 1.62, air: 0, spin: 0, parent: 'home', a: scaled(384_400_000) })
+  // Mars: the red world, thin air, no sea, a day like ours. The first "richer" tier (DESIGN §10g).
+  add({ id: 'desert', name: 'Rust', kind: 'desert', radius: scaled(3_389_500), g: 3.71, air: 700, spin: DAY_LENGTH * 1.03, parent: 'sun', a: scaled(227_900_000_000), tilt: 0.44 })
+  // Ceres: a dwarf in the belt, airless, a stepping stone to the giants.
+  add({ id: 'dwarf', name: 'Hollow', kind: 'tiny', radius: scaled(470_000), g: 0.28, air: 0, spin: DAY_LENGTH * 0.4, parent: 'sun', a: scaled(414_000_000_000), tilt: 0.07 })
   // Jupiter: no surface, 24.8 g, so hover is impossible without boost. A crush line later.
   add({ id: 'giant', name: 'Bulwark', kind: 'giant', radius: scaled(69_911_000), g: 24.8, air: 40_000, spin: DAY_LENGTH / 2, parent: 'sun', a: scaled(778_500_000_000), tilt: 0.05 })
+  // Io and Europa: a volcanic moon and an ice moon, the far tier begins here.
+  add({ id: 'giant-1', name: 'Ember', kind: 'hot', radius: scaled(1_821_600), g: 1.8, air: 0, spin: 0, parent: 'giant', a: scaled(421_700_000) })
+  add({ id: 'giant-2', name: 'Rime', kind: 'ice', radius: scaled(1_560_800), g: 1.31, air: 0, spin: 0, parent: 'giant', a: scaled(671_000_000), sea: 0 })
+  // Saturn and Titan: the ringed world (rings to come) and a cold moon under a thick haze.
+  add({ id: 'ringed', name: 'Halo', kind: 'giant', radius: scaled(58_232_000), g: 10.4, air: 30_000, spin: DAY_LENGTH / 2.2, parent: 'sun', a: scaled(1_433_500_000_000), tilt: 0.47 })
+  add({ id: 'ringed-1', name: 'Murk', kind: 'desert', radius: scaled(2_574_700), g: 1.35, air: 3_000, spin: 0, parent: 'ringed', a: scaled(1_221_900_000), tilt: 0.01 })
+  // Uranus and Neptune: the ice giants, then Triton and Pluto: the far, cold end.
+  add({ id: 'giant-b', name: 'Umber', kind: 'giant', radius: scaled(25_362_000), g: 8.87, air: 20_000, spin: DAY_LENGTH / 1.7, parent: 'sun', a: scaled(2_872_500_000_000), tilt: 1.7 })
+  add({ id: 'giant-c', name: 'Deep', kind: 'giant', radius: scaled(24_622_000), g: 11.15, air: 20_000, spin: DAY_LENGTH / 1.5, parent: 'sun', a: scaled(4_495_000_000_000), tilt: 0.49 })
+  add({ id: 'giant-c-1', name: 'Hush', kind: 'ice', radius: scaled(1_353_400), g: 0.78, air: 0, spin: 0, parent: 'giant-c', a: scaled(354_800_000), sea: 0 })
+  add({ id: 'far', name: 'Far', kind: 'ice', radius: scaled(1_188_300), g: 0.62, air: 0, spin: DAY_LENGTH * 6, parent: 'sun', a: scaled(5_906_000_000_000), tilt: 2.1, sea: 0 })
   return bodies
 }
 

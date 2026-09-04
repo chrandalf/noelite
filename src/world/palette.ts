@@ -33,6 +33,22 @@ const LAVA: { upTo: number; c: RGB }[] = [
   { upTo: Infinity, c: [0.95, 0.55, 0.12] }, // glowing crests
 ]
 const ROCK: RGB = [0.46, 0.40, 0.30]
+/** The red world: dark basins, rust plains, pale highlands, grey peaks. */
+const RUST: { upTo: number; c: RGB }[] = [
+  { upTo: -0.4, c: [0.36, 0.16, 0.10] },
+  { upTo: 0.2, c: [0.72, 0.34, 0.16] },
+  { upTo: 0.9, c: [0.82, 0.48, 0.26] },
+  { upTo: 1.6, c: [0.78, 0.62, 0.44] },
+  { upTo: Infinity, c: [0.55, 0.50, 0.46] },
+]
+/** Ice worlds: a frozen sea below zero, white land, blue-grey where it is steep, blue in the deep cracks. */
+const ICE: { upTo: number; c: RGB }[] = [
+  { upTo: -0.5, c: [0.40, 0.58, 0.80] },
+  { upTo: 0, c: [0.74, 0.84, 0.94] },
+  { upTo: 0.6, c: [0.90, 0.93, 0.97] },
+  { upTo: Infinity, c: [0.96, 0.97, 0.99] },
+]
+const ICE_ROCK: RGB = [0.52, 0.58, 0.66]
 const GIANT_BANDS: RGB[] = [[0.92, 0.86, 0.70], [0.78, 0.62, 0.42], [0.62, 0.38, 0.22], [0.85, 0.75, 0.58]]
 
 function band(table: { upTo: number; c: RGB }[], h: number): RGB {
@@ -56,6 +72,8 @@ export function terrainColour(kind: BodyKind, hNorm: number, slope: number, jitt
       break
     }
     case 'hot': base = mix(band(LAVA, hNorm), [0.12, 0.09, 0.09], clamp01((slope - 30) / 20)); break
+    case 'desert': base = mix(band(RUST, hNorm), [0.40, 0.30, 0.24], clamp01((slope - 26) / 18)); break
+    case 'ice': base = mix(band(ICE, aboveNorm), ICE_ROCK, clamp01((slope - 22) / 16)); break
     case 'giant': {
       const i = Math.floor((lat + 1) * 5.5 + jitter * 0.25) & 3
       base = GIANT_BANDS[i]; break

@@ -38,6 +38,7 @@ import { Marks } from './engine/Marks.ts'
 import { Sound } from './engine/Sound.ts'
 import { Sky } from './engine/Sky.ts'
 import { NavMarkers } from './engine/NavMarkers.ts'
+import { Compass, type CompassItem } from './engine/Compass.ts'
 import { waterOf, height, HOME, terrainOf, padOf, stationOf, outpostsOf, type Terrain, type Station, type Outpost } from './world/height.ts'
 import { buildPad } from './engine/Pad.ts'
 import { buildStation, updateStation, type StationView } from './engine/Station.ts'
@@ -47,7 +48,7 @@ import { Bank } from './world/economy.ts'
 import { snapshot, restore, isSave } from './world/save.ts'
 import { slopeDeg } from './world/terrain.ts'
 import { atmosphereDensity, buildAtmosphereShell } from './world/atmosphere.ts'
-import { SYSTEM, body, bodyPosition, bodySpin, type Body } from './world/system.ts'
+import { SYSTEM, SETTLED, body, bodyPosition, bodySpin, type Body } from './world/system.ts'
 import { terrainColour, facetJitter, SEA } from './world/palette.ts'
 import { Water } from './engine/Water.ts'
 import { OrbitAutopilot } from './engine/Autopilot.ts'
@@ -304,6 +305,8 @@ if (q.get('fuel') !== null) craft.fuel = Math.max(0, Math.min(FUEL_TANK, Number(
   }
 }
 const markers = new NavMarkers(document.body)
+const compass = new Compass(document.body)
+const compassItems: CompassItem[] = []
 const orbitAP = new OrbitAutopilot()
 
 const hud = document.getElementById('hud')!
@@ -318,10 +321,10 @@ const titleEl = document.getElementById('title')!, titleName = titleEl.querySele
 let titleBody: Body | null = null
 let titleUntil = 0
 const describe = (b: Body): string => {
-  const kind = b.kind === 'terrestrial' ? 'TERRESTRIAL' : b.kind === 'moon' ? 'MOON' : b.kind === 'giant' ? 'GAS GIANT' : b.kind === 'hot' ? 'HOT WORLD' : 'STAR'
+  const kind = b.kind === 'terrestrial' ? 'TERRESTRIAL' : b.kind === 'desert' ? 'DESERT WORLD' : b.kind === 'ice' ? 'ICE WORLD' : b.kind === 'moon' ? 'MOON' : b.kind === 'tiny' ? 'DWARF' : b.kind === 'giant' ? 'GAS GIANT' : b.kind === 'hot' ? 'HOT WORLD' : 'STAR'
   const air = b.atmosphereHeight > 0 ? 'ATMOSPHERE' : 'AIRLESS'
   const day = b.spinPeriod > 0 ? `DAY ${Math.round(b.spinPeriod / 60)} MIN` : 'TIDALLY LOCKED'
-  return [kind, `${b.surfaceGravity.toFixed(1)} m/s²`, air, b.seaLevel !== null ? 'OCEANS' : null, day].filter(Boolean).join('   ·   ')
+  return [kind, `${b.surfaceGravity.toFixed(1)} m/s²`, air, b.seaLevel !== null ? (b.kind === 'ice' ? 'FROZEN SEA' : 'OCEANS') : null, day].filter(Boolean).join('   ·   ')
 }
 const showTitle = (b: Body) => { titleName.textContent = b.name; titleLine.textContent = describe(b); titleEl.classList.add('on'); titleUntil = elapsed + 6 }
 let barFrac = intro ? 1 : 0
@@ -476,7 +479,7 @@ function respawn() {
   const wrecked = craft.state === 'crashed'
   const up = craft.pos.clone().normalize()
   let best = pad, bestOn = home, bestC = -2
-  if (craft.ref.kind === 'terrestrial') {
+  if (SETTLED.has(craft.ref.kind)) {
     const t = craft.terrain
     const sites: { x: number; y: number; z: number }[] = []
     const p = padOf(t); if (p) sites.push(p.dir)
@@ -774,11 +777,22 @@ renderer.setAnimationLoop((now) => {
       }
       cleared = `  cleared pad ${bestN}`
     }
-    // The nearest outpost on this body, once you are off its pad, so a place to land is always in view.
-    const showOutpost = flying && nearOutpost !== null && nearOutpostD < OUTPOST_DRAW && nearOutpostD > 300 && (phase === 'off' || phase === 'done')
-    markers.place('outpost', showOutpost && nearOutpost ? tmp.copy(nearOutpost.rel).sub(craft.pos).normalize() : dir, camera, showOutpost, nearOutpost ? `${nearOutpost.o.name}  ${fmtDist(nearOutpostD)}` : '')
+    // The nearest outposts are on the compass now; the on-screen marker went with Chris's "words just appear".
+    markers.place('outpost', dir, camera, false)
     const eta = closing > 1 && tSurf / closing < 86400 ? `  ETA ${fmtTime(tSurf / closing)}` : ''
-    markers.place('target', tDir, camera, showNav || cleared !== '', `${tgt.name}  ${fmtDist(tgt.station ? tSurf : shownDistance(tSurf))}  ${closing >= 0 ? '↓' : '↑'}${fmtSpeed(Math.abs(closing))}${eta}${cleared}`)
+    // The diamond stays on the target; its name and distance live on the compass now.
+    markers.place('target', tDir, camera, showNav || cleared !== '', `${closing >= 0 ? '↓' : '↑'}${fmtSpeed(Math.abs(closing))}${eta}${cleared}`)
+    // The compass strip: every body and station, the nearest outposts here, the cluster if it is the target.
+    compassItems.length = 0
+    for (const tg of bodyTargets) {
+      if (!tg.station && tg.name === craft.ref.name) continue   // the ground under you is not a destination
+      const d = wtmp.copy(tg.rel).sub(craft.pos); const len = d.length(); if (len < 1) continue
+      compassItems.push({ key: tg.name, name: tg.name, dist: fmtDist(tg.station ? Math.max(0, len - tg.radius) : shownDistance(Math.max(0, len - tg.radius))), d: len, dir: d.divideScalar(len).clone(), kind: tg.station ? 'station' : 'body', selected: tg === tgt })
+    }
+    const nearHere = outpostViews.filter((ov) => ov.view.body === craft.ref).map((ov) => ({ ov, d: ov.rel.distanceTo(craft.pos) })).sort((a, b) => a.d - b.d).slice(0, 3)
+    for (const { ov, d } of nearHere) if (d > 300) compassItems.push({ key: ov.o.name, name: ov.o.name, dist: fmtDist(d), d, dir: wtmp.copy(ov.rel).sub(craft.pos).divideScalar(d).clone(), kind: 'outpost', selected: false })
+    if (tgt.field) compassItems.push({ key: tgt.name, name: tgt.name, dist: fmtDist(tSurf), d: tSurf, dir: tDir.clone(), kind: 'field', selected: true })
+    compass.update(compassItems, camera, !paused && (phase === 'off' || phase === 'done'))
     const lc = craft.lastContact
     const vOrb = craft.orbitalSpeed(), vEsc = craft.escapeSpeed(), spd = craft.speed(), vIn = craft.inertialSpeed()
     const apLine = orbitAP.engaged ? `   AUTOPILOT ${orbitAP.phase.toUpperCase()} ${craft.ref.name}  park ${((orbitAP.parkRadius(craft) - craft.terrain.radius) / 1000).toFixed(0)} km at ${orbitAP.parkSpeed(craft).toFixed(0)} m/s` : ''
@@ -799,6 +813,7 @@ renderer.setAnimationLoop((now) => {
     const [lo, hi] = planet.levelRange()
     line = `alt ${altitude.toFixed(0)} m   speed ${speed.toFixed(0)} m/s   chunks ${planet.liveCount} (+${planet.pendingCount})   lod ${lo}..${hi}   ${fps} fps\nWASD move  R/F up/down  Q/E roll  drag to look  shift = fast`
     markers.hide()
+    compass.update(compassItems, camera, false)
   }
 
   placeBodies(mode === 'fly' ? craft.time : t, mode === 'fly' ? craft.ref : home); updates++

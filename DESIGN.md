@@ -1052,3 +1052,53 @@ from delivered volume" read. The rule:
 
 Every number is a knob. The shape is the point: you never place a track. You feed a town
 and it grows.
+
+## 10g. Resources by distance, more planets, a compass, a scanner (Chris, 2026-09-04, late)
+
+Chris: "we do need to make collecting resources easy enough though, there will be simple
+resources on our own planet, richer versions of those resources on our closest planets,
+and then elite rarer resources on further ones. We'll need more planets in the solar
+system I feel. Let's make it anywhere between 8 and 12. Also need an easier way of tabbing
+through them, I don't like how the words just appear on screen, we need a little map on
+the top showing the direction to it, and on the planet need a way of honing in on
+resources, the explore needs to be adventurous and eventful, sometimes difficult."
+
+**Tiers by distance.** Home has the plain goods (water, timber, salt, ore). The near bodies
+(the moon, Marram, the red world) have the same goods richer (a seam pays two or three
+times) plus their own (ice, helium, sulphur). The far bodies (the giants' moons, the ringed
+world, the ice worlds) have the rare ones (crystal, deuterium, the things the fabricator
+needs). Reach is fuel and drive, so the tiers are the ladder.
+
+**The system grows to ten planets** plus moons, the real one scaled through the same 1:159:
+Cinder (Mercury), Marram (Venus), Vale (Earth) and Vale I, Rust (Mars) and a small moon,
+Hollow (Ceres, a dwarf in the belt), Bulwark (Jupiter) with Ember and Rime (Io, Europa),
+Halo (Saturn, with rings, and Brine as Titan), Umber (Uranus), Deep (Neptune) with Sable
+(Triton), Far (Pluto). Two new kinds for the look: desert (rust bands, no sea, thin air)
+and ice (white and blue, a frozen sea). The system harness already checks Hill spheres,
+SOI overlap and Kepler for every body, so adding bodies is data.
+
+**The compass.** A strip across the top of the frame: every body, the station, the nearest
+outposts on this body and the V cluster as ticks at their bearing from the camera, names
+and distances under them, the target lit, anything behind you pinned to the edge with an
+arrow. Tab still cycles; the strip is what you cycle through. The nav markers stay for the
+planet, prograde and retrograde.
+
+**The scanner.** Every body has seeded seams (a type from its tier and the ground it sits
+in, a richness). A key pings: a sweep on the compass, a blip at the bearing of the nearest
+seam within range, brighter and faster as you close, range that grows with the scanner
+tier you buy. Land inside the seam's radius and the dig (with cargo, next) takes from it.
+**Adventurous and sometimes difficult**: seams sit on canyon floors, mountain belts, polar
+caps, islands, the night side, inside the storm belt; a rich seam is never on flat ground
+by a pad. Events later: meteor showers on the airless bodies, storms that close a site,
+a seam that only shows at low tide.
+
+**Built the same night:** the system at fourteen bodies (ten planets and dwarfs, four
+moons, §10g's roster; two new kinds, desert and ice, with their own palettes; desert and
+ice worlds get pads, a station and outposts like home; a body with a planet parent and
+spin 0 is tidally locked whatever its kind). The compass strip across the top: every body
+and station, the three nearest outposts on this body, the cluster if it is the target; a
+glyph per kind at its bearing from the camera, the target lit, behind you pinned to the
+edge; labels by priority (the target, then the nearest) dropping a row when they would
+overlap, a bare glyph past the fourth row. The target diamond keeps only its closing
+speed, ETA and cleared pad; the name moved to the strip. Known: the ice worlds' frozen
+seas are still drawn by the water shader; they want a flat white surface.
