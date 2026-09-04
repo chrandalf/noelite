@@ -1143,3 +1143,36 @@ pay for what you carry. Towns run all the time. `tools/verify-town.mjs` (23) and
 `tools/probe-loop.mjs`. Also tonight: the wheel no longer zooms the camera (the ear)
 while the menu scrolls, the landing lights hold their colour until a reading is a tenth
 clear of its limit, the panel lines keep their height, and `/` in hover is a dive.
+
+## 10h. No ceiling on the world, and the story of the build (Chris, 2026-09-04, late)
+
+Chris: "there needs to be no limits on how much the world gets populated, you do what you
+need to do, set up the subcontractors, go off to another world for a few days and come
+back and it's all gone crazy, things are built, it's wild. Also want a back story being
+produced, real words the user can read and it will tell them the story of the build."
+
+**No ceiling.** Tonight's works list is five fixed jobs and then nothing, which is a cap.
+It becomes a generator: after the fixed openers a town draws its next job from what it
+has and what it lacks, with bills that grow with its size: more housing when the
+population presses the floor space, a second warehouse when the stock overflows, a
+market, a farm once it has a water plant, a mine at a seam within reach, a rail to the
+next town it is not yet joined to, a tower, a freighter pad once the rail net is dense,
+each one bigger than the last. Population has no cap either; it is bounded only by
+water and food, which is what the subcontractors are for. Towns tick in game time
+whether or not you are on their body, so two days on Rust are two days of building at
+home, and a town with a standing supply keeps going without you. That is the "come back
+and it's gone crazy". Nothing here is expensive: the generator is a table and a rule, and
+the tick already runs for every town every frame.
+
+**The chronicle.** Every event that matters writes a line in a town's story: the first
+pod delivered and who brought it (you, or a carrier by name), each job started and
+finished, the population passing a hundred, the rail reaching the next town, the first
+freighter launched, a wreck salvaged, a town that went thirsty and shrank. Lines are
+built from templates with the real names, numbers and days, in the plain voice of a
+settlement's record, and kept in the save. Read in the pause menu as a page per town
+and one for the whole system, newest first, with a date in the game's calendar. Later
+the lines can be run through a model for prose; the events and the facts come first,
+because they are what the story is made of.
+
+Both backlog. The generator is the cheaper of the two and should come before
+subcontractors exist, or the carriers will run out of things to build.
