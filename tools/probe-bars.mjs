@@ -1,6 +1,7 @@
 // Drives the opening: boots the ship, holds Space, and reads the letterbox against altitude.
 // Needs the dev server. Usage: node tools/probe-bars.mjs [out.png]. Exits 1 if the bars are not
-// full on the pad, ever grow while climbing, or are still there past 80 m.
+// full on the pad, ever grow while climbing, or are still there past 80 m; or if the arrival card
+// does not name the body once the HUD is up, linger past the climb, or come up again at the moon.
 import { createRequire } from 'node:module'
 const require = createRequire('/mnt/c/Users/chris/code/80sadventure/package.json')
 const puppeteer = require('puppeteer')
@@ -18,6 +19,12 @@ await page.keyboard.press('KeyW')
 await page.waitForFunction(() => globalThis.__noelite.phase() === 'hover', { timeout: 180000, polling: 500 })   // game time runs slow headless
 const booted = await read(); console.log('boot ', booted)
 let bad = 0
+// The arrival card: on with the body's name as the HUD finishes booting, off six game seconds later.
+await sleep(2500)
+const card = await page.evaluate(() => ({ on: document.getElementById('title').classList.contains('on'), name: document.querySelector('#title h1').textContent, line: document.querySelector('#title p').textContent }))
+console.log('card ', card)
+await page.screenshot({ path: (process.argv[2] ?? 'bars-open.png').replace(/\.png$/, '-card.png') })
+if (!card.on || card.name !== 'Vale' || !card.line.includes('TERRESTRIAL')) { console.log('FAIL the arrival card should name Vale once the HUD is up'); bad++ }
 if (parseFloat(onPad.bar) !== 11 || parseFloat(booted.bar) !== 11) { console.log('FAIL bars not full on the pad'); bad++ }
 await page.keyboard.down('Space')
 let last = 11, gone = null
@@ -34,4 +41,12 @@ while (Date.now() - t0 < 300000) {
 await page.keyboard.up('Space')
 await page.screenshot({ path: process.argv[2] ?? 'bars-open.png' })
 console.log(gone === null ? 'FAIL bars never opened' : `bars gone at ${gone} m`)
+const cardLater = await page.evaluate(() => document.getElementById('title').classList.contains('on'))
+if (cardLater) { console.log('FAIL the arrival card should have gone by the time you are 100 m up'); bad++ }
+// Arriving at the moon gets its own card.
+await page.goto('http://localhost:5175/?over=home-1:2000&t=700', { waitUntil: 'domcontentloaded' })
+await page.waitForFunction(() => globalThis.__noelite?.titleBody?.() !== null, { timeout: 60000, polling: 250 })
+const moon = await page.evaluate(() => ({ on: document.getElementById('title').classList.contains('on'), name: document.querySelector('#title h1').textContent, line: document.querySelector('#title p').textContent }))
+console.log('moon ', moon)
+if (!moon.on || moon.name !== 'Vale I' || !moon.line.includes('AIRLESS')) { console.log('FAIL the moon should get its own card'); bad++ }
 await browser.close(); process.exit(bad || gone === null ? 1 : 0)

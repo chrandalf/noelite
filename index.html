@@ -20,6 +20,15 @@
         transition: opacity 1.2s;
       }
       #intro[hidden] { display: none; }
+      /* The arrival card: the body's name, big and spaced, and a line of what it is. */
+      #title {
+        position: fixed; left: 0; right: 0; top: 18vh; text-align: center; pointer-events: none;
+        color: #fff; opacity: 0; transition: opacity 1.4s; text-shadow: 0 0 18px #000, 0 2px 4px #000;
+      }
+      #title.on { opacity: 1; }
+      #title h1 { margin: 0; font: 300 clamp(34px, 7vw, 76px) Georgia, "Times New Roman", serif; letter-spacing: 0.45em; text-transform: uppercase; padding-left: 0.45em; }
+      #title p { margin: 10px 0 0; font: 13px ui-monospace, Menlo, Consolas, monospace; letter-spacing: 0.34em; color: #d8e8d8; opacity: 0.9; padding-left: 0.34em; }
+      #title hr { width: 22vw; min-width: 160px; border: 0; border-top: 1px solid #fff9; margin: 14px auto 0; }
       /* The opening's letterbox: two bars that hold while you are on the pad and open as you climb. */
       .bar { position: fixed; left: 0; right: 0; height: 0; background: #000; z-index: 5; pointer-events: none; }
       .bar.top { top: 0; } .bar.bottom { bottom: 0; }
@@ -88,6 +97,7 @@
     <div id="hud"></div>
     <div id="intro" hidden></div>
     <div class="bar top"></div><div class="bar bottom"></div>
+    <div id="title"><h1></h1><hr /><p></p></div>
     <div id="menu" hidden>
       <div class="card">
         <h1>PAUSED</h1>

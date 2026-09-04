@@ -301,6 +301,19 @@ const menu = document.getElementById('menu')!
 const introEl = document.getElementById('intro')!
 /** The opening's letterbox. 1 = bars fully in (a fifth of the frame between them), 0 = open. */
 const bars = Array.from(document.querySelectorAll<HTMLElement>('.bar'))
+// The arrival card (Chris, 2026-09-04: "some fancy font saying which planet we're on"):
+// shown for every body whose sphere of influence you arrive in, and in the opening once
+// the HUD has booted, with the notes.
+const titleEl = document.getElementById('title')!, titleName = titleEl.querySelector('h1')!, titleLine = titleEl.querySelector('p')!
+let titleBody: Body | null = null
+let titleUntil = 0
+const describe = (b: Body): string => {
+  const kind = b.kind === 'terrestrial' ? 'TERRESTRIAL' : b.kind === 'moon' ? 'MOON' : b.kind === 'giant' ? 'GAS GIANT' : b.kind === 'hot' ? 'HOT WORLD' : 'STAR'
+  const air = b.atmosphereHeight > 0 ? 'ATMOSPHERE' : 'AIRLESS'
+  const day = b.spinPeriod > 0 ? `DAY ${Math.round(b.spinPeriod / 60)} MIN` : 'TIDALLY LOCKED'
+  return [kind, `${b.surfaceGravity.toFixed(1)} m/s²`, air, b.seaLevel !== null ? 'OCEANS' : null, day].filter(Boolean).join('   ·   ')
+}
+const showTitle = (b: Body) => { titleName.textContent = b.name; titleLine.textContent = describe(b); titleEl.classList.add('on'); titleUntil = elapsed + 6 }
 let barFrac = intro ? 1 : 0
 const BAR_VH = 11
 /** Escape. The sim stops, the picture stays, the menu shows the controls. */
@@ -498,6 +511,12 @@ renderer.setAnimationLoop((now) => {
         setTimeout(() => sound.pad(0), 45000)
       }
       if (phase === 'done' && ph > 10) introEl.hidden = true
+    }
+    // The arrival card: a new reference body, or the opening once the HUD is up.
+    {
+      const want = mode === 'fly' && (phase === 'off' || phase === 'done' || phase === 'hover' || phase === 'dawn') && elapsed > 0.5 ? craft.ref : null
+      if (want && want !== titleBody) { titleBody = want; showTitle(want); sound.fanfare() }
+      if (titleEl.classList.contains('on') && elapsed > titleUntil) titleEl.classList.remove('on')
     }
     // The letterbox opens on your climb, not on a clock: held on the pad, opening from 2 to 60 m up.
     {
@@ -753,7 +772,7 @@ void tmp
 ;(window as unknown as { __noelite: unknown }).__noelite = {
   mode, planet, craft, input, free, views, asteroids, ship,
   /** The opening's phase and the letterbox, for the probes. */
-  phase: () => phase, barFrac: () => barFrac,
+  phase: () => phase, barFrac: () => barFrac, titleBody: () => titleBody,
   outposts: outpostViews, wrecks,
   /** True only once the LOD has updated since the last place() and its queue is empty. */
   ready: () => updates > placedAt + 1 && planet.pendingCount === 0,

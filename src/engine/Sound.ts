@@ -196,6 +196,30 @@ export class Sound {
     this.padFilter.frequency.setTargetAtTime(level >= 3 ? 1400 : level >= 2 ? 520 : 240, t, 8)
   }
 
+  /**
+   * The arrival notes: four rising notes, D A D F#, each two detuned voices with an octave
+   * under, a slow attack and a long tail, a filter opening as they stack into the chord.
+   * Chris, 2026-09-04: "an epic set of notes at the start", the No Man's Sky sting.
+   */
+  fanfare(): void {
+    if (!this.ctx || !this.master || this.muted) return
+    const t0 = this.ctx.currentTime
+    const f = this.ctx.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 0.7
+    f.frequency.setValueAtTime(500, t0); f.frequency.linearRampToValueAtTime(2600, t0 + 6)
+    const bus = this.ctx.createGain(); bus.gain.value = 0.9
+    f.connect(bus).connect(this.master)
+    const notes: [number, number][] = [[146.83, 0], [220, 1.6], [293.66, 3.2], [369.99, 4.8]]
+    for (const [hz, at] of notes) {
+      const t = t0 + at, end = t + 8
+      for (const [ratio, type, level, detune] of [[1, 'triangle', 0.16, 4], [1, 'sine', 0.12, -4], [0.5, 'sine', 0.1, 0]] as [number, OscillatorType, number, number][]) {
+        const o = this.ctx.createOscillator(), g = this.ctx.createGain()
+        o.type = type; o.frequency.value = hz * ratio; o.detune.value = detune
+        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(level, t + 1.3); g.gain.setTargetAtTime(0.0001, t + 3.5, 1.6)
+        o.connect(g).connect(f); o.start(t); o.stop(end)
+      }
+    }
+  }
+
   /** Reactor spin-up: four seconds of noise sweeping up under a body thump. Dawn Shift's first sound. */
   reactor(): void {
     if (!this.ctx || !this.master || this.muted) return
