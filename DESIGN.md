@@ -959,3 +959,66 @@ dig; (5) routes: a recurring contract, a bonus for on-time; (6) subcontractors: 
 ship that flies the route visibly for a cut; (7) the shop: tank, drive, heat shield,
 pods, scanner, digger, gear; (8) industry levels from delivered volume, rail between
 served pairs built over time, trains on them, then freighters between bodies.
+
+## 10f. The economy model (from `research/trade-economy-2026-09-04.md`, with my edits)
+
+The research read OpenTTD, Endless Sky, Naev, Pioneer, Simutrans and the Elite line in
+the actual source, licences checked (all copyleft: read the shapes, write our own). What
+we take, and where I differ.
+
+**Industries as data, keyed to the ground** (Pioneer's shape). A record with a site rule
+(forest, shallows, mountain belt, canyon, regolith, upper air), inputs, outputs per cycle,
+and modifiers from the body (airless, hot, high gravity). Seeded, so the world always has
+the same industries. One at each outpost and at the station, chosen by what the site's
+terrain is. One production cycle per 200 s of game time, about one short flight.
+
+| Good | Per cycle | Base cr/t | From |
+|---|---|---|---|
+| Water | 12 t | 20 | sea, shallows |
+| Timber | 10 t | 35 | forest |
+| Ore | 8 t | 60 | mountain belt |
+| Ice | 8 t | 45 | poles, the airless moon |
+| Salt | 10 t | 30 | flats |
+| Helium | 4 t | 220 | regolith |
+| Canyon crystal | 2 t | 480 | canyon |
+| Deuterium | 3 t | 900 | the giant, a scoop run |
+
+Consumption per station about 60% of the nearest producer's rate, so a route is always a
+little short.
+
+**Price from stock** (Endless Sky's error function, our constants):
+`price = base × (1 + 0.6 × erf((demand − stock) / K))`, K = 400 t bulk, 40 t rare. Stock
+relaxes 11% per cycle toward equilibrium, so a hammered route softens over six cycles and
+recovers over the same. That is what §10 promised.
+
+**Payment.** Free trade pays the spread. A contract pays
+`base + tonnes × (0.9 + 0.5 × d_km / 1000) × price × f_t`, with a par time T per contract:
+f_t is 1 to T, 0.5 at 2T, 0.2 at 3T, floor 0.15 (OpenTTD's four bands with our clock).
+Pad to the moon's station should pay about 1,400 at par.
+
+**Standing routes.** A contract done three times becomes a route: same ends and good, a
+tonnage per cycle, 15% premium; miss two cycles and it lapses. OpenTTD's subsidy with the
+timer inverted.
+
+**Subcontracting.** No open-source game has it; Naev's escort library plus Endless Sky's
+crew cost is the nearest. Ours: a real ship spawned at the source with the pod on its hull,
+flying our physics on a simple controller, landing on the same pads. It takes 45% and flies
+at 0.7 of a good player's pace, so doing it yourself is better per run and worse per hour.
+Failure 4% plus 1% per 1,000 km, and a failed run is a wreck you can salvage (Wreck.ts).
+One active subcontract early, four late.
+
+**Where I differ.** The research wants a 5,000 loan and a 20,000 ceiling rising with each
+drive tier to 200,000, 3% a year monthly, 6% overdrawn. I built 2,000 / 10,000 / 2% a
+game day, and a flat insurance excess. Both are guesses; the ceiling rising with the drive
+tier is the good idea and I will take it when the shop exists. **Growth** (Chris's rail
+brief, §10e) sits on top: an industry's level rises with what is delivered to it
+(OpenTTD's 1-in-22 monthly drift with the direction set by the share transported, made
+faster), and a served pair at a threshold gets its rail.
+
+**Upgrade ladder** (all invented, to move once a route is flown for real): tank II 4,000,
+cruise drive 12,000, insulated pod 8,000, cage pod 6,000, heat shield 30,000, drive II
+45,000, scoop 90,000, fuel cracker 120,000, drive III 160,000, drive core 600,000.
+
+**Build next:** a stock number and the erf price at each station and outpost, industries
+from the terrain, goods and pods with mass, then contracts, then the standing route, then
+the subcontractor.
