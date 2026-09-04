@@ -846,5 +846,27 @@ steeper than 1 in 2. The fix is a rule, not a number: every site's blend widens 
 times the biggest drop round its outer edge, measured twice because widening moves the
 edge. The station and the pad were already inside the rule; the outposts' worst step went from 2.12 m to 1.44 m.
 
-**Order from here:** letterbox (done), outposts (done), crashes (§10), scanner and dig, then
+**Built the same afternoon: crashes.** Contact damage is the square of how far the touchdown
+speed is over the landing limit (vertical or drift, whichever is worse), less one, times a
+quarter; a breach of tilt or slope alone costs a tenth. It adds to the same hull damage
+re-entry heat uses, so a scarred ship wrecks on a landing a fresh one walks away from. Short
+of a whole hull it is a hard landing: the readout says GEAR BENT, the altimeter cracks (red
+edge, doubled digits), the hover engine shakes the view while it burns, the touchdown dust and
+scuff are bigger, and a station repair straightens it. At a whole hull, or any hard contact
+with water, it is a wreck. On ground the hull's six facets leave from their own centroids
+with a share of the contact velocity and a kick along their normals, tumble under the body's
+gravity, bounce at 0.3, slide at 0.55 and rest; a fireball, dust and a 12 m scorch; the camera
+holds and sweeps round the wreck for six game seconds, then the respawn. Into water: a splash
+and the hull sinks at 1.4 m/s, no debris. **The wreck stays** in its body's frame after the
+respawn, which is the hook cargo will hang on. A burn-through or a rock leaves nothing to
+scatter. Numbers: 4 m/s down is the limit, 6 m/s costs a third of the hull, 9 m/s is the wreck.
+Harness: flight §28 (damage shape, a 3.5 m drop bends the gear, a 12 m drop wrecks, the
+pieces rest inside 20 s within 40 m and never under the ground, the sea sinks a hard contact
+and floats a gentle one, a scarred hull wrecks on the small drop); `tools/probe-crash.mjs`
+drives the game side. `?assist=0` turns the assist off so a drop is a drop.
+
+Not done: gear-up landings (the gear is automatic today, there is nothing to forget) and
+"repair for money" (no money yet).
+
+**Order from here:** letterbox (done), outposts (done), crashes (done), scanner and dig, then
 money and the shop, cargo pods, the economy, the Coriolis. Rover after that.

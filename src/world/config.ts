@@ -49,6 +49,17 @@ export const LAND_MAX_VSPEED = 4
 export const LAND_MAX_HSPEED = 3
 export const LAND_MAX_TILT = 15
 export const LAND_MAX_SLOPE = 15
+/**
+ * Crashes (DESIGN §10). Contact damage is the square of how far the touchdown speed is over
+ * the landing limit (vertical or drift, whichever is worse), less one, times this scale; a
+ * breach of tilt or slope alone costs CRASH_MIN_DAMAGE. The damage adds to the hull's, so a
+ * heat-scarred ship wrecks on a landing a fresh one would walk away from. At 1 the hull
+ * comes apart. 6 m/s down is a third of the hull; 9 m/s is the wreck.
+ */
+export const CRASH_DAMAGE_SCALE = 0.25
+export const CRASH_MIN_DAMAGE = 0.1
+/** Seconds the camera holds on a wreck before the respawn. */
+export const WRECK_HOLD = 6
 /** Physics runs at this fixed step so an input tape replays bit for bit. */
 export const FIXED_DT = 1 / 120
 

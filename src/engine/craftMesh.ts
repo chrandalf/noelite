@@ -31,13 +31,16 @@ function jitter(x: number, y: number, z: number): number {
  * a navy stripe runs down the spine, the nose has a tinted canopy, the belly a white
  * stripe. Chris, 2026-09-02: "put some textures on the ship make it look snazzy".
  */
+type Kind = 'top' | 'bottom' | 'back'
+/** The six hull facets, hull frame, with their livery base colour: what a wreck breaks into. */
+export const HULL_FACETS: [P, P, P, P, Kind][] = [
+  [N, TR, T, CREAM, 'top'], [N, T, TL, WHITE, 'top'],
+  [N, TL, B, RED, 'bottom'], [N, B, TR, RED, 'bottom'],
+  [TR, TL, T, DARK, 'back'], [TL, TR, B, DARK, 'back'],
+]
+
 export function buildCraftGeometry(): THREE.BufferGeometry {
-  type Kind = 'top' | 'bottom' | 'back'
-  const faces: [P, P, P, P, Kind][] = [
-    [N, TR, T, CREAM, 'top'], [N, T, TL, WHITE, 'top'],
-    [N, TL, B, RED, 'bottom'], [N, B, TR, RED, 'bottom'],
-    [TR, TL, T, DARK, 'back'], [TL, TR, B, DARK, 'back'],
-  ]
+  const faces = HULL_FACETS
   const centroid = new THREE.Vector3()
   for (const p of [N, TL, TR, T, B]) centroid.add(new THREE.Vector3(...p))
   centroid.divideScalar(5)

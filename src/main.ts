@@ -22,6 +22,7 @@
 //   ?fuel=20           start with 20 units in the tank
 //   ?station=2         start landed on pad 2 of home's station (0: hanging 300 m over it)
 //   ?outpost=3         start landed on home's third outpost (-3: hanging 300 m over it)
+//   ?assist=0          landing assist off (so a drop is a drop)
 import * as THREE from 'three'
 import { PlanetLOD } from './world/lod.ts'
 import { FlyCam } from './engine/FlyCam.ts'
@@ -39,6 +40,7 @@ import { waterOf, height, HOME, terrainOf, padOf, stationOf, outpostsOf, type Te
 import { buildPad } from './engine/Pad.ts'
 import { buildStation, updateStation, type StationView } from './engine/Station.ts'
 import { buildBase, updateBase, type BaseView } from './engine/Base.ts'
+import { Wreck, buildWreckMeshes, syncWreckMeshes } from './engine/Wreck.ts'
 import { slopeDeg } from './world/terrain.ts'
 import { atmosphereDensity, buildAtmosphereShell } from './world/atmosphere.ts'
 import { SYSTEM, body, bodyPosition, bodySpin, type Body } from './world/system.ts'
@@ -52,7 +54,7 @@ import { Clouds } from './engine/Clouds.ts'
 import { CloudPuffs } from './engine/CloudPuffs.ts'
 import { front, rainOf, cloudOf, moonDirection, TIDE_AMPLITUDE } from './world/weather.ts'
 import { setGroundClock } from './world/terrain.ts'
-import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE , FUEL_TANK, HULL_CLEARANCE, HULL_LIMIT, HULL_WARN, HULL_GLOW, CLOUD_BASE_FRAC, shownDistance } from './world/config.ts'
+import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE , FUEL_TANK, HULL_CLEARANCE, HULL_LIMIT, HULL_WARN, HULL_GLOW, CLOUD_BASE_FRAC, WRECK_HOLD, shownDistance } from './world/config.ts'
 
 const q = new URLSearchParams(location.search)
 const mode: 'fly' | 'free' = q.get('mode') === 'free' ? 'free' : 'fly'
@@ -198,6 +200,17 @@ const pad = new THREE.Vector3(padSite.dir.x, padSite.dir.y, padSite.dir.z)
 const shadow = new GroundShadow(HOME)
 const dust = new Dust(HOME)
 const marks = new Marks()
+// Wrecks (DESIGN §10): the hull's facets tumble off and stay where they fell, in their
+// body's frame, so you can fly back to one. A fireball at the site, scene root like the ship.
+const wrecks: { wreck: Wreck; meshes: THREE.Mesh[]; view: BodyView }[] = []
+const fireball = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), new THREE.MeshBasicMaterial({ color: 0xff8830, transparent: true, opacity: 0.9, depthWrite: false }))
+;(fireball.material as THREE.Material).name = 'fireball'
+fireball.visible = false
+world.add(fireball)
+let fireAt = 0
+const firePos = new THREE.Vector3(), wtmp = new THREE.Vector3()
+/** Metres the hull has sunk since going into the water. */
+let sink = 0
 /** The opening's phase. 'off' is a normal start. */
 let phase: 'off' | 'dark' | 'boot' | 'hover' | 'dawn' | 'done' = intro ? 'dark' : 'off'
 let phaseAt = 0
@@ -265,6 +278,8 @@ craft.spawnOn(pad, new THREE.Vector3(1, 0, 0), 'surface', home)
     else console.warn(`?outpost=${op}: home has ${outpostsOf(HOME).length} outposts`)
   }
 }
+// ?assist=0 turns the landing assist off.
+if (q.get('assist') === '0') craft.assist = false
 // ?fuel=<units> starts with that much in the tank.
 if (q.get('fuel') !== null) craft.fuel = Math.max(0, Math.min(FUEL_TANK, Number(q.get('fuel'))))
 // ?over=<body id>:<altitude m> starts you hanging over another body instead: over=home-1:300 is the moon.
@@ -393,7 +408,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'Tab') { e.preventDefault(); if (bodyTargets.includes(target)) targetIndex = (targetIndex + (e.shiftKey ? bodyTargets.length - 1 : 1)) % bodyTargets.length; target = bodyTargets[targetIndex]; fieldIndex = -1 }
   if (e.code === 'KeyV') nextField()
 })
-function respawn() { craft.spawnOn(pad, new THREE.Vector3(1, 0, 0), 'surface', home); if (refView.body !== craft.ref) switchFrame(); crashedAt = null }
+function respawn() { craft.spawnOn(pad, new THREE.Vector3(1, 0, 0), 'surface', home); if (refView.body !== craft.ref) switchFrame(); crashedAt = null; ship.visible = true; sink = 0; chase.orbitYaw = 0 }
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight
@@ -517,7 +532,8 @@ renderer.setAnimationLoop((now) => {
     morph.flashes[0].visible = now < flashUntil[0]; morph.flashes[1].visible = now < flashUntil[1]
     if (craft.hits.length) { asteroids.hits(craft.hits, craft.time); for (const h of craft.hits) { sound.hit(h.broke); if (h.fuel > 0) sound.chime() }; craft.hits.length = 0 }
     if (refView.body !== craft.ref) switchFrame()
-    if (craft.state === 'crashed') { crashedAt ??= now; if (now - crashedAt > 2000) respawn() }
+    // A wreck holds the camera on itself, sweeping slowly round, then the respawn.
+    if (craft.state === 'crashed') { crashedAt ??= elapsed; chase.orbitYaw += 0.25 * dt; if (elapsed - crashedAt > WRECK_HOLD) respawn() }
     ship.quaternion.copy(craft.quat)
     const flying = craft.state === 'flying'
     morphed += ((craft.cruise ? 1 : 0) - morphed) * Math.min(1, dt / 0.5)
@@ -541,15 +557,47 @@ renderer.setAnimationLoop((now) => {
     }
     chase.update(dt, craft, atmosphereDensity(altitude, craft.terrain.air))
     viewPos.copy(chase.pos); viewQuat.copy(chase.quat)
+    // Bent gear: the hover engine shakes the whole view while it burns.
+    if (craft.gearBent && craft.thrusting && craft.state === 'flying') viewPos.add(wtmp.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(0.3 * craft.damage))
     ship.position.copy(craft.pos).sub(viewPos)
+    // Into the water: the hull goes down.
+    if (craft.state === 'crashed' && craft.sunk) { sink += 1.4 * dt; ship.position.addScaledVector(wtmp.copy(craft.pos).normalize(), -sink) }
     if (Math.abs(altitude) < 0.05) altitude = 0
     if (!off.has('shadow')) shadow.update(craft)
     if (!off.has('dust')) dust.update(dt, craft.pos, altitude, flame.visible)
     // Touchdown: a puff and a scuff. Lift-off: a puff.
     if (craft.state !== lastState) {
-      if (craft.state === 'landed' && craft.atmosphere() >= 0 && !craft.hitRock) { dust.burst(craft.pos, 70); marks.add(craft.pos.clone().addScaledVector(dir.copy(craft.pos).normalize(), -HULL_CLEARANCE), dir, now / 1000) }
+      if (craft.state === 'landed' && craft.atmosphere() >= 0 && !craft.hitRock) { dust.burst(craft.pos, craft.gearBent ? 140 : 70); marks.add(craft.pos.clone().addScaledVector(dir.copy(craft.pos).normalize(), -HULL_CLEARANCE), dir, now / 1000, craft.gearBent ? 4 : 2.6) }
       if (craft.state === 'flying' && lastState === 'landed') dust.burst(craft.pos, 40)
+      // The wreck: into water a splash and the sink; on ground the facets tumble off, a
+      // fireball, dust and a scorch. A burn-through or a rock leaves nothing to scatter.
+      if (craft.state === 'crashed' && !craft.burned && !craft.hitRock) {
+        const up = dir.copy(craft.pos).normalize()
+        if (craft.sunk) dust.burst(craft.pos, 160)
+        else {
+          const wreck = new Wreck(craft.terrain, craft.pos, craft.quat, craft.contactVel, craft.crashes * 7919 + 1)
+          const meshes = buildWreckMeshes(); for (const m of meshes) refView.group.add(m)
+          syncWreckMeshes(wreck, meshes)
+          wrecks.push({ wreck, meshes, view: refView })
+          ship.visible = false
+          marks.add(craft.pos.clone().addScaledVector(up, -HULL_CLEARANCE), up, now / 1000, 12)
+          dust.burst(craft.pos, 240)
+          fireball.visible = true; fireAt = elapsed; firePos.copy(craft.pos)
+        }
+        sound.hit(true)
+      }
       lastState = craft.state
+    }
+    for (const w of wrecks) if (!w.wreck.settled()) { w.wreck.step(dt); syncWreckMeshes(w.wreck, w.meshes) }
+    if (fireball.visible) {
+      const a = (elapsed - fireAt) / 0.7
+      if (a >= 1) fireball.visible = false
+      else {
+        fireball.position.copy(firePos).sub(viewPos)
+        fireball.scale.setScalar(1.5 + 6 * Math.sqrt(a))
+        const fm = fireball.material as THREE.MeshBasicMaterial
+        fm.opacity = 0.9 * (1 - a); fm.color.setRGB(1, 0.55 - 0.45 * a, 0.2 - 0.2 * a)
+      }
     }
     marks.update(now / 1000)
     // Weather at the craft.
@@ -579,7 +627,8 @@ renderer.setAnimationLoop((now) => {
     light(lights.t, `TILT ${tilt.toFixed(0)}°`, tilt < LAND_MAX_TILT, armed)
     light(lights.s, `SLOPE ${slope.toFixed(0)}°`, slope < LAND_MAX_SLOPE, armed)
     const here = craft.state === 'landed' ? craft.padHere() : null
-    altState.textContent = craft.state === 'landed' ? (here?.station ? `DOCKED  PAD ${here.pad}` : here?.outpost ? `ON THE PAD  ${here.outpost.name.toUpperCase()}` : here ? 'ON THE PAD' : 'DOWN') : craft.state === 'crashed' ? 'CRASHED' : `${gearDown > 0.5 ? 'GEAR ↓' : 'GEAR ↑'}${craft.assisting ? '   ASSIST' : ''}`
+    altState.textContent = craft.state === 'landed' ? (here?.station ? `DOCKED  PAD ${here.pad}` : here?.outpost ? `ON THE PAD  ${here.outpost.name.toUpperCase()}` : here ? 'ON THE PAD' : 'DOWN') : craft.state === 'crashed' ? (craft.sunk ? 'SUNK' : craft.burned ? 'BURNED' : 'WRECKED') : `${gearDown > 0.5 ? 'GEAR ↓' : 'GEAR ↑'}${craft.assisting ? '   ASSIST' : ''}`
+    altimeter.classList.toggle('cracked', craft.gearBent)
     const rho = craft.atmosphere()
     atmosEl.textContent = rho > 0 ? `ATMOS ${(rho * 100).toFixed(0)}%   WIND ${windNow.toFixed(0)} m/s${rainNow > 0 ? `   RAIN ${(rainNow * 100).toFixed(0)}%` : cloudNow > 0.5 ? '   OVERCAST' : ''}` : 'VACUUM'
     atmosEl.className = rho > 0 ? '' : 'vacuum'
@@ -594,7 +643,7 @@ renderer.setAnimationLoop((now) => {
     // Hull: heat as a fraction of the limit, damage when there is any. The hull glows from HULL_GLOW of the limit, saturating at HULL_WARN.
     {
       const over = craft.hull / HULL_LIMIT
-      hullEl.textContent = over > 0.05 || craft.damage > 0 ? `HULL ${(over * 100).toFixed(0)}%${craft.damage > 0 ? `   DAMAGE ${(craft.damage * 100).toFixed(0)}%` : ''}${craft.cruise && rho > 0 ? '   RE-ENTRY: flip and brake' : ''}` : ''
+      hullEl.textContent = over > 0.05 || craft.damage > 0 ? `HULL ${(over * 100).toFixed(0)}%${craft.damage > 0 ? `   DAMAGE ${(craft.damage * 100).toFixed(0)}%` : ''}${craft.gearBent ? '   GEAR BENT' : ''}${craft.cruise && rho > 0 ? '   RE-ENTRY: flip and brake' : ''}` : ''
       hullEl.className = 'atmos ' + (over > 1 ? 'dry' : over > HULL_WARN ? 'low' : '')
       const glow = Math.min(1, Math.max(0, (over - HULL_GLOW) / (HULL_WARN - HULL_GLOW)))
       shipMaterial.emissive.copy(GLOW).multiplyScalar(glow * 0.9)
@@ -705,7 +754,7 @@ void tmp
   mode, planet, craft, input, free, views, asteroids, ship,
   /** The opening's phase and the letterbox, for the probes. */
   phase: () => phase, barFrac: () => barFrac,
-  outposts: outpostViews,
+  outposts: outpostViews, wrecks,
   /** True only once the LOD has updated since the last place() and its queue is empty. */
   ready: () => updates > placedAt + 1 && planet.pendingCount === 0,
   /** Free mode: put the camera at p looking at a. */

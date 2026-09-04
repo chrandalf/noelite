@@ -16,7 +16,7 @@
 import * as THREE from 'three'
 import type { Terrain } from '../world/height.ts'
 import { terrainOf, padOf, stationOf, outpostsOf, type Station, type Outpost } from '../world/height.ts'
-import { groundRadius, surfaceNormal, slopeDeg, setGroundClock } from '../world/terrain.ts'
+import { groundRadius, surfaceNormal, slopeDeg, setGroundClock, isDry } from '../world/terrain.ts'
 import { wind } from '../world/weather.ts'
 import { atmosphereDensity } from '../world/atmosphere.ts'
 import { SYSTEM, body, bodyPosition, bodyVelocity, bodySpin, type Body } from '../world/system.ts'
@@ -27,6 +27,7 @@ import {
   BOOST_MULT, GROUND_EFFECT_HEIGHT, GROUND_EFFECT_ACCEL_G, GROUND_EFFECT_DAMP, GRAVITY_FALLOFF, RCS_ACCEL,
   CRUISE_ENTER, CRUISE_EXIT, CRUISE_FLOOR, CRUISE_ALIGN_TAU, CRUISE_MAX, CRUISE_FLOOR_SPEED, CRUISE_BRAKE, CRUISE_DECEL, CRUISE_SECONDS, CRUISE_SPOOL,
   FUEL_TANK, FUEL_HOVER_BURN, FUEL_CRUISE_BURN, FUEL_RCS_BURN, FUEL_PAD_REFILL, FUEL_SOLAR_TRICKLE, FUEL_RELIGHT, PAD_RADIUS,
+  CRASH_DAMAGE_SCALE, CRASH_MIN_DAMAGE,
   GUN_RANGE, GUN_COOLDOWN, ICE_REACH, BOLT_SPEED,
   GUN_MUZZLE, HEAT_K, HEAT_RAMP_LO, HEAT_RAMP_HI, HEAT_RAMP_MIN, HEAT_TAU, COOL_RATE, COOL_MIN, HULL_LIMIT, DAMAGE_TAU, HOVER_MAX_SPEED,
 } from '../world/config.ts'
@@ -130,6 +131,12 @@ export class Craft {
   damage = 0
   /** True when the last crash was the hull burning through. */
   burned = false
+  /** A hard landing bent the gear: it flies, with a limp and a vibration, until repaired. */
+  gearBent = false
+  /** The last wreck went into water: no debris, the hull sinks. */
+  sunk = false
+  /** Contact velocity in the local frame at the last touchdown or crash, for the debris. */
+  readonly contactVel = new THREE.Vector3()
   /** Bolts in flight, heliocentric. A pool; `alive` says which count. */
   readonly bolts: Bolt[] = []
   /** What bolts did this step: a hit, and whether the rock broke and what fuel came home. Cleared by whoever draws them. */
@@ -208,6 +215,13 @@ export class Craft {
   /** Speed beyond which gravity never brings you back. */
   escapeSpeed(): number { const r = this.pos.length(); return Math.sqrt(2 * gravityAt(r, this.terrain) * r) }
 
+  /** Contact damage 0..1 for a touchdown at these numbers. Pure, so the harness can hold its shape. */
+  static contactDamage(vUp: number, vH: number, tilt: number, slope: number): number {
+    const sv = Math.max(0, -vUp) / LAND_MAX_VSPEED, sh = vH / LAND_MAX_HSPEED
+    const s = Math.max(sv * sv, sh * sh)
+    if (s < 1 && tilt < LAND_MAX_TILT && slope < LAND_MAX_SLOPE) return 0
+    return Math.min(1, Math.max(CRASH_MIN_DAMAGE, (s - 1) * CRASH_DAMAGE_SCALE))
+  }
   /** Seconds the tank lasts at the current burn; Infinity when nothing is burning. */
   endurance(): number { return this.burn > 0 ? this.fuel / this.burn : Infinity }
   /** The pad under the craft, within PAD_RADIUS along the ground: the home pad (no station, pad 0), a numbered station pad, or an outpost's pad. */
@@ -296,6 +310,8 @@ export class Craft {
     this.hull = 0
     this.damage = 0
     this.burned = false
+    this.gearBent = false
+    this.sunk = false
     this.accumulator = 0
     this.frameAt(this.time)
     this.syncHelio()
@@ -368,7 +384,7 @@ export class Craft {
           const here = this.padHere()
           this.fuel = Math.min(FUEL_TANK, this.fuel + (here ? FUEL_PAD_REFILL : FUEL_SOLAR_TRICKLE) * h)
           // Docked at a station, the hull is patched up. Free until money exists.
-          if (here?.station) this.damage = Math.max(0, this.damage - 0.05 * h)
+          if (here?.station) { this.damage = Math.max(0, this.damage - 0.05 * h); if (this.damage === 0) this.gearBent = false }
         }
         // Ride the body: the rest pose is body-fixed, the heliocentric state follows it.
         this.time += h
@@ -536,17 +552,26 @@ export class Craft {
       const tilt = (Math.acos(Math.min(1, Math.max(-1, this.bodyUp.dot(this.up)))) * 180) / Math.PI
       const slope = slopeDeg(this.localDir, this.terrain)
       this.lastContact = { vUp, vH, tilt, slope }
+      this.contactVel.copy(this.vRel).applyQuaternion(this.spinInv)
       this.hpos.copy(this.bPos).addScaledVector(this.up, ground + HULL_CLEARANCE)
       this.angVel.set(0, 0, 0)
       this.syncLocal()
       this.vel.set(0, 0, 0)
-      const gentle = vUp > -LAND_MAX_VSPEED && vH < LAND_MAX_HSPEED && tilt < LAND_MAX_TILT && slope < LAND_MAX_SLOPE
-      if (gentle) {
+      // Contact damage (DESIGN §10): none inside the limits; over them it adds to the hull's.
+      // Short of a whole hull it is a hard landing, gear bent; at a whole hull, or any hard
+      // contact with water, it is a wreck.
+      const dmg = Craft.contactDamage(vUp, vH, tilt, slope)
+      const dry = isDry(this.localDir, this.terrain)
+      if (dmg > 0) this.damage = Math.min(1, this.damage + dmg)
+      if (dmg === 0 || (this.damage < 1 && dry)) {
         this.state = 'landed'
         this.landings++
+        if (dmg > 0) this.gearBent = true
         this.alignTo(surfaceNormal(this.localDir, this.terrain, this.n))
       } else {
         this.state = 'crashed'
+        this.sunk = !dry
+        this.damage = 1
         this.crashes++
       }
       this.rest()
@@ -683,6 +708,7 @@ export class Craft {
     this.vel.set(0, 0, 0)
     this.state = 'crashed'
     this.burned = true
+    this.damage = 1
     this.crashes++
     this.rest()
     this.syncHelio()
@@ -702,6 +728,7 @@ export class Craft {
     this.syncLocal()
     this.vel.set(0, 0, 0)
     this.state = 'crashed'
+    this.damage = 1
     this.crashes++
     this.rest()
     this.syncHelio()

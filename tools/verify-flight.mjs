@@ -7,6 +7,9 @@ import { Craft, IDLE } from '../src/engine/Craft.ts'
 import { OrbitAutopilot } from '../src/engine/Autopilot.ts'
 import { findLandable, groundRadius } from '../src/world/terrain.ts'
 import { HOME, height, padOf, stationOf, terrainOf } from '../src/world/height.ts'
+import { Wreck } from '../src/engine/Wreck.ts'
+import { isDry } from '../src/world/terrain.ts'
+import { rng } from '../src/world/noise.ts'
 import { body, bodyVelocity, bodyPosition, bodySpin } from '../src/world/system.ts'
 import { wind } from '../src/world/weather.ts'
 import { FIELDS, resetRocks } from '../src/world/asteroids.ts'
@@ -577,6 +580,62 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol
   g.spawnOn(pad, new THREE.Vector3(1, 0, 0), 'surface')
   until(g, () => false, 3, () => T(1))
   check('after a crash and respawn, three seconds of thrust lifts it straight', g.state === 'flying' && g.altitude() > 15 && g.tilt() < 6, `alt ${g.altitude().toFixed(1)} m, tilt ${g.tilt().toFixed(1)}°`)
+}
+
+// 28. Crashes (DESIGN §10): contact damage from speed, a hard landing short of a whole hull,
+// a wreck at one, debris that comes to rest on the ground near the site, water that sinks.
+{
+  const D = Craft.contactDamage
+  check('inside the limits there is no contact damage', D(-3.9, 2.9, 14, 14) === 0)
+  check('a breach of tilt alone costs the minimum', D(-1, 0, 16, 0) === 0.1 && D(-1, 0, 0, 16) === 0.1)
+  check('damage grows with the square of the speed over the limit', D(-6, 0, 0, 0) > 0.3 && D(-6, 0, 0, 0) < 0.32 && D(-8, 0, 0, 0) === 0.75 && D(-9, 0, 0, 0) === 1, `6 m/s ${D(-6, 0, 0, 0).toFixed(2)}, 8 m/s ${D(-8, 0, 0, 0).toFixed(2)}, 9 m/s ${D(-9, 0, 0, 0).toFixed(2)}`)
+  check('drift counts the same way against its own limit', D(0, 5, 0, 0) > 0.43 && D(0, 5, 0, 0) < 0.45, `5 m/s drift ${D(0, 5, 0, 0).toFixed(2)}`)
+  // A short drop with the assist off: a hard landing, gear bent, still a ship.
+  const h = new Craft(HOME); h.windy = false; h.assist = false
+  h.placeAbove(body('home'), pad, 3.5)
+  until(h, (c) => c.state !== 'flying', 10, () => IDLE)
+  check('a 3.5 m drop is a hard landing, not a wreck', h.state === 'landed' && h.gearBent && h.damage > 0.15 && h.damage < 0.5, `${h.state} at v↑ ${h.lastContact.vUp.toFixed(1)}, damage ${h.damage.toFixed(2)}, gear ${h.gearBent ? 'bent' : 'fine'}`)
+  until(h, () => false, 3, () => T(1))
+  check('a bent gear still flies', h.state === 'flying' && h.altitude() > 10, `alt ${h.altitude().toFixed(1)} m`)
+  // Two hard landings in a row add up.
+  const h2 = new Craft(HOME); h2.windy = false; h2.assist = false
+  h2.placeAbove(body('home'), pad, 3.5); until(h2, (c) => c.state !== 'flying', 10, () => IDLE)
+  const d1 = h2.damage
+  h2.placeAbove(body('home'), pad, 3.5); h2.damage = d1; until(h2, (c) => c.state !== 'flying', 10, () => IDLE)
+  check('a second hard landing adds to the first', h2.damage > d1 * 1.8 && h2.state === 'landed', `${d1.toFixed(2)} then ${h2.damage.toFixed(2)}`)
+  // A 6 m drop is a wreck, on dry ground, and the debris comes to rest near the site.
+  const w = new Craft(HOME); w.windy = false; w.assist = false
+  w.placeAbove(body('home'), pad, 12)
+  until(w, (c) => c.state !== 'flying', 10, () => IDLE)
+  check('a 12 m drop is a wreck', w.state === 'crashed' && w.damage === 1 && !w.sunk, `${w.state} at v↑ ${w.lastContact.vUp.toFixed(1)}, damage ${w.damage.toFixed(2)}`)
+  const wreck = new Wreck(HOME, w.pos, w.quat, w.contactVel, 7)
+  check('the wreck is six facets', wreck.pieces.length === 6)
+  let tW = 0; while (tW < 20 && !wreck.settled()) { wreck.step(FIXED_DT); tW += FIXED_DT }
+  const far = Math.max(...wreck.pieces.map((p) => p.pos.distanceTo(w.pos)))
+  const buried = wreck.pieces.some((p) => p.pos.length() < groundRadius(p.pos.clone().normalize(), HOME) - 0.5)
+  const flew = wreck.pieces.every((p) => p.pos.distanceTo(w.pos) > 1)
+  check('every piece comes to rest inside 20 s', wreck.settled(), `${tW.toFixed(1)} s`)
+  check('the pieces scatter but stay near the site', flew && far < 40, `furthest ${far.toFixed(1)} m`)
+  check('no piece ends up under the ground', !buried)
+  // Water: find the sea, a hard contact sinks, a gentle one floats.
+  let sea = null
+  { const r = rng(11); for (let k = 0; k < 4000 && !sea; k++) { const d = new THREE.Vector3(r() - 0.5, r() - 0.5, r() - 0.5).normalize(); if (height(d, HOME) < HOME.sea - 30) sea = d } }
+  check('home has a sea to fall into', sea !== null && !isDry(sea, HOME))
+  const s1 = new Craft(HOME); s1.windy = false; s1.assist = false
+  s1.placeAbove(body('home'), sea, 12)
+  until(s1, (c) => c.state !== 'flying', 10, () => IDLE)
+  check('a hard contact with water is a wreck that sinks', s1.state === 'crashed' && s1.sunk, `${s1.state}${s1.sunk ? ', sunk' : ''} at v↑ ${s1.lastContact.vUp.toFixed(1)}`)
+  const s2 = new Craft(HOME); s2.windy = false
+  s2.placeAbove(body('home'), sea, 60)
+  until(s2, (c) => c.state !== 'flying', 120, () => IDLE)
+  check('a gentle touchdown on water floats', s2.state === 'landed' && !s2.sunk && s2.damage === 0, `${s2.state} at v↑ ${s2.lastContact.vUp.toFixed(1)}`)
+  // A hull already scarred by heat wrecks on a landing a fresh one survives.
+  const sc = new Craft(HOME); sc.windy = false; sc.assist = false; sc.damage = 0.85
+  sc.placeAbove(body('home'), pad, 3.5)
+  until(sc, (c) => c.state !== 'flying', 10, () => IDLE)
+  check('a heat-scarred hull wrecks on a 3.5 m drop', sc.state === 'crashed' && sc.damage === 1, `${sc.state}, damage ${sc.damage.toFixed(2)}`)
+  const rs = fresh()
+  check('a respawn straightens the gear and clears the damage', !rs.gearBent && rs.damage === 0 && !rs.sunk)
 }
 
 console.log(`\n${pass}/${pass + fail} checks`)

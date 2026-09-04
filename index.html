@@ -58,6 +58,10 @@
       #altimeter.low .fill { background: #e6b33a; }
       #altimeter.critical .fill { background: #e06a5a; }
       #altimeter.critical .marker { background: #ff8; }
+      /* A hard landing cracks the panel: a red edge and a doubled readout until repaired. */
+      #altimeter.cracked .scale { border-color: #e06a5a; box-shadow: inset 0 0 6px #e06a5a55; }
+      #altimeter.cracked .readout { text-shadow: 1.5px 0 #e06a5acc, -1px 1px #0008; }
+      #altimeter.cracked .lights span { border-color: #e06a5a66; }
       #altimeter .atmos { text-align: right; opacity: 0.75; }
       #altimeter .atmos.vacuum { color: #ffd56a; opacity: 1; letter-spacing: 0.2em; }
       #altimeter #fuel.low { color: #ffd56a; opacity: 1; }
