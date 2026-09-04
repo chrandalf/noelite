@@ -1102,3 +1102,16 @@ edge; labels by priority (the target, then the nearest) dropping a row when they
 overlap, a bare glyph past the fourth row. The target diamond keeps only its closing
 speed, ETA and cleared pad; the name moved to the strip. Known: the ice worlds' frozen
 seas are still drawn by the water shader; they want a flat white surface.
+
+**Seams and the scanner, built the same night.** `src/world/seams.ts`: a dozen seeded seams
+per body with ground (six on a dwarf), each placed by a rule on the ground itself and
+re-tested by the harness: ore on a ridge in a mountain belt, crystal on a gully floor,
+salt on the flats by the sea, timber in a forest stand, ice on the caps and the cold
+worlds, helium on regolith flats, sulphur on the hot world's crusts. Never within 5 km
+of a pad, station or outpost. The goods are placed in turn so a body gets a spread.
+Richness is a base per good times the tier (1 at home, 2.5 out to the belt, 6 beyond)
+times a seeded 0.6 to 1.4, so ore on Rust averages 249 t against 92 t at home. **G** is the
+scanner: a ping, and for twelve seconds the nearest seam within 25 km sits on the compass
+as a blip with its good, tonnage and distance, the beeper quickening from every two
+seconds at range to four a second on top of it. Nothing in range says so. Digging waits
+on cargo. Range and hold are the first scanner upgrade.

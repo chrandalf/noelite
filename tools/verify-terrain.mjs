@@ -9,6 +9,7 @@ import { FACES, faceToUnit, faceToCube, cubeToUnit, cubeToFace } from '../src/wo
 import { TERRAIN_AMPLITUDE, PLANET_RADIUS, MASTER_SEED } from '../src/world/config.ts'
 import { rng } from '../src/world/noise.ts'
 import { wind, front, tide, WIND_CALM, WIND_STORM, TIDE_AMPLITUDE } from '../src/world/weather.ts'
+import { seamsOf, goodAt, seamBodies, tierOf, seamsWanted, SEAMS_PER_BODY, SEAM_MIN_FROM_PAD } from '../src/world/seams.ts'
 import { terrainOf, padOf, stationOf, outpostsOf, STATION_RADIUS, STATION_PAD_OFFSET, STATION_MIN_FROM_PAD, OUTPOSTS_PER_BODY, OUTPOST_MIN_APART, OUTPOST_RADIUS } from '../src/world/height.ts'
 import { slopeDeg } from '../src/world/terrain.ts'
 import { forestAt } from '../src/world/forest.ts'
@@ -242,6 +243,35 @@ for (const t of [HOME, terrainOf(body('terra-a'))]) {
   check(`${name}'s outpost discs are dead level out to ${OUTPOST_RADIUS - 10} m`, flat)
   check(`no tree within ${OUTPOST_RADIUS + 20} m of any of ${name}'s outposts`, treeFree)
   check(`the ground ramps back smoothly from ${name}'s outposts`, worstStep < 1.5, `worst 2 m step ${worstStep.toFixed(2)} m`)
+}
+
+// 12. Seams: a dozen per body with ground, each where its own rule says, never by a pad, richer further out.
+{
+  const homeSeams = seamsOf(HOME)
+  const goods = new Set(homeSeams.map((s) => s.good))
+  check(`home has ${SEAMS_PER_BODY} seams of several goods`, homeSeams.length === SEAMS_PER_BODY && goods.size >= 3, [...goods].join(', '))
+  let ruleOk = true, farOk = true, count = 0, short = []
+  for (const id of seamBodies()) {
+    const t = terrainOf(body(id)), list = seamsOf(t)
+    if (list.length < seamsWanted(t)) short.push(`${body(id).name} ${list.length} of ${seamsWanted(t)}`)
+    const pads = [padOf(t)?.dir, stationOf(t)?.site.dir, ...outpostsOf(t).map((o) => o.site.dir)].filter(Boolean).map((d) => new THREE.Vector3(d.x, d.y, d.z))
+    for (const sm of list) {
+      count++
+      if (goodAt(sm.dir, t) !== sm.good) ruleOk = false
+      const d = new THREE.Vector3(sm.dir.x, sm.dir.y, sm.dir.z)
+      if (pads.some((p) => p.angleTo(d) * t.radius < SEAM_MIN_FROM_PAD)) farOk = false
+      if (sm.richness <= 0 || sm.tier !== tierOf(t)) ruleOk = false
+    }
+  }
+  check('every body with ground has its share', short.length === 0, short.join(', ') || `${count} seams`)
+  check('every seam sits where its own rule says', ruleOk)
+  check(`no seam within ${SEAM_MIN_FROM_PAD / 1000} km of a pad, station or outpost`, farOk)
+  const rich = (id, good) => { const l = seamsOf(terrainOf(body(id))).filter((s) => s.good === good); return l.length ? l.reduce((a, s) => a + s.richness, 0) / l.length : null }
+  check('the tiers rise with distance from the sun', tierOf(HOME) === 1 && tierOf(terrainOf(body('desert'))) === 2 && tierOf(terrainOf(body('giant-2'))) === 3 && tierOf(terrainOf(body('far'))) === 3)
+  const oreHome = rich('home', 'ore'), oreRust = rich('desert', 'ore')
+  check('ore on the red world is richer than at home', oreHome !== null && oreRust !== null && oreRust > oreHome * 1.8, `${oreHome?.toFixed(0)} t vs ${oreRust?.toFixed(0)} t`)
+  const iceRime = seamsOf(terrainOf(body('giant-2'))).filter((s) => s.good === 'ice').length
+  check('the ice moon is mostly ice', iceRime >= SEAMS_PER_BODY / 2, `${iceRime} of ${SEAMS_PER_BODY}`)
 }
 
 console.log(`\n${pass}/${pass + fail} checks`)

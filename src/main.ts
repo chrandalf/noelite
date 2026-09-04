@@ -23,6 +23,7 @@
 //   ?station=2         start landed on pad 2 of home's station (0: hanging 300 m over it)
 //   ?outpost=3         start landed on home's third outpost (-3: hanging 300 m over it)
 //   ?assist=0          landing assist off (so a drop is a drop)
+//   G                  the scanner: pings the nearest seam on this body within range onto the compass
 //   ?reset=1           forget the save (company, ship, wrecks) and start again; any placement
 //                      parameter (?over ?outpost ?station ?field ?t) also starts on that spot, books kept
 import * as THREE from 'three'
@@ -46,6 +47,7 @@ import { buildBase, updateBase, type BaseView } from './engine/Base.ts'
 import { Wreck, buildWreckMeshes, syncWreckMeshes } from './engine/Wreck.ts'
 import { Bank } from './world/economy.ts'
 import { snapshot, restore, isSave } from './world/save.ts'
+import { seamsOf, type Seam } from './world/seams.ts'
 import { slopeDeg } from './world/terrain.ts'
 import { atmosphereDensity, buildAtmosphereShell } from './world/atmosphere.ts'
 import { SYSTEM, SETTLED, body, bodyPosition, bodySpin, type Body } from './world/system.ts'
@@ -307,6 +309,19 @@ if (q.get('fuel') !== null) craft.fuel = Math.max(0, Math.min(FUEL_TANK, Number(
 const markers = new NavMarkers(document.body)
 const compass = new Compass(document.body)
 const compassItems: CompassItem[] = []
+// The scanner (DESIGN §10g): G pings; for a while the nearest seam in range sits on the
+// compass as a blip with its good and distance, and the beeper quickens as you close.
+const SCAN_RANGE = 25_000
+const SCAN_HOLD = 12
+let scanUntil = -1, scanHit: { seam: Seam; rel: THREE.Vector3 } | null = null, scanBeepAt = 0
+const scan = () => {
+  const t = craft.terrain, up = craft.pos.clone().normalize()
+  let best: Seam | null = null, bestC = -2
+  for (const sm of seamsOf(t)) { const c = up.x * sm.dir.x + up.y * sm.dir.y + up.z * sm.dir.z; if (c > bestC) { bestC = c; best = sm } }
+  scanUntil = elapsed + SCAN_HOLD
+  scanHit = best && Math.acos(Math.min(1, bestC)) * t.radius < SCAN_RANGE ? { seam: best, rel: new THREE.Vector3(best.dir.x, best.dir.y, best.dir.z).multiplyScalar(t.radius + best.h) } : null
+  sound.click()
+}
 const orbitAP = new OrbitAutopilot()
 
 const hud = document.getElementById('hud')!
@@ -428,7 +443,6 @@ for (const v of views) for (const o of outpostsOf(v.terrain)) {
   outpostViews.push({ view: v, o, group, bv, rel: new THREE.Vector3() })
 }
 const OUTPOST_DRAW = 40_000
-let nearOutpost: OutpostView | null = null, nearOutpostD = Infinity
 // Tab cycles the bodies and stations; V cycles the nearest rock clusters (Chris, 2026-09-03:
 // "the tabbing should be on planets ... select the clusters but not mixing them").
 const bodyTargets: Target[] = [
@@ -470,6 +484,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyR') respawn()
   if (e.code === 'KeyM') sound.muted = !sound.muted
   if (e.code === 'KeyC') chase.reset()
+  if (e.code === 'KeyG' && mode === 'fly') scan()
   if (e.code === 'KeyO') orbitAP.engaged = !orbitAP.engaged && craft.state === 'flying'
   if (e.code === 'Tab') { e.preventDefault(); if (bodyTargets.includes(target)) targetIndex = (targetIndex + (e.shiftKey ? bodyTargets.length - 1 : 1)) % bodyTargets.length; target = bodyTargets[targetIndex]; fieldIndex = -1 }
   if (e.code === 'KeyV') nextField()
@@ -535,13 +550,11 @@ function placeBodies(t: number, frame: Body): void {
   for (const s of stationViews) updateStation(s.sv, t, dayNow)
   for (const b of baseViews) updateBase(b, t, dayNow)
   // Outposts: where each one is this frame; drawn and lit only within OUTPOST_DRAW of the craft.
-  nearOutpost = null; nearOutpostD = Infinity
   for (const ov of outpostViews) {
     ov.rel.set(ov.o.site.dir.x, ov.o.site.dir.y, ov.o.site.dir.z).multiplyScalar(ov.view.body.radius + ov.o.site.h).applyQuaternion(ov.view.group.quaternion).add(ov.view.rel)
     const d = ov.rel.distanceTo(craft.pos)
     ov.group.visible = d < OUTPOST_DRAW
     if (ov.group.visible) updateBase(ov.bv, t, dayNow)
-    if (ov.view.body === craft.ref && d < nearOutpostD) { nearOutpost = ov; nearOutpostD = d }
   }
   // The sun, from the viewer.
   sunDir.copy(sunView.rel).sub(viewPos).normalize()
@@ -792,6 +805,14 @@ renderer.setAnimationLoop((now) => {
     const nearHere = outpostViews.filter((ov) => ov.view.body === craft.ref).map((ov) => ({ ov, d: ov.rel.distanceTo(craft.pos) })).sort((a, b) => a.d - b.d).slice(0, 3)
     for (const { ov, d } of nearHere) if (d > 300) compassItems.push({ key: ov.o.name, name: ov.o.name, dist: fmtDist(d), d, dir: wtmp.copy(ov.rel).sub(craft.pos).divideScalar(d).clone(), kind: 'outpost', selected: false })
     if (tgt.field) compassItems.push({ key: tgt.name, name: tgt.name, dist: fmtDist(tSurf), d: tSurf, dir: tDir.clone(), kind: 'field', selected: true })
+    if (elapsed < scanUntil) {
+      if (scanHit) {
+        const d = wtmp.copy(scanHit.rel).sub(craft.pos); const len = d.length()
+        compassItems.push({ key: 'scan', name: `${scanHit.seam.good.toUpperCase()} ${scanHit.seam.richness} t`, dist: fmtDist(len), d: len, dir: d.divideScalar(len).clone(), kind: 'seam', selected: false })
+        // The beeper: every 2 s at range, every 0.25 s on top of it.
+        if (elapsed > scanBeepAt) { scanBeepAt = elapsed + 0.25 + 1.75 * Math.min(1, len / SCAN_RANGE); sound.click() }
+      } else compassItems.push({ key: 'scan', name: 'NO SEAM IN RANGE', dist: '', d: Infinity, dir: dir.clone().negate(), kind: 'seam', selected: false })
+    }
     compass.update(compassItems, camera, !paused && (phase === 'off' || phase === 'done'))
     const lc = craft.lastContact
     const vOrb = craft.orbitalSpeed(), vEsc = craft.escapeSpeed(), spd = craft.speed(), vIn = craft.inertialSpeed()
@@ -863,7 +884,7 @@ void tmp
   mode, planet, craft, input, free, views, asteroids, ship,
   /** The opening's phase and the letterbox, for the probes. */
   phase: () => phase, barFrac: () => barFrac, titleBody: () => titleBody,
-  outposts: outpostViews, wrecks, bank,
+  outposts: outpostViews, wrecks, bank, scan, scanHit: () => scanHit,
   /** True only once the LOD has updated since the last place() and its queue is empty. */
   ready: () => updates > placedAt + 1 && planet.pendingCount === 0,
   /** Free mode: put the camera at p looking at a. */
