@@ -1,10 +1,10 @@
 // The landing pad you can see: a grey octagonal slab flush with the flattened ground and
 // a painted ring. The ground itself is flattened by height.ts; this is only the paint.
 import * as THREE from 'three'
-import { padOf, PAD_RADIUS, type Terrain } from '../world/height.ts'
+import { padOf, PAD_RADIUS, type PadSite, type Terrain } from '../world/height.ts'
 
-export function buildPad(t: Terrain): THREE.Group | null {
-  const site = padOf(t)
+/** The pad at `site`: the starting pad by default, or an outpost's. */
+export function buildPad(t: Terrain, site: PadSite | null = padOf(t)): THREE.Group | null {
   if (!site) return null
   const g = new THREE.Group()
   const slabMat = new THREE.MeshLambertMaterial({ color: 0x8f9296 })

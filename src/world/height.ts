@@ -167,12 +167,21 @@ export const STATION_BLEND = 30
 export const STATION_PAD_OFFSET = 62
 /** Metres: a station is at least this far from the outpost pad, so it is a trip. */
 export const STATION_MIN_FROM_PAD = 15_000
+/** The outposts dotted round a body: a smaller base each on its own flattened pad. Chris, 2026-09-04: "we need more bases dotted around the globe too, so we can land." */
+export const OUTPOST_RADIUS = 100
+export const OUTPOST_BLEND = 40
+export const OUTPOSTS_PER_BODY = 6
+/** Metres between any two places (pad, station, outposts), so the planet stays empty between them. */
+export const OUTPOST_MIN_APART = 8_000
+export type Outpost = { name: string; site: PadSite; n: number }
+const outposts = new Map<string, Outpost[]>()
+const OUTPOST_NAMES = ['Harrow', 'Kestrel', 'Fallow', 'Brine', 'Tallow', 'Sable', 'Moor', 'Wren']
 
 /** The body's landing pad, found once: a dry, flat, forest-free spot at a reasonable height, spiralling out from (0, 0, 1). */
 export function padOf(t: Terrain): PadSite | null {
   if (t.water || t.kind !== 'terrestrial' || !t.amplitude) return null
   let p = pads.get(t.id)
-  if (p === undefined) { p = findSite(t, { x: 0, y: 0, z: 1 }, 40, BASE_RADIUS, BASE_BLEND, null, 4, 1.5, 3); pads.set(t.id, p) }
+  if (p === undefined) { p = findSite(t, { x: 0, y: 0, z: 1 }, 40, BASE_RADIUS, BASE_BLEND, [], 4, 1.5, 3); pads.set(t.id, p) }
   return p
 }
 
@@ -190,7 +199,7 @@ export function stationOf(t: Terrain): Station | null {
     const b = Math.PI * (1 + noiseFor((t.seed ^ 0x53544154) >>> 0).noise(0.3, 0.7, 0.1))
     const a = 0.8
     const start = { x: Math.sin(a) * Math.cos(b), y: Math.sin(a) * Math.sin(b), z: Math.cos(a) }
-    const site = findSite(t, start, 40, STATION_RADIUS, STATION_BLEND, { dir: pad.dir, metres: STATION_MIN_FROM_PAD }, 3, 1, 8)
+    const site = findSite(t, start, 40, STATION_RADIUS, STATION_BLEND, [{ dir: pad.dir, metres: STATION_MIN_FROM_PAD }], 3, 1, 8)
     // Four pads on the disc, at the compass points of a tangent frame at the site.
     const d = site.dir
     const ax0 = Math.abs(d.x) < 0.9 ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 }
@@ -214,11 +223,42 @@ function norm(v: { x: number; y: number; z: number }): UnitVector {
   return { x: v.x / l, y: v.y / l, z: v.z / l }
 }
 
-/** Every flattened site on the body: the pad, and the station's disc. */
+/**
+ * The body's outposts, found once: OUTPOSTS_PER_BODY seeded starts spread round the sphere
+ * (a Fibonacci spiral turned by the seed), each spiralling out to a dry flat spot at least
+ * OUTPOST_MIN_APART from the pad, the station and every outpost before it.
+ */
+export function outpostsOf(t: Terrain): Outpost[] {
+  if (t.water || t.kind !== 'terrestrial' || !t.amplitude) return []
+  let list = outposts.get(t.id)
+  if (list === undefined) {
+    list = []
+    const pad = padOf(t), st = stationOf(t)
+    if (pad) {
+      const avoid: { dir: UnitVector; metres: number }[] = [{ dir: pad.dir, metres: OUTPOST_MIN_APART }]
+      if (st) avoid.push({ dir: st.site.dir, metres: OUTPOST_MIN_APART })
+      const turn = noiseFor((t.seed ^ 0x4f555450) >>> 0).noise(0.7, 0.2, 0.4) * Math.PI * 2
+      const gold = Math.PI * (3 - Math.sqrt(5))
+      for (let i = 0; i < OUTPOSTS_PER_BODY; i++) {
+        // Skip the poles: z spans -0.8..0.8 so no outpost sits on an ice cap.
+        const z = 0.8 - (1.6 * (i + 0.5)) / OUTPOSTS_PER_BODY, r = Math.sqrt(1 - z * z), a = i * gold + turn
+        const start = { x: r * Math.cos(a), y: r * Math.sin(a), z }
+        const site = findSite(t, start, 60, OUTPOST_RADIUS, OUTPOST_BLEND, avoid, 3, 1, 6)
+        avoid.push({ dir: site.dir, metres: OUTPOST_MIN_APART })
+        list.push({ name: `${OUTPOST_NAMES[(i + (t.seed & 7)) % OUTPOST_NAMES.length]} Outpost`, site, n: i + 1 })
+      }
+    }
+    outposts.set(t.id, list)
+  }
+  return list
+}
+
+/** Every flattened site on the body: the pad, the station's disc, the outposts. */
 function sitesOf(t: Terrain): PadSite[] {
   const out: PadSite[] = []
   const p = padOf(t); if (p) out.push(p)
   const s = stationOf(t); if (s) out.push(s.site)
+  for (const o of outpostsOf(t)) out.push(o.site)
   return out
 }
 
@@ -228,7 +268,7 @@ function sitesOf(t: Terrain): PadSite[] {
  * area than a pad; `avoid` keeps it away from somewhere; `slopeMax` and `slopeGood`
  * are degrees (reject above the first, stop looking below the second).
  */
-function findSite(t: Terrain, start: UnitVector, e: number, radius: number, blend: number, avoid: { dir: UnitVector; metres: number } | null, slopeMax: number, slopeGood: number, reach = 1): PadSite {
+function findSite(t: Terrain, start: UnitVector, e: number, radius: number, blend: number, avoid: { dir: UnitVector; metres: number }[], slopeMax: number, slopeGood: number, reach = 1): PadSite {
   const sea = t.sea ?? -Infinity
   // The spiral covers ~2.8 km at reach 1; a station's start may be at sea, so it looks further.
   const step = (12 * reach) / t.radius
@@ -247,7 +287,7 @@ function findSite(t: Terrain, start: UnitVector, e: number, radius: number, blen
   const g = start
   const g0 = Math.abs(g.x) < 0.9 ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 }
   const gt1 = norm(cross(g0, g)), gt2 = cross(g, gt1)
-  const avoidCos = avoid ? Math.cos(avoid.metres / t.radius) : 2
+  const avoidCos = avoid.map((a) => Math.cos(a.metres / t.radius))
   let best: PadSite | null = null, bestScore = Infinity
   for (let k = 0; k < 6000; k++) {
     const ang = k * 2.4, rad = step * Math.sqrt(k) * 3
@@ -256,7 +296,7 @@ function findSite(t: Terrain, start: UnitVector, e: number, radius: number, blen
       y: g.y + gt1.y * Math.cos(ang) * rad + gt2.y * Math.sin(ang) * rad,
       z: g.z + gt1.z * Math.cos(ang) * rad + gt2.z * Math.sin(ang) * rad,
     })
-    if (avoid && d.x * avoid.dir.x + d.y * avoid.dir.y + d.z * avoid.dir.z > avoidCos) continue
+    if (avoid.some((a, i) => d.x * a.dir.x + d.y * a.dir.y + d.z * a.dir.z > avoidCos[i])) continue
     const h = baseHeight(d, t)
     const above = h - (t.sea ?? 0)
     if (h < sea + 3 || above < PAD_MIN || above > PAD_MAX) continue
@@ -268,7 +308,23 @@ function findSite(t: Terrain, start: UnitVector, e: number, radius: number, blen
     if (score < bestScore) { bestScore = score; best = { dir: d, h, radius, blend } }
     if (s < Math.tan((slopeGood * Math.PI) / 180)) break
   }
-  return best ?? { dir: g, h: baseHeight(g, t), radius, blend }
+  const site = best ?? { dir: g, h: baseHeight(g, t), radius, blend }
+  // A ramp as long as the hill it covers: the blend widens to three times the biggest drop
+  // round its outer edge, so the smoothstep's steepest point never passes 1 in 2. Twice,
+  // because widening moves the edge.
+  const sd = site.dir
+  const s0 = Math.abs(sd.x) < 0.9 ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 }
+  const s1 = norm(cross(s0, sd)), s2 = cross(sd, s1)
+  for (let pass = 0; pass < 2; pass++) {
+    let diff = 0
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2, rr = (site.radius + site.blend) / t.radius
+      const q = norm({ x: sd.x + (s1.x * Math.cos(a) + s2.x * Math.sin(a)) * rr, y: sd.y + (s1.y * Math.cos(a) + s2.y * Math.sin(a)) * rr, z: sd.z + (s1.z * Math.cos(a) + s2.z * Math.sin(a)) * rr })
+      diff = Math.max(diff, Math.abs(baseHeight(q, t) - site.h))
+    }
+    site.blend = Math.max(blend, 3 * diff)
+  }
+  return site
 }
 
 /** Each site flattens the ground to its own height inside its radius, ramping back over its blend. */

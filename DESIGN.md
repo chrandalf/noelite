@@ -828,5 +828,23 @@ pod site" as the way raw goods leave the ground. The rover: a second vehicle wit
 physics, camera, controls and a deploy, and nothing to drive to yet. It comes after goods
 exist, as the thing that lets you dig further from where you put the ship down.
 
-**Order from here:** letterbox (done), scattered bases, crashes (§10), scanner and dig, then
+**Built the same morning: the outposts.** Six per living body (home and Marram), each a
+pad and a half-density base on its own flattened disc (100 m, ramp 40 m or wider), named
+from a short list (Harrow, Kestrel, Fallow, Brine, Tallow, Sable, Moor, Wren). Sites come
+from a Fibonacci spiral round the sphere turned by the seed, off the polar caps, each
+spiralling out to a dry, level, tree-free spot at least 8 km from the pad, the station and
+every outpost before it; on home the nearest pair is 18.6 km apart and the nearest to the
+starting pad is 31 km. Drawn and lit only within 40 km of the craft, so the extra bases
+cost nothing until you are near one. A `⌂` marker on the HUD names the nearest outpost on
+the body you are on, with its distance, once you are 300 m off it. Landing inside its pad
+radius refuels like the home pad and the readout says ON THE PAD, then its name.
+`?outpost=n` starts you on home's nth outpost, `-n` hangs 300 m over it.
+
+**The ramp rule, found by the harness.** Two of home's six outposts failed the "ramps back
+smoothly" check: a 40 m blend bridging a 15 m drop makes the middle of the smoothstep
+steeper than 1 in 2. The fix is a rule, not a number: every site's blend widens to three
+times the biggest drop round its outer edge, measured twice because widening moves the
+edge. The station and the pad were already inside the rule; the outposts' worst step went from 2.12 m to 1.44 m.
+
+**Order from here:** letterbox (done), outposts (done), crashes (§10), scanner and dig, then
 money and the shop, cargo pods, the economy, the Coriolis. Rover after that.

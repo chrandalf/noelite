@@ -9,7 +9,7 @@ import { FACES, faceToUnit, faceToCube, cubeToUnit, cubeToFace } from '../src/wo
 import { TERRAIN_AMPLITUDE, PLANET_RADIUS, MASTER_SEED } from '../src/world/config.ts'
 import { rng } from '../src/world/noise.ts'
 import { wind, front, tide, WIND_CALM, WIND_STORM, TIDE_AMPLITUDE } from '../src/world/weather.ts'
-import { terrainOf, padOf, stationOf, STATION_RADIUS, STATION_PAD_OFFSET, STATION_MIN_FROM_PAD } from '../src/world/height.ts'
+import { terrainOf, padOf, stationOf, outpostsOf, STATION_RADIUS, STATION_PAD_OFFSET, STATION_MIN_FROM_PAD, OUTPOSTS_PER_BODY, OUTPOST_MIN_APART, OUTPOST_RADIUS } from '../src/world/height.ts'
 import { slopeDeg } from '../src/world/terrain.ts'
 import { forestAt } from '../src/world/forest.ts'
 import { body } from '../src/world/system.ts'
@@ -207,6 +207,41 @@ const OTHER = { ...HOME, seed: MASTER_SEED + 1 }
   check('the ground ramps back smoothly from the station', worstStep < 1.5, `worst 2 m step ${worstStep.toFixed(2)} m`)
   const padsOk = st.pads.every((p) => { const pd = new THREE.Vector3(p.dir.x, p.dir.y, p.dir.z); return Math.abs(pd.angleTo(d) * HOME.radius - STATION_PAD_OFFSET) < 0.5 && Math.abs(height(pd, HOME) - height(d, HOME)) < 0.01 })
   check('the four pads sit on the disc at their offset, level with it', padsOk && STATION_PAD_OFFSET + 22 < STATION_RADIUS)
+}
+
+// 11. The outposts: a seeded handful per living body, each a trip from every other place, dry, level, clear of trees.
+for (const t of [HOME, terrainOf(body('terra-a'))]) {
+  const list = outpostsOf(t)
+  const name = body(t.id).name
+  check(`${name} has ${OUTPOSTS_PER_BODY} outposts`, list.length === OUTPOSTS_PER_BODY, list.map((o) => o.name).join(', '))
+  const places = [padOf(t).dir, stationOf(t).site.dir, ...list.map((o) => o.site.dir)].map((d) => new THREE.Vector3(d.x, d.y, d.z))
+  let nearest = Infinity
+  for (let i = 0; i < places.length; i++) for (let j = i + 1; j < places.length; j++) nearest = Math.min(nearest, places[i].angleTo(places[j]) * t.radius)
+  check(`${name}'s pad, station and outposts are all at least ${OUTPOST_MIN_APART / 1000} km apart`, nearest >= OUTPOST_MIN_APART, `nearest pair ${(nearest / 1000).toFixed(1)} km`)
+  let heightOk = true, flat = true, treeFree = true, worstStep = 0, offCap = true
+  for (const o of list) {
+    const d = new THREE.Vector3(o.site.dir.x, o.site.dir.y, o.site.dir.z)
+    const above = height(d, t) - (t.sea ?? 0)
+    if (t.sea !== undefined && (above < 25 || above > 140)) heightOk = false
+    if (Math.abs(d.z) > 0.85) offCap = false
+    const ax = new THREE.Vector3(1, 0, 0).cross(d).normalize(), ay = d.clone().cross(ax)
+    for (let i = 0; i < 32; i++) {
+      const a = i * 0.196
+      for (const r of [18, 60, OUTPOST_RADIUS - 10]) {
+        const q = d.clone().addScaledVector(ax, Math.cos(a) * r / t.radius).addScaledVector(ay, Math.sin(a) * r / t.radius).normalize()
+        if (Math.abs(height(q, t) - height(d, t)) > 0.01) flat = false
+      }
+      const f = d.clone().addScaledVector(ax, Math.cos(a) * (OUTPOST_RADIUS + 20) / t.radius).addScaledVector(ay, Math.sin(a) * (OUTPOST_RADIUS + 20) / t.radius).normalize()
+      if (forestAt(f, t)) treeFree = false
+      let prev = height(d, t)
+      for (let r = 2; r <= OUTPOST_RADIUS + 60; r += 2) { const w = d.clone().addScaledVector(ax, Math.cos(a) * r / t.radius).addScaledVector(ay, Math.sin(a) * r / t.radius).normalize(); const h = height(w, t); worstStep = Math.max(worstStep, Math.abs(h - prev)); prev = h }
+    }
+  }
+  check(`${name}'s outposts sit at a reasonable height above the sea`, heightOk)
+  check(`${name}'s outposts keep off the polar caps`, offCap)
+  check(`${name}'s outpost discs are dead level out to ${OUTPOST_RADIUS - 10} m`, flat)
+  check(`no tree within ${OUTPOST_RADIUS + 20} m of any of ${name}'s outposts`, treeFree)
+  check(`the ground ramps back smoothly from ${name}'s outposts`, worstStep < 1.5, `worst 2 m step ${worstStep.toFixed(2)} m`)
 }
 
 console.log(`\n${pass}/${pass + fail} checks`)

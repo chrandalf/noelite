@@ -6,7 +6,7 @@
 // base around the starting landing pad, make it look quite densely populated and to
 // scale based on the size of the ship."
 import * as THREE from 'three'
-import { padOf, BASE_RADIUS, PAD_RADIUS, type Terrain } from '../world/height.ts'
+import { padOf, PAD_RADIUS, type PadSite, type Terrain } from '../world/height.ts'
 import { rng } from '../world/noise.ts'
 
 export type BaseView = { group: THREE.Group; lamps: THREE.MeshBasicMaterial; windows: THREE.MeshBasicMaterial; warn: THREE.MeshBasicMaterial; dish: THREE.Object3D }
@@ -14,10 +14,16 @@ export type BaseView = { group: THREE.Group; lamps: THREE.MeshBasicMaterial; win
 const LAMP_DAY = new THREE.Color(0x4a4638), LAMP_NIGHT = new THREE.Color(0xffe9b8)
 const WIN_DAY = new THREE.Color(0x2a3440), WIN_NIGHT = new THREE.Color(0xd8e8ff)
 
-export function buildBase(t: Terrain): BaseView | null {
-  const site = padOf(t)
+/**
+ * The base at `site` (the starting pad by default). `salt` varies the layout between
+ * outposts on one body; `density` scales the building counts, so an outpost is the same
+ * settlement at half the population. The apron fills the site's own flattened radius.
+ */
+export function buildBase(t: Terrain, site: PadSite | null = padOf(t), salt = 0, density = 1): BaseView | null {
   if (!site) return null
-  const next = rng((t.seed ^ 0x42415345) >>> 0)
+  const BASE_RADIUS = site.radius
+  const count = (n: number) => Math.max(1, Math.round(n * density))
+  const next = rng((t.seed ^ 0x42415345 ^ Math.imul(salt + 1, 0x9e3779b1)) >>> 0)
   const g = new THREE.Group()
   const mat = (colour: number, name: string) => { const m = new THREE.MeshLambertMaterial({ color: colour }); m.name = name; return m }
   const concrete = mat(0x8e9296, 'base-apron'), road = mat(0x5c6066, 'base-road'), wall = mat(0xb9bcc0, 'base-wall'), panel = mat(0x6b7078, 'base-panel')
@@ -71,7 +77,7 @@ export function buildBase(t: Terrain): BaseView | null {
   }
 
   // Two hangars, doors toward the pad, wide enough for the dart with room to spare.
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < count(2); i++) {
     const p = place(14, PAD_RADIUS + 26, BASE_RADIUS - 30); if (!p) continue
     const ry = -p.a + Math.PI / 2
     box(24, 9, 18, wall, p.x, 4.5, p.z, ry)
@@ -91,7 +97,7 @@ export function buildBase(t: Terrain): BaseView | null {
     g.add(lamp)
   }
   // Habitat blocks, stacked, a lighter roof slab and windows.
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < count(30); i++) {
     const w = 6 + 8 * next(), d = 5 + 6 * next(), storeys = 1 + Math.floor(next() * 3)
     const p = place(Math.max(w, d) / 2 + 1); if (!p) continue
     const ry = next() < 0.5 ? -p.a : next() * Math.PI * 2
@@ -107,7 +113,7 @@ export function buildBase(t: Terrain): BaseView | null {
     if (next() < 0.5) box(1.2, 2.5, 1.2, dark, p.x + 2, y + 1.6, p.z - 1.5, ry) // a vent
   }
   // Domes.
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < count(7); i++) {
     const r = 4 + 6 * next()
     const p = place(r + 1); if (!p) continue
     const dome = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), i % 2 ? wall : drum)
@@ -134,7 +140,7 @@ export function buildBase(t: Terrain): BaseView | null {
   const dish = new THREE.Group()
   {
     const p = place(5, BASE_RADIUS - 60, BASE_RADIUS - 24)
-    const x = p ? p.x : 60, z = p ? p.z : 40
+    const x = p ? p.x : BASE_RADIUS * 0.45, z = p ? p.z : BASE_RADIUS * 0.3
     const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.6, 34, 6), panel); mast.position.set(x, 17, z); g.add(mast)
     for (let i = 0; i < 3; i++) { const brace = new THREE.Mesh(new THREE.BoxGeometry(6, 0.3, 0.3), dark); brace.position.set(x, 6 + i * 10, z); brace.rotation.y = i * 1.1; g.add(brace) }
     const d = new THREE.Mesh(new THREE.SphereGeometry(4, 10, 6, 0, Math.PI * 2, 0, Math.PI / 3), drum)
@@ -155,7 +161,7 @@ export function buildBase(t: Terrain): BaseView | null {
     const l = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.4, 0.7), lamps); l.position.set(Math.cos(a) * (PAD_RADIUS + 3), 0.25, Math.sin(a) * (PAD_RADIUS + 3)); g.add(l)
   }
   // Crates and small kit, scattered near the buildings.
-  for (let i = 0; i < 70; i++) {
+  for (let i = 0; i < count(70); i++) {
     const p = place(1.2, PAD_RADIUS + 20, BASE_RADIUS - 8); if (!p) continue
     const s = 1 + 1.2 * next()
     box(s, s * 0.8, s, next() < 0.3 ? accent : next() < 0.5 ? panel : dark, p.x, s * 0.4, p.z, next() * Math.PI)
@@ -173,8 +179,8 @@ export function buildBase(t: Terrain): BaseView | null {
     }
   }
   // Pipes: a few long runs on low trestles between things, the way a depot looks.
-  for (let i = 0; i < 5; i++) {
-    const a = next() * Math.PI * 2, r0 = PAD_RADIUS + 26 + next() * 30, len = 25 + 40 * next()
+  for (let i = 0; i < count(5); i++) {
+    const a = next() * Math.PI * 2, r0 = PAD_RADIUS + 26 + next() * Math.max(4, BASE_RADIUS - 100), len = 25 + 40 * next()
     const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, len, 6), drum)
     pipe.rotation.z = Math.PI / 2; pipe.rotation.y = -a
     pipe.position.set(Math.cos(a + 1.2) * r0, 0.9, Math.sin(a + 1.2) * r0)

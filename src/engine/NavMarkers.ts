@@ -3,8 +3,8 @@
 // "where is the planet" always has an answer even in empty space.
 import * as THREE from 'three'
 
-type Kind = 'planet' | 'pro' | 'retro' | 'target'
-const LABEL: Record<Kind, string> = { planet: '⊕', pro: '▲', retro: '▽', target: '◇' }
+type Kind = 'planet' | 'pro' | 'retro' | 'target' | 'outpost'
+const LABEL: Record<Kind, string> = { planet: '⊕', pro: '▲', retro: '▽', target: '◇', outpost: '⌂' }
 
 export class NavMarkers {
   private readonly els: Record<Kind, HTMLElement>
@@ -13,7 +13,7 @@ export class NavMarkers {
 
   constructor(root: HTMLElement) {
     const make = (k: Kind) => { const e = document.createElement('div'); e.className = `nav ${k}`; e.textContent = LABEL[k]; root.appendChild(e); return e }
-    this.els = { planet: make('planet'), pro: make('pro'), retro: make('retro'), target: make('target') }
+    this.els = { planet: make('planet'), pro: make('pro'), retro: make('retro'), target: make('target'), outpost: make('outpost') }
   }
 
   hide(): void { for (const e of Object.values(this.els)) e.hidden = true }

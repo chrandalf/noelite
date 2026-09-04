@@ -21,6 +21,7 @@
 //   ?field=home-l4:2000:3   start in cruise 2 km off rock 3 of home's leading Trojans
 //   ?fuel=20           start with 20 units in the tank
 //   ?station=2         start landed on pad 2 of home's station (0: hanging 300 m over it)
+//   ?outpost=3         start landed on home's third outpost (-3: hanging 300 m over it)
 import * as THREE from 'three'
 import { PlanetLOD } from './world/lod.ts'
 import { FlyCam } from './engine/FlyCam.ts'
@@ -34,7 +35,7 @@ import { Marks } from './engine/Marks.ts'
 import { Sound } from './engine/Sound.ts'
 import { Sky } from './engine/Sky.ts'
 import { NavMarkers } from './engine/NavMarkers.ts'
-import { waterOf, height, HOME, terrainOf, padOf, stationOf, type Terrain, type Station } from './world/height.ts'
+import { waterOf, height, HOME, terrainOf, padOf, stationOf, outpostsOf, type Terrain, type Station, type Outpost } from './world/height.ts'
 import { buildPad } from './engine/Pad.ts'
 import { buildStation, updateStation, type StationView } from './engine/Station.ts'
 import { buildBase, updateBase, type BaseView } from './engine/Base.ts'
@@ -255,6 +256,15 @@ craft.spawnOn(pad, new THREE.Vector3(1, 0, 0), 'surface', home)
     else craft.placeAbove(home, new THREE.Vector3(st.site.dir.x, st.site.dir.y, st.site.dir.z), 300)
   }
 }
+// ?outpost=<n> starts landed on home's nth outpost; a negative n hangs 300 m over it.
+{
+  const op = q.get('outpost')
+  if (op !== null) {
+    const n = Number(op), o = outpostsOf(HOME)[Math.abs(n) - 1]
+    if (o) { const d = new THREE.Vector3(o.site.dir.x, o.site.dir.y, o.site.dir.z); if (n > 0) craft.spawnOn(d, new THREE.Vector3(1, 0, 0), 'surface', home); else craft.placeAbove(home, d, 300) }
+    else console.warn(`?outpost=${op}: home has ${outpostsOf(HOME).length} outposts`)
+  }
+}
 // ?fuel=<units> starts with that much in the tank.
 if (q.get('fuel') !== null) craft.fuel = Math.max(0, Math.min(FUEL_TANK, Number(q.get('fuel'))))
 // ?over=<body id>:<altitude m> starts you hanging over another body instead: over=home-1:300 is the moon.
@@ -330,6 +340,20 @@ for (const v of views) { const sv = buildStation(v.terrain); if (sv) { v.group.a
 // The outpost round each pad.
 const baseViews: BaseView[] = []
 for (const v of views) { const bv = buildBase(v.terrain); if (bv) { v.group.add(bv.group); baseViews.push(bv) } }
+// The outposts dotted round each body (Chris, 2026-09-04): a pad and a half-density base each,
+// drawn only within OUTPOST_DRAW of the craft so six bases do not cost six bases of draw calls.
+type OutpostView = { view: BodyView; o: Outpost; group: THREE.Group; bv: BaseView; rel: THREE.Vector3 }
+const outpostViews: OutpostView[] = []
+for (const v of views) for (const o of outpostsOf(v.terrain)) {
+  const group = new THREE.Group()
+  const padMesh = buildPad(v.terrain, o.site); if (padMesh) group.add(padMesh)
+  const bv = buildBase(v.terrain, o.site, o.n, 0.5); if (!bv) continue
+  group.add(bv.group); group.visible = false
+  v.group.add(group)
+  outpostViews.push({ view: v, o, group, bv, rel: new THREE.Vector3() })
+}
+const OUTPOST_DRAW = 40_000
+let nearOutpost: OutpostView | null = null, nearOutpostD = Infinity
 // Tab cycles the bodies and stations; V cycles the nearest rock clusters (Chris, 2026-09-03:
 // "the tabbing should be on planets ... select the clusters but not mixing them").
 const bodyTargets: Target[] = [
@@ -412,6 +436,15 @@ function placeBodies(t: number, frame: Body): void {
   }
   for (const s of stationViews) updateStation(s.sv, t, dayNow)
   for (const b of baseViews) updateBase(b, t, dayNow)
+  // Outposts: where each one is this frame; drawn and lit only within OUTPOST_DRAW of the craft.
+  nearOutpost = null; nearOutpostD = Infinity
+  for (const ov of outpostViews) {
+    ov.rel.set(ov.o.site.dir.x, ov.o.site.dir.y, ov.o.site.dir.z).multiplyScalar(ov.view.body.radius + ov.o.site.h).applyQuaternion(ov.view.group.quaternion).add(ov.view.rel)
+    const d = ov.rel.distanceTo(craft.pos)
+    ov.group.visible = d < OUTPOST_DRAW
+    if (ov.group.visible) updateBase(ov.bv, t, dayNow)
+    if (ov.view.body === craft.ref && d < nearOutpostD) { nearOutpost = ov; nearOutpostD = d }
+  }
   // The sun, from the viewer.
   sunDir.copy(sunView.rel).sub(viewPos).normalize()
   sunLight.position.copy(sunView.rel).sub(viewPos)
@@ -546,7 +579,7 @@ renderer.setAnimationLoop((now) => {
     light(lights.t, `TILT ${tilt.toFixed(0)}°`, tilt < LAND_MAX_TILT, armed)
     light(lights.s, `SLOPE ${slope.toFixed(0)}°`, slope < LAND_MAX_SLOPE, armed)
     const here = craft.state === 'landed' ? craft.padHere() : null
-    altState.textContent = craft.state === 'landed' ? (here?.station ? `DOCKED  PAD ${here.pad}` : here ? 'ON THE PAD' : 'DOWN') : craft.state === 'crashed' ? 'CRASHED' : `${gearDown > 0.5 ? 'GEAR ↓' : 'GEAR ↑'}${craft.assisting ? '   ASSIST' : ''}`
+    altState.textContent = craft.state === 'landed' ? (here?.station ? `DOCKED  PAD ${here.pad}` : here?.outpost ? `ON THE PAD  ${here.outpost.name.toUpperCase()}` : here ? 'ON THE PAD' : 'DOWN') : craft.state === 'crashed' ? 'CRASHED' : `${gearDown > 0.5 ? 'GEAR ↓' : 'GEAR ↑'}${craft.assisting ? '   ASSIST' : ''}`
     const rho = craft.atmosphere()
     atmosEl.textContent = rho > 0 ? `ATMOS ${(rho * 100).toFixed(0)}%   WIND ${windNow.toFixed(0)} m/s${rainNow > 0 ? `   RAIN ${(rainNow * 100).toFixed(0)}%` : cloudNow > 0.5 ? '   OVERCAST' : ''}` : 'VACUUM'
     atmosEl.className = rho > 0 ? '' : 'vacuum'
@@ -598,6 +631,9 @@ renderer.setAnimationLoop((now) => {
       }
       cleared = `  cleared pad ${bestN}`
     }
+    // The nearest outpost on this body, once you are off its pad, so a place to land is always in view.
+    const showOutpost = flying && nearOutpost !== null && nearOutpostD < OUTPOST_DRAW && nearOutpostD > 300 && (phase === 'off' || phase === 'done')
+    markers.place('outpost', showOutpost && nearOutpost ? tmp.copy(nearOutpost.rel).sub(craft.pos).normalize() : dir, camera, showOutpost, nearOutpost ? `${nearOutpost.o.name}  ${fmtDist(nearOutpostD)}` : '')
     const eta = closing > 1 && tSurf / closing < 86400 ? `  ETA ${fmtTime(tSurf / closing)}` : ''
     markers.place('target', tDir, camera, showNav || cleared !== '', `${tgt.name}  ${fmtDist(tgt.station ? tSurf : shownDistance(tSurf))}  ${closing >= 0 ? '↓' : '↑'}${fmtSpeed(Math.abs(closing))}${eta}${cleared}`)
     const lc = craft.lastContact
@@ -669,6 +705,7 @@ void tmp
   mode, planet, craft, input, free, views, asteroids, ship,
   /** The opening's phase and the letterbox, for the probes. */
   phase: () => phase, barFrac: () => barFrac,
+  outposts: outpostViews,
   /** True only once the LOD has updated since the last place() and its queue is empty. */
   ready: () => updates > placedAt + 1 && planet.pendingCount === 0,
   /** Free mode: put the camera at p looking at a. */
