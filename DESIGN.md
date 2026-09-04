@@ -900,3 +900,31 @@ with the constraint puzzles, a signal body to body, the jump recipe at the end.
 
 **Order I'd build:** money and the board, salvage wrecks, rescue with a clock, scan and dig,
 the comet. The first three reuse what works today.
+
+## 10e. The economy brief (Chris, 2026-09-04, evening)
+
+Verbatim: "money is going to be key to all of this, so we need to set up an economy, a
+bank, other industries, maybe we can set something up like the game Transport Tycoon
+where you have to set up trade routes that you have to deliver on from factories on one
+planet to another, you can also arrange to do the job yourself or you can sub contract and
+the sub contractor goes off, you can see him go do his route. scanning and digging is
+something I want to bring in soon and there will be contracts where you have to collect
+things for factories/industries etc. This can be expanded on, maybe look up on github
+with an opus agent ways trade could work. We should also be able to buy stuff to expand
+and improve the ship."
+
+**My read.** Transport Tycoon's shape: industries that produce and accept goods, a chain
+(ore to a mill to a factory to goods), production per period that grows if served and
+shrinks if not, payment by distance and days in transit, and a company with a loan. Our
+twist is that the vehicle is the physics: mass on the hull, the body's gravity, fuel,
+weather, re-entry. Subcontracting is the clever bit: a route you have proven pays less but
+runs without you, and the carrier is a real ship you can watch, delayed by the same
+weather. Research report to come in `research/trade-economy-2026-09-04.md`.
+
+**Build order for the spine:** (1) money: a balance, a starting loan and interest, credits
+on the HUD, fuel and repair charged, a ledger in the pause menu; (2) industries: one per
+outpost and at the station, typed from the terrain, with stock, production and demand;
+(3) goods and cargo pods with mass on the hull; (4) the contract board: deliver, fetch,
+dig; (5) routes: a recurring contract, a bonus for on-time; (6) subcontractors: a carrier
+ship that flies the route visibly for a cut; (7) the shop: tank, drive, heat shield,
+pods, scanner, digger, gear.
