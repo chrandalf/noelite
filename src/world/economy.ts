@@ -29,6 +29,13 @@ export class Bank {
     return true
   }
 
+  /** Take it whether or not you have it: the balance can go below zero. For an excess you owe. */
+  charge(t: number, what: string, amount: number): void {
+    if (amount <= 0) return
+    this.balance -= amount
+    this.book(t, what, -amount)
+  }
+
   /** A ledger line on its own, for a charge already taken with spend(…, false). */
   note(t: number, what: string, amount: number): void { if (amount !== 0) this.book(t, what, amount) }
 

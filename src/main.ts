@@ -23,7 +23,8 @@
 //   ?station=2         start landed on pad 2 of home's station (0: hanging 300 m over it)
 //   ?outpost=3         start landed on home's third outpost (-3: hanging 300 m over it)
 //   ?assist=0          landing assist off (so a drop is a drop)
-//   ?reset=1           forget the company (money, loan, ledger) and start again
+//   ?reset=1           forget the save (company, ship, wrecks) and start again; any placement
+//                      parameter (?over ?outpost ?station ?field ?t) also starts on that spot, books kept
 import * as THREE from 'three'
 import { PlanetLOD } from './world/lod.ts'
 import { FlyCam } from './engine/FlyCam.ts'
@@ -43,6 +44,7 @@ import { buildStation, updateStation, type StationView } from './engine/Station.
 import { buildBase, updateBase, type BaseView } from './engine/Base.ts'
 import { Wreck, buildWreckMeshes, syncWreckMeshes } from './engine/Wreck.ts'
 import { Bank } from './world/economy.ts'
+import { snapshot, restore, isSave } from './world/save.ts'
 import { slopeDeg } from './world/terrain.ts'
 import { atmosphereDensity, buildAtmosphereShell } from './world/atmosphere.ts'
 import { SYSTEM, body, bodyPosition, bodySpin, type Body } from './world/system.ts'
@@ -56,13 +58,18 @@ import { Clouds } from './engine/Clouds.ts'
 import { CloudPuffs } from './engine/CloudPuffs.ts'
 import { front, rainOf, cloudOf, moonDirection, TIDE_AMPLITUDE } from './world/weather.ts'
 import { setGroundClock } from './world/terrain.ts'
-import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE , FUEL_TANK, HULL_CLEARANCE, HULL_LIMIT, HULL_WARN, HULL_GLOW, CLOUD_BASE_FRAC, WRECK_HOLD, FUEL_PRICE, REPAIR_PRICE, LOAN_STEP, shownDistance } from './world/config.ts'
+import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE , FUEL_TANK, HULL_CLEARANCE, HULL_LIMIT, HULL_WARN, HULL_GLOW, CLOUD_BASE_FRAC, WRECK_HOLD, FUEL_PRICE, REPAIR_PRICE, LOAN_STEP, INSURANCE, shownDistance } from './world/config.ts'
 
 const q = new URLSearchParams(location.search)
+/** The save on disk, read once. ?reset=1 forgets it. A placement parameter starts you where it says, books kept. */
+const SAVE_KEY = 'noelite.save'
+const loadSave = () => { try { if (q.get('reset') === '1') localStorage.removeItem(SAVE_KEY); const raw = localStorage.getItem(SAVE_KEY); const j: unknown = raw ? JSON.parse(raw) : null; return isSave(j) ? j : null } catch { return null } }
+const saved = loadSave()
+const placed = ['over', 'outpost', 'station', 'field', 't'].some((k) => q.get(k) !== null)
 const mode: 'fly' | 'free' = q.get('mode') === 'free' ? 'free' : 'fly'
 // Dawn Shift: the opening. On by default on a plain start (no URL parameters), ?intro=1 forces
 // it, ?intro=0 skips it. Cold open on the pad in the dark, 103 s before sunrise (tools/sun-times).
-const intro = q.get('intro') === '1' || (q.get('intro') !== '0' && location.search === '' && mode === 'fly')
+const intro = q.get('intro') === '1' || (q.get('intro') !== '0' && location.search === '' && mode === 'fly' && saved === null)
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true })
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
@@ -205,6 +212,7 @@ const marks = new Marks()
 // Wrecks (DESIGN §10): the hull's facets tumble off and stay where they fell, in their
 // body's frame, so you can fly back to one. A fireball at the site, scene root like the ship.
 const wrecks: { wreck: Wreck; meshes: THREE.Mesh[]; view: BodyView }[] = []
+const placeWreck = (wreck: Wreck, view: BodyView) => { const meshes = buildWreckMeshes(); for (const m of meshes) view.group.add(m); syncWreckMeshes(wreck, meshes); wrecks.push({ wreck, meshes, view }) }
 const fireball = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), new THREE.MeshBasicMaterial({ color: 0xff8830, transparent: true, opacity: 0.9, depthWrite: false }))
 ;(fireball.material as THREE.Material).name = 'fireball'
 fireball.visible = false
@@ -337,18 +345,38 @@ const fuelEl = document.getElementById('fuel')!
 const hullEl = document.getElementById('hull')!
 // The company (DESIGN §10e): money, a loan, a ledger; saved in the browser, ?reset=1 forgets it.
 const bankEl = document.getElementById('bank')!, companyEl = document.querySelector<HTMLElement>('#company pre')!
-const SAVE_KEY = 'noelite.company'
-const loadBank = (): Bank => { try { if (q.get('reset') === '1') localStorage.removeItem(SAVE_KEY); const raw = localStorage.getItem(SAVE_KEY); return Bank.fromJSON(raw ? JSON.parse(raw) : null) } catch { return new Bank() } }
-const bank = loadBank()
+const saveEl = document.querySelector<HTMLElement>('#company .save')!
+let bank = saved ? Bank.fromJSON(saved.bank) : new Bank()
 let savedAt = 0
+let lastSave = saved ? `${new Date(saved.savedAt).toLocaleTimeString('en-GB')} on ${saved.where}` : 'never'
+// Loading: the books and the wrecks always; the ship back on the pad it saved on unless a URL put it somewhere.
+if (saved && mode === 'fly') {
+  const r = restore(placed ? null : craft, saved)
+  bank = r.bank
+  for (const w of r.wrecks) { const v = views.find((x) => x.body.id === w.body); if (v) placeWreck(w.wreck, v) }
+  if (refView.body !== craft.ref) switchFrame()
+}
+/** Where the ship is: a pad's name for the save and the menu. */
+const whereAmI = (): string => { const h = craft.padHere(); return h?.station ? `${h.station.name} pad ${h.pad}` : h?.outpost ? h.outpost.name : h ? 'the home pad' : `${craft.ref.name}, open ground` }
+/** Write the save if the ship is on the ground. True if it did. */
+const saveGame = (): boolean => {
+  const snap = snapshot(craft, bank, wrecks.map((w) => ({ body: w.view.body.id, wreck: w.wreck })), whereAmI())
+  if (!snap) return false
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(snap)) } catch { /* private window, or storage off: the game lives for the session */ }
+  lastSave = `${new Date(snap.savedAt).toLocaleTimeString('en-GB')} on ${snap.where}`
+  return true
+}
 /** Running pad charges, booked as one FUEL or REPAIR line when the fill stops. */
 const pending = { fuel: 0, repair: 0 }
-const saveBank = () => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(bank)) } catch { /* private window, or storage off: the company lives for the session */ } }
+/** The books change while flying too; a landed ship writes the whole save, a flying one only remembers to. */
+const saveBank = () => { if (!saveGame()) savedAt = -10 }
 const credits = (v: number) => `${Math.round(v).toLocaleString('en-GB')} cr`
 const renderCompany = () => {
   const lines = bank.ledger.slice(-10).reverse().map((e) => `${localTime(e.t)}   ${e.what.padEnd(10)} ${(e.amount >= 0 ? '+' : '') + Math.round(e.amount).toLocaleString('en-GB').padStart(8)}`)
   companyEl.textContent = `BALANCE ${credits(bank.balance).padStart(12)}      LOAN ${credits(bank.loan).padStart(12)}\n\n${lines.join('\n') || 'no transactions yet'}`
+  saveEl.textContent = `last save ${lastSave}   ·   ${craft.state === 'landed' ? 'S saves now' : 'land to save'}`
 }
+renderCompany()
 const GLOW = new THREE.Color(0xff5a1a)
 // Drag orbits the chase camera, wheel zooms, C resets.
 {
@@ -429,6 +457,7 @@ addEventListener('keydown', (e) => {
   if (paused) {
     if (e.code === 'BracketRight') { bank.borrow(craft.time, LOAN_STEP); renderCompany(); saveBank() }
     if (e.code === 'BracketLeft') { bank.repay(craft.time, LOAN_STEP); renderCompany(); saveBank() }
+    if (e.code === 'KeyS') { saveGame(); renderCompany() }
     return
   }
   if (mode !== 'fly' || paused) return
@@ -442,7 +471,24 @@ addEventListener('keydown', (e) => {
   if (e.code === 'Tab') { e.preventDefault(); if (bodyTargets.includes(target)) targetIndex = (targetIndex + (e.shiftKey ? bodyTargets.length - 1 : 1)) % bodyTargets.length; target = bodyTargets[targetIndex]; fieldIndex = -1 }
   if (e.code === 'KeyV') nextField()
 })
-function respawn() { craft.spawnOn(pad, new THREE.Vector3(1, 0, 0), 'surface', home); if (refView.body !== craft.ref) switchFrame(); crashedAt = null; ship.visible = true; sink = 0; chase.orbitYaw = 0 }
+/** A crash never ends the game: a replacement hull on the nearest pad of the body you are on, the excess charged even into the red, the wreck left where it fell. */
+function respawn() {
+  const wrecked = craft.state === 'crashed'
+  const up = craft.pos.clone().normalize()
+  let best = pad, bestOn = home, bestC = -2
+  if (craft.ref.kind === 'terrestrial') {
+    const t = craft.terrain
+    const sites: { x: number; y: number; z: number }[] = []
+    const p = padOf(t); if (p) sites.push(p.dir)
+    const st = stationOf(t); if (st) for (const sp of st.pads) sites.push(sp.dir)
+    for (const o of outpostsOf(t)) sites.push(o.site.dir)
+    for (const d of sites) { const c = up.x * d.x + up.y * d.y + up.z * d.z; if (c > bestC) { bestC = c; best = new THREE.Vector3(d.x, d.y, d.z); bestOn = craft.ref } }
+  }
+  craft.spawnOn(best, new THREE.Vector3(1, 0, 0), 'surface', bestOn)
+  if (refView.body !== craft.ref) switchFrame()
+  if (wrecked) { bank.charge(craft.time, 'INSURANCE', INSURANCE); saveGame() }
+  crashedAt = null; ship.visible = true; sink = 0; chase.orbitYaw = 0
+}
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight
@@ -575,7 +621,7 @@ renderer.setAnimationLoop((now) => {
     if (craft.bought.repair > 0) { const cost = craft.bought.repair * REPAIR_PRICE; bank.spend(craft.time, 'REPAIR', cost, false); pending.repair += cost; craft.bought.repair = 0 }
     else if (pending.repair > 0) { bank.note(craft.time, 'REPAIR', -pending.repair); pending.repair = 0; saveBank() }
     bank.accrue(dt, craft.time)
-    if (elapsed - savedAt > 5) { savedAt = elapsed; saveBank() }
+    if (elapsed - savedAt > 5) { savedAt = elapsed; saveGame() }
     if (input.fire() && !orbitAP.engaged) { const b = craft.fire(); if (b) { sound.shot(); flashUntil[b.side > 0 ? 1 : 0] = now + 60 } }
     morph.flashes[0].visible = now < flashUntil[0]; morph.flashes[1].visible = now < flashUntil[1]
     if (craft.hits.length) { asteroids.hits(craft.hits, craft.time); for (const h of craft.hits) { sound.hit(h.broke); if (h.fuel > 0) sound.chime() }; craft.hits.length = 0 }
@@ -616,6 +662,7 @@ renderer.setAnimationLoop((now) => {
     // Touchdown: a puff and a scuff. Lift-off: a puff.
     if (craft.state !== lastState) {
       if (craft.state === 'landed' && craft.atmosphere() >= 0 && !craft.hitRock) { dust.burst(craft.pos, craft.gearBent ? 140 : 70); marks.add(craft.pos.clone().addScaledVector(dir.copy(craft.pos).normalize(), -HULL_CLEARANCE), dir, now / 1000, craft.gearBent ? 4 : 2.6) }
+      if (craft.state === 'landed' && lastState === 'flying') saveGame()   // every landing is a save
       if (craft.state === 'flying' && lastState === 'landed') dust.burst(craft.pos, 40)
       // The wreck: into water a splash and the sink; on ground the facets tumble off, a
       // fireball, dust and a scorch. A burn-through or a rock leaves nothing to scatter.
@@ -623,10 +670,7 @@ renderer.setAnimationLoop((now) => {
         const up = dir.copy(craft.pos).normalize()
         if (craft.sunk) dust.burst(craft.pos, 160)
         else {
-          const wreck = new Wreck(craft.terrain, craft.pos, craft.quat, craft.contactVel, craft.crashes * 7919 + 1)
-          const meshes = buildWreckMeshes(); for (const m of meshes) refView.group.add(m)
-          syncWreckMeshes(wreck, meshes)
-          wrecks.push({ wreck, meshes, view: refView })
+          placeWreck(new Wreck(craft.terrain, craft.pos, craft.quat, craft.contactVel, craft.crashes * 7919 + 1), refView)
           ship.visible = false
           marks.add(craft.pos.clone().addScaledVector(up, -HULL_CLEARANCE), up, now / 1000, 12)
           dust.burst(craft.pos, 240)

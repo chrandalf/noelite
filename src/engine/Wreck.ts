@@ -53,6 +53,22 @@ export class Wreck {
     }
   }
 
+  /** The pieces' resting poses, for the save. */
+  toJSON(): { at: number[]; pieces: { pos: number[]; quat: number[] }[] } {
+    return { at: this.at.toArray(), pieces: this.pieces.map((p) => ({ pos: p.pos.toArray(), quat: p.quat.toArray() })) }
+  }
+
+  /** A wreck back from the save: every piece at rest where it was. */
+  static restore(terrain: Terrain, j: { at: number[]; pieces: { pos: number[]; quat: number[] }[] }): Wreck {
+    const at = new THREE.Vector3().fromArray(j.at)
+    const w = new Wreck(terrain, at, new THREE.Quaternion(), new THREE.Vector3(), 1)
+    for (let i = 0; i < w.pieces.length && i < j.pieces.length; i++) {
+      const p = w.pieces[i]
+      p.pos.fromArray(j.pieces[i].pos); p.quat.fromArray(j.pieces[i].quat); p.vel.set(0, 0, 0); p.spin.set(0, 0, 0); p.resting = true
+    }
+    return w
+  }
+
   /** True once every piece has come to rest. */
   settled(): boolean { return this.pieces.every((p) => p.resting) }
 

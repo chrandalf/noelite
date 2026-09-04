@@ -171,6 +171,8 @@ export const LOAN_RATE_PER_DAY = 0.02
 export const FUEL_PRICE = 2
 /** Credits to repair a whole hull (damage 1 → 0) at a station. */
 export const REPAIR_PRICE = 600
+/** The excess on a replacement hull after a wreck. Charged even into the red: a crash never ends the game. */
+export const INSURANCE = 500
 export const ICE_FUEL_MAX = 60
 /** Metres a bolt flies before it dies, the seconds between shots, and how fast a bolt leaves the gun (relative to the ship). Chris, 2026-09-03: "need to see more a projectile shot." */
 export const GUN_RANGE = 3000

@@ -385,7 +385,7 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol
   // Landed on the pad, the tank refills fast.
   const p = fresh(); p.fuel = 10
   until(p, () => false, 5, () => IDLE)
-  check('the pad refuels', p.onPad() && near(p.fuel, 10 + 5 * FUEL_PAD_REFILL, 0.05), `${p.fuel.toFixed(1)} after 5 s`)
+  check('the pad refuels', p.onPad() && near(p.fuel, 10 + 5 * (FUEL_PAD_REFILL + FUEL_SOLAR_TRICKLE), 0.05), `${p.fuel.toFixed(1)} after 5 s, pad and sun`)
   until(p, () => false, 30, () => IDLE)
   check('and never past the brim', p.fuel === FUEL_TANK, `${p.fuel}`)
   // Landed off the pad, the solar cells trickle.
@@ -485,7 +485,7 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol
   until(c, () => false, 5, () => IDLE)
   const here = c.padHere()
   check('landed on station pad 3 reads as docked on pad 3', here && here.station === st && here.pad === 3, here ? `${here.station?.name} pad ${here.pad}` : 'no pad')
-  check('and the pad refuels', near(c.fuel, 10 + 5 * FUEL_PAD_REFILL, 0.05), `${c.fuel.toFixed(1)} after 5 s`)
+  check('and the pad refuels', near(c.fuel, 10 + 5 * (FUEL_PAD_REFILL + FUEL_SOLAR_TRICKLE), 0.05), `${c.fuel.toFixed(1)} after 5 s, pad and sun`)
   // Lift off pad 3 and set down on pad 1: 124 m across the disc.
   const d = new Craft(HOME); d.windy = false
   d.spawnOn(new THREE.Vector3(st.site.dir.x, st.site.dir.y, st.site.dir.z), new THREE.Vector3(1, 0, 0), 'radial'); d.fuel = 0
