@@ -279,7 +279,7 @@ for (const t of [HOME, terrainOf(body('terra-a'))]) {
 // and across their width, dry, a strip's length from the site they serve.
 {
   const rws = runwaysOf(HOME)
-  check('home has two runways, one off the base and one off the station', rws.length === 2)
+  check('home has a runway at the base, the station and every outpost', rws.length === 2 + outpostsOf(HOME).length, `${rws.length} runways`)
   const n3 = (v) => { const l = Math.hypot(v.x, v.y, v.z); return { x: v.x / l, y: v.y / l, z: v.z / l } }
   let worst = 0, dry = true
   for (const r of rws) {
@@ -294,8 +294,8 @@ for (const t of [HOME, terrainOf(body('terra-a'))]) {
   check('and dry', dry)
   const pad = padSiteOf(HOME), st = stationSiteOf(HOME)
   const dist = (a, b) => Math.acos(Math.min(1, a.x * b.x + a.y * b.y + a.z * b.z)) * HOME.radius
-  const near = (site) => rws.some((r) => dist(r.dir, site.dir) < site.radius + site.blend + RUNWAY_HALF + 120)
-  check('one sits just past the base, the other just past the station', near(pad) && near(st.site))
+  const near = (site) => rws.some((r) => dist(r.dir, site.dir) < site.radius + site.blend + RUNWAY_HALF + 400)
+  check('one sits just past the base, one just past the station', near(pad) && near(st.site))
   const mid = rws[0]
   check('onRunway finds a point on the strip and not one beside it', onRunway(mid.dir, HOME) !== null && onRunway(n3({ x: mid.dir.x + (mid.along.y * mid.dir.z - mid.along.z * mid.dir.y) * 60 / HOME.radius, y: mid.dir.y + (mid.along.z * mid.dir.x - mid.along.x * mid.dir.z) * 60 / HOME.radius, z: mid.dir.z + (mid.along.x * mid.dir.y - mid.along.y * mid.dir.x) * 60 / HOME.radius }), HOME) === null)
 }

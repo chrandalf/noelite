@@ -744,7 +744,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyC') chase.reset()
   if (e.code === 'KeyG' && mode === 'fly') scan()
   if ((e.code === 'KeyI' || e.code === 'KeyK') && mode === 'fly') { const kind = e.code === 'KeyI' ? 'immelmann' : 'splits'; const r = stunts.start(kind, craft); toast(r === 'ok' ? STUNT_NAME[kind] : r === 'not-jet' ? 'STUNTS ARE FOR THE JET' : r === 'too-slow' ? 'TOO SLOW: 80 m/s FOR A STUNT' : `TOO LOW FOR A SPLIT-S: ${Math.ceil(2.2 * Stunts.radius(craft.speed()))} m OF SKY NEEDED`) }
-  if (e.code === 'KeyJ' && mode === 'fly') { const r = craft.toggleJet(); toast(r === 'jet' ? 'JET   ·   nose steers, bank to turn, / flaps and brake, J back to hover' : r === 'hover' ? 'HOVER' : r === 'no-air' ? 'NO AIR FOR WINGS' : craft.cruise ? 'IN CRUISE: WINGS ARE OUT ALREADY' : 'NOT ON THE GROUND') }
+  if (e.code === 'KeyJ' && mode === 'fly') { const r = craft.toggleJet(); toast(r === 'jet' ? 'JET   ·   nose steers, bank to turn, B flaps and brake, J back to hover' : r === 'hover' ? 'HOVER' : r === 'no-air' ? 'NO AIR FOR WINGS' : craft.cruise ? 'IN CRUISE: WINGS ARE OUT ALREADY' : 'NOT ON THE GROUND') }
   if (e.code === 'KeyU' && mode === 'fly') use()
   if (e.code === 'KeyO') orbitAP.engaged = !orbitAP.engaged && craft.state === 'flying'
   if (e.code === 'Tab') { e.preventDefault(); if (bodyTargets.includes(target)) targetIndex = (targetIndex + (e.shiftKey ? bodyTargets.length - 1 : 1)) % bodyTargets.length; target = bodyTargets[targetIndex]; fieldIndex = -1 }
@@ -1041,7 +1041,7 @@ renderer.setAnimationLoop((now) => {
         }
         sound.hit(true)
       }
-      if (craft.state === 'rolling') toast('ON THE RUNWAY   ·   / brakes   Q E steer   SPACE goes again')
+      if (craft.state === 'rolling') toast('ON THE RUNWAY   ·   B brakes   Q E steer   SPACE goes again')
       lastState = craft.state
     }
     for (const w of wrecks) if (!w.wreck.settled()) { w.wreck.step(dt); syncWreckMeshes(w.wreck, w.meshes) }

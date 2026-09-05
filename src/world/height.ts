@@ -265,8 +265,8 @@ function sitesOf(t: Terrain): PadSite[] {
 }
 
 /** Metres: half the runway's length, and its paved width. The flat is a shade wider than the paving. */
-export const RUNWAY_HALF = 220
-export const RUNWAY_WIDTH = 30
+export const RUNWAY_HALF = 600   // 1.2 km (Chris, 2026-09-05: "runway too short and not wide enough"; was 440 by 30)
+export const RUNWAY_WIDTH = 60
 const runways = new Map<string, PadSite[]>()
 let findingRunways = false
 
@@ -280,7 +280,7 @@ export function stripOffset(p: UnitVector, site: PadSite, t: Terrain): { dist: n
 }
 
 /**
- * The body's runways (DESIGN §10l-2): one off the home base and one off the station, each a
+ * The body's runways (DESIGN §10l-2): one off the home base, one off the station, one off each outpost, each a
  * strip 2·RUNWAY_HALF long starting past the site's ramp, on the heading round the compass
  * where the ground along it is flattest and dry. Found once. Nothing while the finder runs,
  * so the strips do not see themselves.
@@ -294,6 +294,7 @@ export function runwaysOf(t: Terrain): PadSite[] {
   const anchors: PadSite[] = []
   const p = padOf(t); if (p) anchors.push(p)
   const s = stationOf(t); if (s) anchors.push(s.site)
+  for (const o of outpostsOf(t)) anchors.push(o.site)   // one at every outpost too (Chris: "a few more runways around the place")
   const sea = t.sea ?? -Infinity
   for (const a of anchors) {
     const a0 = Math.abs(a.dir.x) < 0.9 ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 }
@@ -302,21 +303,23 @@ export function runwaysOf(t: Terrain): PadSite[] {
     for (let k = 0; k < 24; k++) {
       const ang = (k / 24) * Math.PI * 2
       const hx = t1.x * Math.cos(ang) + t2.x * Math.sin(ang), hy = t1.y * Math.cos(ang) + t2.y * Math.sin(ang), hz = t1.z * Math.cos(ang) + t2.z * Math.sin(ang)
-      const off = (a.radius + a.blend + RUNWAY_HALF + 40) / t.radius
+      // Far enough out that the strip's own ramp (up to three times its relief) never reaches back into the town's disc.
+      const off = (a.radius + a.blend + RUNWAY_HALF + 340) / t.radius
       const centre = norm({ x: a.dir.x + hx * off, y: a.dir.y + hy * off, z: a.dir.z + hz * off })
       // The heading at the centre: the same tangent, re-projected there.
       const c = centre
       const dot = hx * c.x + hy * c.y + hz * c.z
       const along = norm({ x: hx - c.x * dot, y: hy - c.y * dot, z: hz - c.z * dot })
-      let sum = 0, lo = Infinity, hi = -Infinity, bad = false
+      // Score the heading by the relief along it; a strip whose mean would sit in the sea is out
+      // (the paving is a causeway over a wet dip, which is fine; trees are cleared by nearPad).
+      let sum = 0, lo = Infinity, hi = -Infinity
       const hs: number[] = []
       for (let i = -5; i <= 5; i++) {
         const q = norm({ x: c.x + along.x * (i * RUNWAY_HALF / 5) / t.radius, y: c.y + along.y * (i * RUNWAY_HALF / 5) / t.radius, z: c.z + along.z * (i * RUNWAY_HALF / 5) / t.radius })
         const hq = baseHeight(q, t)
-        if (hq < sea + 4 || clump(q, t) > CLUMP_EDGE - 0.15) { bad = true; break }
         hs.push(hq); sum += hq; lo = Math.min(lo, hq); hi = Math.max(hi, hq)
       }
-      if (bad) continue
+      if (sum / hs.length < sea + 4) continue
       const score = hi - lo
       if (score < bestScore) { bestScore = score; best = { dir: c, h: sum / hs.length, radius: RUNWAY_WIDTH / 2 + 6, blend: 40, along, half: RUNWAY_HALF } }
     }
@@ -427,6 +430,7 @@ function applySites(p: UnitVector, t: Terrain, base: number): number {
 /** Angular test: is p within `metres` of the edge of any site's flat disc (measured as if the disc were a pad)? */
 export function nearPad(p: UnitVector, t: Terrain, metres: number): boolean {
   for (const site of sitesOf(t)) {
+    if (site.half) { if (stripOffset(p, site, t).dist < site.radius - PAD_RADIUS + metres) return true; continue }   // a runway: distance to the strip, so no trees on the paving
     if (p.x * site.dir.x + p.y * site.dir.y + p.z * site.dir.z > Math.cos((site.radius - PAD_RADIUS + metres) / t.radius)) return true
   }
   return false

@@ -32,9 +32,25 @@ export function buildRunway(t: Terrain, site: PadSite): RunwayView {
       g.add(bar)
     }
   }
-  for (let z = -half; z <= half; z += 40) for (const side of [-1, 1]) {
-    const l = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.6, 0.7), lamps)
-    l.position.set(side * (RUNWAY_WIDTH / 2 + 2), 0.3, z)
+  // Lights (Chris, 2026-09-05: "need the runway lights on it"): white edge lights every 30 m either side, amber
+  // centreline lights every 30 m set into the paving, green threshold lights across the near end and red across the far.
+  for (let z = -half; z <= half; z += 30) for (const side of [-1, 1]) {
+    const l = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.9, 1.2), lamps)
+    l.position.set(side * (RUNWAY_WIDTH / 2 + 2.5), 0.45, z)
+    g.add(l)
+  }
+  const centre = new THREE.MeshBasicMaterial({ color: 0xffb347 })
+  centre.name = 'runway-centre'
+  for (let z = -half + 15; z < half - 10; z += 30) {
+    const l = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.25, 0.9), centre)
+    l.position.set(0, 0.2, z)
+    g.add(l)
+  }
+  const green = new THREE.MeshBasicMaterial({ color: 0x4cff6a }), red = new THREE.MeshBasicMaterial({ color: 0xff4040 })
+  green.name = 'runway-green'; red.name = 'runway-red'
+  for (let i = 0; i <= 8; i++) for (const [end, mat] of [[-1, green], [1, red]] as [number, THREE.MeshBasicMaterial][]) {
+    const l = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.5, 1.0), mat)
+    l.position.set(-RUNWAY_WIDTH / 2 + (i * RUNWAY_WIDTH) / 8, 0.25, end * (half + 3))
     g.add(l)
   }
   // Frame: +Y to the site's up, then turn so local +Z runs along the strip.
@@ -46,7 +62,8 @@ export function buildRunway(t: Terrain, site: PadSite): RunwayView {
   return { group: g, lamps }
 }
 
-const LAMP_DAY = new THREE.Color(0x5a5548), LAMP_NIGHT = new THREE.Color(0xfff1c0)
+/** The edge lights stay lit by day (a shade dimmer) so the strip reads from the air. */
+const LAMP_DAY = new THREE.Color(0xc8bfa0), LAMP_NIGHT = new THREE.Color(0xfff1c0)
 export function updateRunway(v: RunwayView, day = 1): void {
   const night = 1 - Math.min(1, Math.max(0, (day - 0.15) / 0.35))
   v.lamps.color.lerpColors(LAMP_DAY, LAMP_NIGHT, night)

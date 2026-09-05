@@ -3,7 +3,7 @@
 // thruster (pushes forward). Nothing analogue yet; that is the honest Zarch version.
 import type { Controls } from './Craft.ts'
 
-const CODES = ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyQ', 'KeyE', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ShiftLeft', 'ShiftRight', 'KeyX', 'KeyZ', 'KeyT', 'Comma', 'Period', 'Slash', 'Quote', 'KeyF', 'KeyV']
+const CODES = ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyQ', 'KeyE', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ShiftLeft', 'ShiftRight', 'KeyX', 'KeyZ', 'KeyT', 'Comma', 'Period', 'Slash', 'KeyB', 'Quote', 'KeyF', 'KeyV']
 
 export class KeyInput {
   private readonly down = new Set<string>()
@@ -35,7 +35,7 @@ export class KeyInput {
       thrust: on('Space'),
       boost: on('ShiftLeft', 'ShiftRight'),
       lateral: on('Period') - on('Comma'),
-      vertical: -on('Slash'),
+      vertical: -on('Slash', 'KeyB'),   // B: the brake, and the flaps in the jet (Chris, 2026-09-05: "no flaps button")
       fore: on('Quote'),
     }
   }

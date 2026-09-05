@@ -942,7 +942,7 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol
     check('55 m/s onto the pad, which is not a runway, is a wreck', c.state === 'crashed', `${c.state} after ${t.toFixed(1)} s`)
   }
   {
-    const c = touching(55, 0, 60)   // too little paving left: off the end at speed
+    const c = touching(55, 0, -(RUNWAY_HALF - 60))   // 60 m of paving left: off the end at speed
     const t = until(c, () => c.state === 'landed' || c.state === 'crashed', 60, glide(c))
     check('off the far end at speed is a wreck', c.state === 'crashed', `${c.state} after ${t.toFixed(1)} s`)
   }
