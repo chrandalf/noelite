@@ -23,6 +23,7 @@
 //   ?station=2         start landed on pad 2 of home's station (0: hanging 300 m over it)
 //   ?outpost=3         start landed on home's third outpost (-3: hanging 300 m over it)
 //   ?assist=0          landing assist off (so a drop is a drop)
+//   I / K              in the jet: an Immelmann (up and over, back the way you came, higher) / a split-S (roll and pull through, lower and faster)
 //   J                  jet mode, in air: wings out, the engine along the nose, bank to turn, / brakes, J again for hover (hover lands; the jet flies)
 //   G                  the scanner: pings the nearest seam on this body within range onto the compass (and, on home, the contact)
 //   U                  landed on a seam: dig a pod; landed at a town: sell what you carry
@@ -56,6 +57,8 @@ import { Boob, boobName, BOOB_BODY, BOOB_SCAN_RANGE } from './world/boob.ts'
 import { buildBoob, syncBoob } from './engine/Boob.ts'
 import { buildRunway, updateRunway, type RunwayView } from './engine/Runway.ts'
 import { Streaks } from './engine/Streaks.ts'
+import { Trails } from './engine/Trails.ts'
+import { Stunts, STUNT_NAME } from './engine/Stunts.ts'
 import { runwaysOf, onRunway } from './world/height.ts'
 import { Digger, GOOD_COLOUR, MODULE_GROUND } from './engine/Digger.ts'
 import { Bank } from './world/economy.ts'
@@ -243,6 +246,10 @@ world.add(ship)
 // The warp look: streaks past the ship in vacuum at speed (DESIGN §10m). Placed with the ship.
 const streaks = new Streaks()
 world.add(streaks.lines)
+// Wingtip vapour and the canned stunts (DESIGN §10n).
+const trails = new Trails()
+world.add(trails.group)
+const stunts = new Stunts()
 // Cargo modules (Chris, 2026-09-05: "the timber is being put under the thrust, which is wrong,
 // need the ship to have modules that load"): crates clamped to the top of the hull, one each
 // side of the spine and one on the ridge behind it, the colour of what is in them. The pods
@@ -720,6 +727,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyM') sound.muted = !sound.muted
   if (e.code === 'KeyC') chase.reset()
   if (e.code === 'KeyG' && mode === 'fly') scan()
+  if ((e.code === 'KeyI' || e.code === 'KeyK') && mode === 'fly') { const kind = e.code === 'KeyI' ? 'immelmann' : 'splits'; const r = stunts.start(kind, craft); toast(r === 'ok' ? STUNT_NAME[kind] : r === 'not-jet' ? 'STUNTS ARE FOR THE JET' : r === 'too-slow' ? 'TOO SLOW: 80 m/s FOR A STUNT' : `TOO LOW FOR A SPLIT-S: ${Math.ceil(2.2 * Stunts.radius(craft.speed()))} m OF SKY NEEDED`) }
   if (e.code === 'KeyJ' && mode === 'fly') { const r = craft.toggleJet(); toast(r === 'jet' ? 'JET   ·   nose steers, bank to turn, / flaps and brake, J back to hover' : r === 'hover' ? 'HOVER' : r === 'no-air' ? 'NO AIR FOR WINGS' : craft.cruise ? 'IN CRUISE: WINGS ARE OUT ALREADY' : 'NOT ON THE GROUND') }
   if (e.code === 'KeyU' && mode === 'fly') use()
   if (e.code === 'KeyO') orbitAP.engaged = !orbitAP.engaged && craft.state === 'flying'
@@ -894,6 +902,11 @@ renderer.setAnimationLoop((now) => {
       demoEl.hidden = false; demoEl.textContent = demoCaption(c)
       if (craft.state === 'crashed') stopDemo()
     }
+    // A canned stunt flies the stick until it is done; the player's own stick takes it back.
+    if (stunts.active) {
+      if (c.pitch || c.roll || c.yaw) stunts.cancel()
+      else { const sc = stunts.controls(craft, dt); if (sc) c = { ...sc, boost: c.boost } }
+    }
     craft.credit = bank.balance
     craft.step(dt, c)
     // Charge what the pad sold; the loan earns its keep; save now and then.
@@ -958,6 +971,8 @@ renderer.setAnimationLoop((now) => {
     ship.position.copy(craft.pos).sub(viewPos)
     streaks.update(dt, craft.vel, craft.speed(), craft.atmosphere() <= 0 && flying)
     streaks.lines.position.copy(ship.position)
+    // Wingtip vapour: pulling hard, or fast in thick air.
+    { const pull = Math.abs(c.pitch); const rhoHere = craft.atmosphere(); const strength = craft.jet && flying ? Math.max(pull > 0.4 ? pull : 0, Math.min(1, (craft.speed() - 250) / 200)) * Math.min(1, rhoHere * 2) : 0; trails.update(dt, craft.pos, craft.quat, strength, jetK > 0.5); trails.group.position.copy(ship.position).sub(craft.pos) }
     // Into the water: the hull goes down.
     if (craft.state === 'crashed' && craft.sunk) { sink += 1.4 * dt; ship.position.addScaledVector(wtmp.copy(craft.pos).normalize(), -sink) }
     // The dig: the auger, the heap, the module filling on the ground and hopping to its slot, the ship shaking, dust and the sound.

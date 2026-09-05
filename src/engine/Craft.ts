@@ -94,6 +94,8 @@ export class Craft {
   flaps = 0
   /** Metres to the sun's centre, from the last substep. */
   sunDist = Infinity
+  /** In the jet: the wings' lift over the weight, 1 and above is flying, under it the stall. For the buzz and the HUD. */
+  liftRatio = 1
   /** The sun's share of the hull temperature, for the HUD. */
   solarHeat = 0
   private readonly bodyRight = new THREE.Vector3()
@@ -605,6 +607,7 @@ export class Craft {
       const need = g * this.bodyUp.dot(this.up)
       const can = Math.min((JET_LIFT * (1 + JET_FLAP_LIFT * this.flaps) * rhoNow * vFwd * vFwd) / mass, JET_LIFT_MAX_G * g)
       this.acc.addScaledVector(this.bodyUp, Math.max(-can, Math.min(can, need)))
+      this.liftRatio = g > 0 ? can / g : 1
       // Pulling costs speed: induced drag along the flight path with the pitch stick.
       if (c.pitch !== 0 && vFwd > 1) this.acc.addScaledVector(this.nose, -JET_INDUCED * Math.abs(c.pitch))
       // Flaps and the airbrake: / runs the flaps out (drag and lift below), and brakes along the nose.

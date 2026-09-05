@@ -1427,3 +1427,28 @@ brighter the closer you fly, the HUD's HULL line carries a SUN share, a toast at
 it is warming and one at 70% says TURN BACK, and parked at 0.14 AU a cold hull burns
 through in 18 s. Harness §36.
 
+## 10n. Fun, on my own call (2026-09-05, late; Chris: "we need some more fun, so look at the notes from the agents, all autonomously")
+
+From `research/jet-stunts-2026-09-05.md`, built without asking:
+
+**Canned stunts on one key.** I is an Immelmann: full pull until the heading has reversed
+over the top, then roll upright; out higher, going back the way you came (600 → 866 m at
+200 m/s, 3.2 s). K is a split-S: roll inverted, pull through the bottom; out lower and
+faster (900 → 707 m, 3.0 s). They drive the stick the player would have held, so they read
+as flying; any stick input of your own takes it back. Both refuse under 80 m/s and outside
+the jet; the split-S refuses without 2.2 loop radii of sky (the radius is v over the pitch
+rate: 153 m at 200 m/s) and the toast says how much it wanted. `src/engine/Stunts.ts`,
+pure, harness §37.
+
+**Wingtip vapour.** Two ribbons off the wingtips, forty points at thirty a second, that show
+when pulling over 40% stick or over 250 m/s in air thicker than half an atmosphere, fading
+along their length. `src/engine/Trails.ts`.
+
+**The jet's voice.** The wind noise is louder, higher and saturates at 450 m/s instead of 120
+in the jet, and a stall buzz (a low square wave) comes up from a whisper at 90% of the lift
+needed to a rattle with none, so you hear the wings let go before you see it. The craft
+exposes `liftRatio` for it.
+
+Not built from the report: the split-S height tick on the HUD, an Ace-Combat-style high-g
+blur. Both cheap, neither asked for.
+

@@ -57,6 +57,8 @@ export class Sound {
   private rainGain: GainNode | null = null
   private servoGain: GainNode | null = null
   private digOsc: OscillatorNode | null = null
+  private buzzOsc: OscillatorNode | null = null
+  private buzzGain: GainNode | null = null
   private digGain: GainNode | null = null
   private digGrit: GainNode | null = null
   private muffle: BiquadFilterNode | null = null
@@ -136,6 +138,11 @@ export class Sound {
     this.digGain = ctx.createGain(); this.digGain.gain.value = 0
     this.digOsc.connect(digF).connect(this.digGain).connect(master); this.digOsc.start()
     { const { f, g } = src('hover'); this.digGrit = g; f.frequency.value = 1300; f.Q.value = 1.6 }
+    // The stall buzz: a low square wave that comes up as the wings lose their grip.
+    this.buzzOsc = ctx.createOscillator(); this.buzzOsc.type = 'square'; this.buzzOsc.frequency.value = 70
+    const buzzF = ctx.createBiquadFilter(); buzzF.type = 'lowpass'; buzzF.frequency.value = 600
+    this.buzzGain = ctx.createGain(); this.buzzGain.gain.value = 0
+    this.buzzOsc.connect(buzzF).connect(this.buzzGain).connect(master); this.buzzOsc.start()
   }
 
   /** The auger, every frame: `level` 0 off to 1 drilling, `p` the dig's progress for the pitch. */
@@ -182,9 +189,14 @@ export class Sound {
     ramp(this.cruiseA!.frequency, 82 + 30 * throttle, 0.4)
     ramp(this.cruiseB!.frequency, 123.5 + 45 * throttle, 0.4)
     // Wind: airspeed through air, in a slow band. Nothing in vacuum.
-    const air = on ? Math.min(1, (craft.speed() / 120) * Math.sqrt(rho)) : 0
-    ramp(this.windGain!.gain, 0.25 * air * air, 0.2)
-    ramp(this.windFilter!.frequency, 300 + 900 * air, 0.3)
+    // In the jet the wind is the voice: it saturates at 450 m/s instead of 120 and is louder and higher.
+    const air = on ? Math.min(1, (craft.speed() / (craft.jet ? 450 : 120)) * Math.sqrt(rho)) : 0
+    ramp(this.windGain!.gain, (craft.jet ? 0.45 : 0.25) * air * air, 0.2)
+    ramp(this.windFilter!.frequency, 300 + (craft.jet ? 1500 : 900) * air, 0.3)
+    // The stall buzz, jet only: from a whisper at 90% of the lift needed to a rattle with none.
+    const stall = on && craft.jet ? Math.min(1, Math.max(0, (0.9 - craft.liftRatio) / 0.9)) : 0
+    ramp(this.buzzGain!.gain, 0.07 * stall, 0.1)
+    ramp(this.buzzOsc!.frequency, 60 + 40 * stall, 0.1)
     // RCS hiss.
     const rcs = on && (c.lateral !== 0 || c.fore !== 0 || (c.vertical !== 0 && !craft.cruise && !craft.jet)) ? 0.06 * airK : 0
     ramp(this.rcsGain!.gain, rcs, 0.03)

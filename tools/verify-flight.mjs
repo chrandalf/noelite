@@ -9,6 +9,7 @@ import { findLandable, groundRadius } from '../src/world/terrain.ts'
 import { HOME, height, padOf, stationOf, terrainOf } from '../src/world/height.ts'
 import { Wreck } from '../src/engine/Wreck.ts'
 import { Pilot } from '../src/engine/Demo.ts'
+import { Stunts } from '../src/engine/Stunts.ts'
 import { Boob, boobDir, boobPos, boobFound, loadBoob, BOOB_RADIUS, BOOB_ALT, BOOB_BOB, BOOB_SPEED, BOOB_SIGHT } from '../src/world/boob.ts'
 import { seamsOf } from '../src/world/seams.ts'
 import { landingFor, townsOn } from '../src/world/town.ts'
@@ -976,6 +977,32 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol
   s.placeAbove(sun, new THREE.Vector3(0, 0, 1), 0.14 * aHome - sun.radius)
   const ts = until(s, () => s.state !== 'flying', 120, () => IDLE)
   check('parked at 0.14 AU the hull burns through inside a minute', s.burned && ts < 60, `${s.state}${s.burned ? ', burned' : ''} after ${ts.toFixed(0)} s, sun heat ${s.solarHeat.toFixed(0)}`)
+}
+
+// 37. Canned stunts (DESIGN §10n): an Immelmann comes out higher, heading reversed, upright; a split-S comes out
+// lower, heading reversed, upright, and refuses without the sky for it; both refuse under 80 m/s and outside the jet.
+{
+  const fly = (alt, speed) => { const c = new Craft(HOME); c.windy = false; c.time = 700; const fwd = new THREE.Vector3(1, 0, 0).sub(pad.clone().multiplyScalar(pad.x)).normalize(); c.placeAbove(body('home'), pad, alt, fwd, fwd.clone().multiplyScalar(speed)); c.toggleJet(); return { c, fwd } }
+  const headingOf = (c) => { const n = new THREE.Vector3(0, 0, -1).applyQuaternion(c.quat); const up = c.pos.clone().normalize(); return n.addScaledVector(up, -n.dot(up)).normalize() }
+  const uprightOf = (c) => new THREE.Vector3(0, 1, 0).applyQuaternion(c.quat).dot(c.pos.clone().normalize())
+  const run = (c, st) => until(c, () => !st.active || c.state !== 'flying', 14, () => st.controls(c, FIXED_DT) ?? IDLE)
+  {
+    const { c, fwd } = fly(600, 200), st = new Stunts()
+    const alt0 = c.altitude()
+    check('an Immelmann starts at 200 m/s in the jet', st.start('immelmann', c) === 'ok')
+    const t = run(c, st)
+    check('and comes out higher, heading reversed, upright, in under ten seconds', c.state === 'flying' && headingOf(c).dot(fwd) < -0.9 && uprightOf(c) > 0.9 && c.altitude() > alt0 + 50 && t < 10, `${t.toFixed(1)} s, heading·start ${headingOf(c).dot(fwd).toFixed(2)}, upright ${uprightOf(c).toFixed(2)}, ${alt0.toFixed(0)} → ${c.altitude().toFixed(0)} m, ${c.speed().toFixed(0)} m/s`)
+  }
+  {
+    const { c, fwd } = fly(900, 200), st = new Stunts()
+    const alt0 = c.altitude()
+    check('a split-S starts with the sky for it', st.start('splits', c) === 'ok', `needs ${(2.2 * Stunts.radius(200)).toFixed(0)} m, has ${alt0.toFixed(0)}`)
+    const t = run(c, st)
+    check('and comes out lower, heading reversed, upright, flying', c.state === 'flying' && headingOf(c).dot(fwd) < -0.9 && uprightOf(c) > 0.8 && c.altitude() < alt0 - 50 && t < 10, `${t.toFixed(1)} s, heading·start ${headingOf(c).dot(fwd).toFixed(2)}, upright ${uprightOf(c).toFixed(2)}, ${alt0.toFixed(0)} → ${c.altitude().toFixed(0)} m, ${c.speed().toFixed(0)} m/s`)
+  }
+  { const { c } = fly(150, 200); check('a split-S refuses without the sky', new Stunts().start('splits', c) === 'too-low') }
+  { const { c } = fly(600, 60); check('a stunt refuses under 80 m/s', new Stunts().start('immelmann', c) === 'too-slow') }
+  { const c = fresh(); c.placeAbove(body('home'), pad, 600); check('a stunt refuses outside the jet', new Stunts().start('immelmann', c) === 'not-jet') }
 }
 
 console.log(`\n${pass}/${pass + fail} checks`)
