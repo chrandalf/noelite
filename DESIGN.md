@@ -1214,3 +1214,26 @@ place rather than on a fresh page, because a fresh page starts silent until a ke
 pressed and the key hands the ship back (Chris: "no sounds in the demo unless I press
 buttons, but then it cuts out the demo"); the choice itself is now the gesture that
 arms the audio, and a click or tap anywhere does too.
+
+## 10i. The boob (Ben, 2026-09-05, by way of Chris)
+
+Chris: "he wants a big flying boob." Built the same morning. One, on home, 60 m across,
+drifting round the world on a great circle at 15 m/s, 500 m over whatever ground is under
+it, bobbing twelve metres either side. A circuit takes 4.7 hours real, so on any flight it
+is somewhere and you do not know where; it starts on the far side of the world from the
+pad. The scanner (G) finds it inside 25 km as an UNKNOWN CONTACT, a pink ring on the
+compass. Inside 400 m it names itself, once ("CONTACT · A BIG FLYING BOOB"), and the save
+keeps the game time you saw it. Fly into it and it gives: the ship is put back on the skin
+and shoved off at just over half its closing speed, the boob wobbles (a squash on a spring,
+decaying), and the toast says BOOP, or THAT WOBBLED past 20 m/s. Three flat colours, no
+assets. `src/world/boob.ts` is pure (the circuit, the shove, the sighting, the save) and
+the flight harness §30 re-tests all of it; `src/engine/Boob.ts` is the mesh;
+`tools/probe-boob.mjs` shoots it and drives the scanner and the sighting in the browser.
+
+`Craft.shove(pos, vel)` came with it: the one door for something outside the substep to
+move the ship. The heliocentric state is what the substep integrates, so writing `pos`
+from outside was lost the next step; the harness has the round trip.
+
+Not yet: a chronicle line when it is first seen (§10h's chronicle does not exist yet), and
+it only lives on home. If Ben wants one on every world he can ask for it himself.
+

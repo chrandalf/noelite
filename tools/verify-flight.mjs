@@ -9,6 +9,7 @@ import { findLandable, groundRadius } from '../src/world/terrain.ts'
 import { HOME, height, padOf, stationOf, terrainOf } from '../src/world/height.ts'
 import { Wreck } from '../src/engine/Wreck.ts'
 import { Pilot } from '../src/engine/Demo.ts'
+import { Boob, boobDir, boobPos, boobFound, loadBoob, BOOB_RADIUS, BOOB_ALT, BOOB_BOB, BOOB_SPEED, BOOB_SIGHT } from '../src/world/boob.ts'
 import { seamsOf } from '../src/world/seams.ts'
 import { outpostsOf, PAD_RADIUS } from '../src/world/height.ts'
 import { isDry } from '../src/world/terrain.ts'
@@ -678,6 +679,50 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol
   check('then to the nearest outpost and down on its pad', c.state === 'landed' && c.padHere()?.outpost === town.o && off2 < PAD_RADIUS, `${(far2 / 1000).toFixed(1)} km in ${t2.toFixed(0)} s, ${off2.toFixed(1)} m off the centre`)
   check('the longer leg cruises too, and is quick', t2 < 400 && !c.burned, `${t2.toFixed(0)} s for ${(far2 / 1000).toFixed(1)} km`)
   check('without a crash', c.crashes === 0)
+}
+
+// 30. The boob (DESIGN §10i): it flies a great circle round home at its speed, 500 m over whatever
+// ground is under it, starts on the far side from the pad, shoves a ship that flies into it, and
+// names itself once inside its sight, kept for the save.
+{
+  const pad = new THREE.Vector3(site.dir.x, site.dir.y, site.dir.z)
+  const circuit = (2 * Math.PI * HOME.radius) / BOOB_SPEED
+  let lo = Infinity, hi = -Infinity, worstSpeed = 0
+  const a = new THREE.Vector3(), b = new THREE.Vector3()
+  for (let t = 0; t < circuit; t += 60) {
+    boobPos(t, HOME, a)
+    const alt = a.length() - groundRadius(b.copy(a).normalize(), HOME)
+    lo = Math.min(lo, alt); hi = Math.max(hi, alt)
+    const v = boobDir(t + 1, b).angleTo(boobDir(t, a)) * HOME.radius
+    worstSpeed = Math.max(worstSpeed, Math.abs(v - BOOB_SPEED))
+  }
+  check('the boob keeps 500 m over the ground round the whole circuit', lo > BOOB_ALT - BOOB_BOB - 1 && hi < BOOB_ALT + BOOB_BOB + 1, `${lo.toFixed(0)} to ${hi.toFixed(0)} m, circuit ${(circuit / 3600).toFixed(1)} h`)
+  check('and moves at its speed along the ground', worstSpeed < 0.01, `worst ${worstSpeed.toExponential(1)} m/s off ${BOOB_SPEED}`)
+  check('it starts on the far side of the world from the pad', boobDir(0, a).dot(pad) < -0.99)
+  // The shove: a ship nosing into it at 30 m/s comes out on the outside, moving away, and the boob wobbles.
+  loadBoob(undefined)
+  const boob = new Boob(HOME)
+  boob.step(0, 1000)
+  const n = new THREE.Vector3(0.3, 0.9, 0.2).normalize()
+  const pos = boob.pos.clone().addScaledVector(n, BOOB_RADIUS - 5), vel = n.clone().multiplyScalar(-30)
+  boob.step(FIXED_DT, 1000 + FIXED_DT, pos, vel)
+  check('a ship that flies into it is put back on the skin and shoved off', boob.hit !== null && pos.distanceTo(boob.pos) >= BOOB_RADIUS && vel.dot(n) > 15, `hit ${boob.hit?.speed.toFixed(0)} m/s, out at ${vel.dot(n).toFixed(0)} m/s, wobble ${boob.wobble.toFixed(2)}`)
+  check('and it wobbles, then settles', boob.wobble > 0.1 && (() => { for (let i = 0; i < 600; i++) boob.step(FIXED_DT, 1010 + i * FIXED_DT); return boob.wobble < 0.02 })(), `after 600 steps ${boob.wobble.toFixed(3)}`)
+  boob.step(0, 1000)
+  const far = boob.pos.clone().addScaledVector(n, BOOB_RADIUS + 5000), fv = n.clone().multiplyScalar(-30)
+  boob.step(FIXED_DT, 1000, far, fv)
+  check('a ship 5 km off is left alone', boob.hit === null && Math.abs(fv.length() - 30) < 1e-9)
+  // Sight: a kilometre away is a contact; inside 400 m it is the boob, once, and the save has the time.
+  check('a kilometre off it is still unnamed', !boob.sight(boob.pos.clone().addScaledVector(n, BOOB_RADIUS + 1000), 1000) && boobFound() < 0)
+  const near = boob.pos.clone().addScaledVector(n, BOOB_RADIUS + BOOB_SIGHT - 1)
+  check('inside its sight it names itself, the once', boob.sight(near, 1234) && !boob.sight(near, 1235) && boobFound() === 1234)
+  loadBoob({ found: 77 }); check('the save carries the sighting', boobFound() === 77); loadBoob(undefined); check('and forgets it on a fresh game', boobFound() < 0)
+  // Craft.shove is the door: the substep integrates from the shoved state, not the old one.
+  const c = fresh(); c.placeAbove(body('home'), boobDir(1000), 600)
+  const p2 = c.pos.clone().addScaledVector(n, 40), v2 = n.clone().multiplyScalar(25)
+  c.shove(p2, v2)
+  c.substep(FIXED_DT, IDLE)
+  check('a shoved craft carries on from where it was shoved to', c.pos.distanceTo(p2) < 25 * FIXED_DT + 0.5 && c.vel.dot(n) > 20, `${c.pos.distanceTo(p2).toFixed(2)} m on, ${c.vel.dot(n).toFixed(1)} m/s out`)
 }
 
 console.log(`\n${pass}/${pass + fail} checks`)

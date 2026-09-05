@@ -338,6 +338,14 @@ export class Craft {
     this.syncHelio()
   }
 
+  /** Something outside the physics moved the ship (the boob shoved it): take the local pose and re-derive the heliocentric state, which the substep integrates. */
+  shove(pos: THREE.Vector3, vel: THREE.Vector3): void {
+    this.pos.copy(pos)
+    this.vel.copy(vel)
+    this.frameAt(this.time)
+    this.syncHelio()
+  }
+
   /** Hang it in the air `altitude` metres over direction `dir` on `on`, level, at rest relative to the ground (or moving at `velocity`, local frame). */
   placeAbove(on: Body, dir: THREE.Vector3, altitude: number, heading?: THREE.Vector3, velocity?: THREE.Vector3): void {
     this.setRef(on)

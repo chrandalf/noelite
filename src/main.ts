@@ -23,7 +23,7 @@
 //   ?station=2         start landed on pad 2 of home's station (0: hanging 300 m over it)
 //   ?outpost=3         start landed on home's third outpost (-3: hanging 300 m over it)
 //   ?assist=0          landing assist off (so a drop is a drop)
-//   G                  the scanner: pings the nearest seam on this body within range onto the compass
+//   G                  the scanner: pings the nearest seam on this body within range onto the compass (and, on home, the contact)
 //   U                  landed on a seam: dig a pod; landed at a town: sell what you carry
 //   P / ?demo=1        the demo: the ship plays the loop itself and says what it is pressing; any key takes over
 //   ?seam=home:3       start landed on the fourth seam of a body (0-based)
@@ -51,6 +51,8 @@ import { buildPad } from './engine/Pad.ts'
 import { buildStation, updateStation, type StationView } from './engine/Station.ts'
 import { buildBase, updateBase, type BaseView } from './engine/Base.ts'
 import { Wreck, buildWreckMeshes, syncWreckMeshes } from './engine/Wreck.ts'
+import { Boob, boobName, BOOB_BODY, BOOB_SCAN_RANGE } from './world/boob.ts'
+import { buildBoob, syncBoob } from './engine/Boob.ts'
 import { Bank } from './world/economy.ts'
 import { snapshot, restore, isSave } from './world/save.ts'
 import { seamsOf, type Seam } from './world/seams.ts'
@@ -246,6 +248,11 @@ const marks = new Marks()
 // body's frame, so you can fly back to one. A fireball at the site, scene root like the ship.
 const wrecks: { wreck: Wreck; meshes: THREE.Mesh[]; view: BodyView }[] = []
 const placeWreck = (wreck: Wreck, view: BodyView) => { const meshes = buildWreckMeshes(); for (const m of meshes) view.group.add(m); syncWreckMeshes(wreck, meshes); wrecks.push({ wreck, meshes, view }) }
+// The boob (Ben, 2026-09-05, DESIGN §10i): one, on home, drifting round the world 500 m up. It lives in home's group.
+const boob = new Boob()
+const boobView = buildBoob()
+views.find((v) => v.body.id === BOOB_BODY)!.group.add(boobView.group)
+const boobPos = new THREE.Vector3(), boobVel = new THREE.Vector3()
 const fireball = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), new THREE.MeshBasicMaterial({ color: 0xff8830, transparent: true, opacity: 0.9, depthWrite: false }))
 ;(fireball.material as THREE.Material).name = 'fireball'
 fireball.visible = false
@@ -444,12 +451,15 @@ const renderTown = () => {
 const SCAN_RANGE = 25_000
 const SCAN_HOLD = 12
 let scanUntil = -1, scanHit: { seam: Seam; rel: THREE.Vector3 } | null = null, scanBeepAt = 0
+/** The boob is on the scan too, while it is in range of the ping. */
+let scanBoob = false
 const scan = () => {
   const t = craft.terrain, up = craft.pos.clone().normalize()
   let best: Seam | null = null, bestC = -2
   for (const sm of seamsOf(t)) { const c = up.x * sm.dir.x + up.y * sm.dir.y + up.z * sm.dir.z; if (c > bestC) { bestC = c; best = sm } }
   scanUntil = elapsed + SCAN_HOLD
   scanHit = best && Math.acos(Math.min(1, bestC)) * t.radius < SCAN_RANGE ? { seam: best, rel: new THREE.Vector3(best.dir.x, best.dir.y, best.dir.z).multiplyScalar(t.radius + best.h) } : null
+  scanBoob = craft.ref.id === BOOB_BODY && boob.distance(craft.pos) < BOOB_SCAN_RANGE
   sound.click()
 }
 const orbitAP = new OrbitAutopilot()
@@ -934,6 +944,15 @@ renderer.setAnimationLoop((now) => {
       lastState = craft.state
     }
     for (const w of wrecks) if (!w.wreck.settled()) { w.wreck.step(dt); syncWreckMeshes(w.wreck, w.meshes) }
+    // The boob drifts on; a flying ship on home can hit it (it shoves) or come close enough to name it (once, kept in the save).
+    {
+      const onHome = craft.ref.id === BOOB_BODY && craft.state === 'flying'
+      if (onHome) { boobPos.copy(craft.pos); boobVel.copy(craft.vel) }
+      boob.step(dt, craft.time, onHome ? boobPos : undefined, onHome ? boobVel : undefined)
+      if (boob.hit) { craft.shove(boobPos, boobVel); sound.hit(false); toast(boob.hit.speed > 20 ? 'THAT WOBBLED' : 'BOOP') }
+      if (onHome && boob.sight(craft.pos, craft.time)) { toast('CONTACT   ·   A BIG FLYING BOOB'); sound.chime(); saveBank() }
+      syncBoob(boob, boobView, craft.time)
+    }
     if (fireball.visible) {
       const a = (elapsed - fireAt) / 0.7
       if (a >= 1) fireball.visible = false
@@ -1053,6 +1072,10 @@ renderer.setAnimationLoop((now) => {
         // The beeper: every 2 s at range, every 0.25 s on top of it.
         if (elapsed > scanBeepAt) { scanBeepAt = elapsed + 0.25 + 1.75 * Math.min(1, len / SCAN_RANGE); sound.click() }
       } else compassItems.push({ key: 'scan', name: 'NO SEAM IN RANGE', dist: '', d: Infinity, dir: dir.clone().negate(), kind: 'seam', selected: false })
+      if (scanBoob && craft.ref.id === BOOB_BODY) {
+        const d = wtmp.copy(boob.pos).sub(craft.pos); const len = d.length()
+        compassItems.push({ key: 'boob', name: boobName(), dist: fmtDist(len), d: len, dir: d.divideScalar(len).clone(), kind: 'contact', selected: false })
+      }
     }
     compass.update(compassItems, camera, !paused && !starting && (phase === 'off' || phase === 'done'))
     const lc = craft.lastContact
@@ -1068,6 +1091,7 @@ renderer.setAnimationLoop((now) => {
     setGroundClock(t)
     weatherFront = -1; rainNow = 0; cloudNow = 0; windNow = 4
     puffs.update(free.pos, HOME, t)
+    boob.step(dt, t); syncBoob(boob, boobView, t)
     dir.copy(free.pos).normalize()
     altitude = free.pos.length() - HOME.radius - height(dir, HOME)
     const speed = free.update(dt, altitude)
@@ -1125,7 +1149,7 @@ void tmp
   mode, planet, craft, input, free, views, asteroids, ship,
   /** The opening's phase and the letterbox, for the probes. */
   phase: () => phase, barFrac: () => barFrac, titleBody: () => titleBody,
-  outposts: outpostViews, wrecks, bank, scan, scanHit: () => scanHit, use, digging: () => digging, townHere, towns: allTowns, startDemo, stopDemo, demo: () => demo, demoStep: () => demoStep, pilot, starting: () => starting, sandbox: () => sandbox,
+  outposts: outpostViews, wrecks, bank, scan, scanHit: () => scanHit, boob, boobView, scanBoob: () => scanBoob, use, digging: () => digging, townHere, towns: allTowns, startDemo, stopDemo, demo: () => demo, demoStep: () => demoStep, pilot, starting: () => starting, sandbox: () => sandbox,
   /** True only once the LOD has updated since the last place() and its queue is empty. */
   ready: () => updates > placedAt + 1 && planet.pendingCount === 0,
   /** Free mode: put the camera at p looking at a. */

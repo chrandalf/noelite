@@ -10,6 +10,7 @@ import { body, SYSTEM } from './system.ts'
 import { terrainOf } from './height.ts'
 import { saveTowns, loadTowns, type TownSave } from './town.ts'
 import { seamsOf, type Good } from './seams.ts'
+import { saveBoob, loadBoob } from './boob.ts'
 
 export type SaveV1 = {
   v: 1
@@ -26,6 +27,8 @@ export type SaveV1 = {
   towns?: TownSave[]
   seams?: { body: string; i: number; richness: number }[]
   cargo?: { good: Good; tonnes: number }[]
+  /** The boob, once seen up close: the game time. */
+  boob?: { found: number }
 }
 
 const FWD = new THREE.Vector3(0, 0, -1)
@@ -43,6 +46,7 @@ export function snapshot(craft: Craft, bank: Bank, wrecks: { body: string; wreck
     towns: saveTowns(),
     seams: dugSeams(),
     cargo: craft.cargo.map((c) => ({ ...c })),
+    boob: saveBoob(),
   }
 }
 
@@ -65,6 +69,7 @@ export function restore(craft: Craft | null, s: SaveV1): { bank: Bank; wrecks: {
     for (const c of s.cargo ?? []) craft.cargo.push({ ...c })
   }
   loadTowns(s.towns)
+  loadBoob(s.boob)
   for (const d of s.seams ?? []) { const list = seamsOf(terrainOf(body(d.body))); if (list[d.i]) list[d.i].richness = d.richness }
   const wrecks = s.wrecks.map((w) => ({ body: w.body, wreck: Wreck.restore(terrainOf(body(w.body)), w.wreck) }))
   return { bank: Bank.fromJSON(s.bank), wrecks }

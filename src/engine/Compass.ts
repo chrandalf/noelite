@@ -4,9 +4,9 @@
 // the nearer end with an arrow. The target is lit. DOM only.
 import * as THREE from 'three'
 
-export type CompassItem = { key: string; name: string; dist: string; d: number; dir: THREE.Vector3; kind: 'body' | 'station' | 'outpost' | 'field' | 'seam'; selected: boolean }
+export type CompassItem = { key: string; name: string; dist: string; d: number; dir: THREE.Vector3; kind: 'body' | 'station' | 'outpost' | 'field' | 'seam' | 'contact'; selected: boolean }
 
-const GLYPH: Record<CompassItem['kind'], string> = { body: '●', station: '◆', outpost: '⌂', field: '⁘', seam: '◈' }
+const GLYPH: Record<CompassItem['kind'], string> = { body: '●', station: '◆', outpost: '⌂', field: '⁘', seam: '◈', contact: '◯' }
 
 export class Compass {
   readonly root: HTMLElement
