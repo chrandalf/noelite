@@ -11,11 +11,11 @@ const browser = await puppeteer.launch({ executablePath: chrome(), args: ['--no-
 const page = await browser.newPage(); await page.setViewport({ width: 960, height: 600 })
 page.on('pageerror', (e) => console.error('PAGE ERROR:', e.message))
 let bad = 0; const fail = (m) => { console.log('FAIL ' + m); bad++ }
-await page.goto(`${BASE}/?seam=home:0&t=700&sandbox=1`, { waitUntil: 'domcontentloaded' })
+await page.goto(`${BASE}/?seam=home:0&t=1000&sandbox=1&yaw=2.3&pitch=-0.15`, { waitUntil: 'domcontentloaded' })
 await page.waitForFunction(() => globalThis.__noelite?.ready?.() === true, { timeout: 90000, polling: 250 })
 await page.keyboard.press('KeyU')
 // Game time crawls headless: wait on the dig's progress, not the clock.
-await page.waitForFunction(() => globalThis.__noelite.digging() > 2, { timeout: 120000, polling: 100 })
+await page.waitForFunction(() => globalThis.__noelite.digging() > 3, { timeout: 120000, polling: 100 })
 const mid = await page.evaluate(() => { const n = globalThis.__noelite; return { dig: +n.digging().toFixed(2), auger: n.digger.group.visible, heaps: n.digger.heapCount(), module: n.modules[0].visible, scale: +n.modules[0].scale.x.toFixed(2), y: +n.modules[0].position.y.toFixed(2), cargo: n.craft.cargo.length, text: document.getElementById('cargo').textContent } })
 console.log('mid  ', JSON.stringify(mid))
 if (!mid.auger) fail('the auger should be out mid-dig')
