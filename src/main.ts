@@ -55,6 +55,7 @@ import { Wreck, buildWreckMeshes, syncWreckMeshes } from './engine/Wreck.ts'
 import { Boob, boobName, BOOB_BODY, BOOB_SCAN_RANGE } from './world/boob.ts'
 import { buildBoob, syncBoob } from './engine/Boob.ts'
 import { buildRunway, updateRunway, type RunwayView } from './engine/Runway.ts'
+import { Streaks } from './engine/Streaks.ts'
 import { runwaysOf, onRunway } from './world/height.ts'
 import { Digger, GOOD_COLOUR, MODULE_GROUND } from './engine/Digger.ts'
 import { Bank } from './world/economy.ts'
@@ -223,6 +224,8 @@ shipMaterial.name = 'ship'
 const { root: ship, flame, rcs, gear, morph, strobe, glowMats, plasma, haze } = buildCraftMesh(shipMaterial)
 /** 0 dart, 1 TIE. Follows the craft's cruise flag over about a second and a half. */
 let morphed = 0
+/** Which of the sun's two warnings has shown. */
+let sunWarned = 0
 /** The jet form, eased over half a second. */
 let jetK = 0
 /** Muzzle flash timers, left and right, in ms of `now`. */
@@ -237,6 +240,9 @@ ship.renderOrder = 2
 // distance) and Three multiplies matrices in float32, which puts it 100 m from where the
 // camera is looking. Bodies never showed this: their frames are 40 km across.
 world.add(ship)
+// The warp look: streaks past the ship in vacuum at speed (DESIGN §10m). Placed with the ship.
+const streaks = new Streaks()
+world.add(streaks.lines)
 // Cargo modules (Chris, 2026-09-05: "the timber is being put under the thrust, which is wrong,
 // need the ship to have modules that load"): crates clamped to the top of the hull, one each
 // side of the spine and one on the ridge behind it, the colour of what is in them. The pods
@@ -950,6 +956,8 @@ renderer.setAnimationLoop((now) => {
     // Bent gear: the hover engine shakes the whole view while it burns.
     if (craft.gearBent && craft.thrusting && craft.state === 'flying') viewPos.add(wtmp.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(0.3 * craft.damage))
     ship.position.copy(craft.pos).sub(viewPos)
+    streaks.update(dt, craft.vel, craft.speed(), craft.atmosphere() <= 0 && flying)
+    streaks.lines.position.copy(ship.position)
     // Into the water: the hull goes down.
     if (craft.state === 'crashed' && craft.sunk) { sink += 1.4 * dt; ship.position.addScaledVector(wtmp.copy(craft.pos).normalize(), -sink) }
     // The dig: the auger, the heap, the module filling on the ground and hopping to its slot, the ship shaking, dust and the sound.
@@ -1062,7 +1070,11 @@ renderer.setAnimationLoop((now) => {
     // Hull: heat as a fraction of the limit, damage when there is any. The hull glows from HULL_GLOW of the limit, saturating at HULL_WARN.
     {
       const over = craft.hull / HULL_LIMIT
-      hullEl.textContent = over > 0.05 || craft.damage > 0 ? `HULL ${(over * 100).toFixed(0)}%${craft.damage > 0 ? `   DAMAGE ${(craft.damage * 100).toFixed(0)}%` : ''}${craft.gearBent ? '   GEAR BENT' : ''}${craft.cruise && rho > 0 ? '   RE-ENTRY: flip and brake' : ''}` : ''
+      const sunShare = craft.solarHeat / HULL_LIMIT
+      if (sunShare > 0.3 && sunWarned < 1) { sunWarned = 1; toast('THE SUN   ·   the hull is warming; closer and it burns') }
+      if (sunShare > 0.7 && sunWarned < 2) { sunWarned = 2; toast('THE SUN   ·   TURN BACK') }
+      if (sunShare < 0.2) sunWarned = 0
+      hullEl.textContent = over > 0.05 || craft.damage > 0 ? `HULL ${(over * 100).toFixed(0)}%${sunShare > 0.05 ? `  (SUN ${(sunShare * 100).toFixed(0)}%)` : ''}${craft.damage > 0 ? `   DAMAGE ${(craft.damage * 100).toFixed(0)}%` : ''}${craft.gearBent ? '   GEAR BENT' : ''}${craft.cruise && rho > 0 ? '   RE-ENTRY: flip and brake' : ''}` : ''
       hullEl.className = 'atmos ' + (over > 1 ? 'dry' : over > HULL_WARN ? 'low' : '')
       bankEl.textContent = `${credits(bank.balance)}${bank.loan > 0 ? `   LOAN ${credits(bank.loan)}` : ''}`
       const seamHere = craft.state === 'landed' ? craft.seamHere() : null
@@ -1204,7 +1216,7 @@ void tmp
   mode, planet, craft, input, free, views, asteroids, ship,
   /** The opening's phase and the letterbox, for the probes. */
   phase: () => phase, barFrac: () => barFrac, titleBody: () => titleBody,
-  outposts: outpostViews, wrecks, bank, scan, scanHit: () => scanHit, boob, boobView, scanBoob: () => scanBoob, digger, modules, use, digging: () => digging, townHere, towns: allTowns, startDemo, stopDemo, demo: () => demo, demoStep: () => demoStep, pilot, starting: () => starting, sandbox: () => sandbox,
+  outposts: outpostViews, wrecks, bank, scan, scanHit: () => scanHit, boob, boobView, scanBoob: () => scanBoob, digger, modules, streaks, use, digging: () => digging, townHere, towns: allTowns, startDemo, stopDemo, demo: () => demo, demoStep: () => demoStep, pilot, starting: () => starting, sandbox: () => sandbox,
   /** True only once the LOD has updated since the last place() and its queue is empty. */
   ready: () => updates > placedAt + 1 && planet.pendingCount === 0,
   /** Free mode: put the camera at p looking at a. */

@@ -29,7 +29,7 @@ import {
   CRUISE_ENTER, CRUISE_EXIT, CRUISE_FLOOR, CRUISE_ALIGN_TAU, CRUISE_MAX, CRUISE_FLOOR_SPEED, CRUISE_BRAKE, CRUISE_DECEL, CRUISE_SECONDS, CRUISE_SPOOL,
   FUEL_TANK, FUEL_HOVER_BURN, FUEL_CRUISE_BURN, FUEL_RCS_BURN, FUEL_PAD_REFILL, FUEL_SOLAR_TRICKLE, FUEL_RELIGHT, PAD_RADIUS,
   CRASH_DAMAGE_SCALE, CRASH_MIN_DAMAGE, FUEL_PRICE, REPAIR_PRICE, CARGO_PODS, POD_TONNES, SHIP_TONNES, POD_DRAG, DIVE_ACCEL,
-  JET_DRAG, JET_LIFT, JET_LIFT_MAX_G, JET_ALIGN_TAU, JET_MIN_AIR, JET_BANK_MAX_TAN, JET_PITCH_RATE, JET_ROLL_RATE, JET_YAW_RATE, JET_RESPONSE, JET_LEVEL_TAU, JET_LEVEL_DEAD, JET_INDUCED, JET_BOOST_MULT, JET_FLAP_DRAG, JET_FLAP_LIFT, JET_FLAP_TIME, JET_HEAT, JET_AIR_FLOOR, ROLL_DECEL, ROLL_BRAKE, ROLL_STEER, RUNWAY_HEADING_DEG,
+  JET_DRAG, JET_LIFT, JET_LIFT_MAX_G, JET_ALIGN_TAU, JET_MIN_AIR, JET_BANK_MAX_TAN, JET_PITCH_RATE, JET_ROLL_RATE, JET_YAW_RATE, JET_RESPONSE, JET_LEVEL_TAU, JET_LEVEL_DEAD, JET_INDUCED, JET_BOOST_MULT, JET_FLAP_DRAG, JET_FLAP_LIFT, JET_FLAP_TIME, JET_HEAT, JET_AIR_FLOOR, JET_FLOOR_FADE, SUN_HEAT_HOME, ROLL_DECEL, ROLL_BRAKE, ROLL_STEER, RUNWAY_HEADING_DEG,
   GUN_RANGE, GUN_COOLDOWN, ICE_REACH, BOLT_SPEED,
   GUN_MUZZLE, HEAT_K, HEAT_RAMP_LO, HEAT_RAMP_HI, HEAT_RAMP_MIN, HEAT_TAU, COOL_RATE, COOL_MIN, HULL_LIMIT, DAMAGE_TAU, HOVER_MAX_SPEED,
 } from '../world/config.ts'
@@ -92,6 +92,10 @@ export class Craft {
   jet = false
   /** Flaps, 0 up to 1 down: / held in the jet. Eased, so the mesh and the physics agree. */
   flaps = 0
+  /** Metres to the sun's centre, from the last substep. */
+  sunDist = Infinity
+  /** The sun's share of the hull temperature, for the HUD. */
+  solarHeat = 0
   private readonly bodyRight = new THREE.Vector3()
   /** Metres to the nearest thing: the reference body's ground below, another body's sphere, or a rock. Drives the thrust gain. */
   proximity = Infinity
@@ -467,6 +471,7 @@ export class Craft {
       bodyPosition(b, this.time, this.tmp).sub(this.hpos)
       const r2 = this.tmp.lengthSq(), r = Math.sqrt(r2)
       this.acc.addScaledVector(this.tmp, b.mu / (r2 * r))
+      if (b.kind === 'sun') this.sunDist = r
       if (b !== this.ref) this.otherGap = Math.min(this.otherGap, r - b.radius)
     }
     nearestRock(this.hpos, this.time, this.rockNear)
@@ -501,8 +506,8 @@ export class Craft {
     // HOVER_MAX_SPEED you are still re-entering, in cruise, with the air dragging and the
     // hull heating, and the way out is to flip and brake (DESIGN §8b item 4).
     if (this.cruise ? (rhoNow > CRUISE_EXIT || alt < CRUISE_FLOOR) && (rhoNow <= 0 || this.vRel.length() < HOVER_MAX_SPEED) : rhoNow < CRUISE_ENTER && alt > CRUISE_FLOOR * 1.2 && !this.cruiseLocked) this.cruise = !this.cruise
-    // Wings need air: cruise takes over above it, and under half the jet's minimum they fold back to hover.
-    if (this.cruise || rhoNow < JET_MIN_AIR * 0.5) this.jet = false
+    // Wings need air, but a jet climbing out keeps its form and its speed until cruise takes over (Chris: no floater in between).
+    if (this.cruise) this.jet = false
     this.hold = holdAt(alt)
     this.frameVelAt(this.rel, this.frameVel)
     this.vRel.copy(this.hvel).sub(this.frameVel)
@@ -636,7 +641,7 @@ export class Craft {
       this.tmp.copy(this.wind).applyQuaternion(this.spin)
       this.tmp.subVectors(this.vRel, this.tmp)
       const speed = this.tmp.length()
-      const rhoDrag = this.jet ? Math.max(rhoNow, JET_AIR_FLOOR) : rhoNow
+      const rhoDrag = this.jet ? Math.max(rhoNow, JET_AIR_FLOOR * Math.min(1, rhoNow / JET_FLOOR_FADE)) : rhoNow
       if (speed > 0) this.acc.addScaledVector(this.tmp, (-(this.jet ? JET_DRAG * (1 + JET_FLAP_DRAG * this.flaps) : DRAG) * rhoDrag * speed * (1 + POD_DRAG * this.cargo.length)) / mass)
       this.heat(rhoNow, speed, h, this.jet)
     } else { this.wind.set(0, 0, 0); this.heat(0, 0, h) }
@@ -856,6 +861,9 @@ export class Craft {
     return c
   }
 
+  /** The sun's share of the hull temperature at `sunDist` metres from its centre: SUN_HEAT_HOME at home's orbit, inverse square. */
+  static solarHeat(sunDist: number): number { const a = body('home').orbit!.a; return Number.isFinite(sunDist) && sunDist > 0 ? SUN_HEAT_HOME * (a / sunDist) * (a / sunDist) : 0 }
+
   /** The hull temperature this air and speed settle to. Public and pure, so the harness can hold its shape. */
   static heatTarget(rho: number, speed: number): number {
     if (rho <= 0 || speed <= 0) return 0
@@ -866,7 +874,8 @@ export class Craft {
   /** Move the hull toward its target; damage over the limit. */
   /** `jet`: the jet's skin heats on the sea-level ramp at JET_HEAT of the rate; the re-entry ramp gets hotter in thin air, which is right for a belly and wrong for a wing. */
   private heat(rho: number, speed: number, h: number, jet = false): void {
-    const target = jet ? (rho > 0 && speed > 0 ? HEAT_K * Math.sqrt(rho) * speed * speed * speed * HEAT_RAMP_MIN * JET_HEAT : 0) : Craft.heatTarget(rho, speed)
+    this.solarHeat = Craft.solarHeat(this.sunDist)
+    const target = (jet ? (rho > 0 && speed > 0 ? HEAT_K * Math.sqrt(rho) * speed * speed * speed * HEAT_RAMP_MIN * JET_HEAT : 0) : Craft.heatTarget(rho, speed)) + this.solarHeat
     if (target > this.hull) this.hull += (target - this.hull) * (1 - Math.exp(-h / HEAT_TAU))
     else this.hull = Math.max(target, this.hull - Math.max(COOL_RATE * (this.hull - target), COOL_MIN) * h)
     const over = this.hull / HULL_LIMIT

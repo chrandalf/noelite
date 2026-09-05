@@ -1401,3 +1401,29 @@ places faster is its whole job.
 Assumption to flip if wrong: the jet carries the modules. The other reading of "can't
 carry stuff" is that J refuses with cargo aboard, which makes every loaded leg a hover
 leg; that is a one-line change in toggleJet.
+
+## 10m. Into space in the jet, the warp look, the sun's heat (Chris, 2026-09-05, late)
+
+Chris: "we don't need to turn back into the floater before we go into outer space, there
+should be enough momentum to go straight into the space ship. Also when we get to
+supersonic speeds in space it should look a bit like star trek when going warp, but not
+fully, we're going fast to the sun it needs to look fast basically. Also when you go
+towards the sun it should get really warm, hot, and you would likely burn up before you
+get there, so we need to have that as part of getting close."
+
+**Jet to cruise.** The jet keeps its form and its speed out of the air; cruise takes over at
+the old line (no air, above 3 km) and the wings become the space morph. No hover between.
+The jet's drag floor fades out under 0.3 of an atmosphere so the climb-out keeps its
+momentum: from 1,200 m at 400 m/s, nose up 35°, full boost, cruise in 7 s at 650 m/s.
+
+**The warp look.** `src/engine/Streaks.ts`: 260 line segments in a tube round the ship,
+streaming back along the velocity, longer and brighter with speed, fading in from 1.5 km/s
+and full at 30 km/s, vacuum only. Additive, pale blue. Not a tunnel; the stars stay.
+
+**The sun.** The hull temperature has a solar term, SUN_HEAT_HOME (25 of the 1,000 limit) at
+home's orbit and the inverse square of distance from there: 167 at Cinder's orbit, the
+limit at 0.16 AU. It adds to the air's heating and applies in vacuum, so the hull glows
+brighter the closer you fly, the HUD's HULL line carries a SUN share, a toast at 30% says
+it is warming and one at 70% says TURN BACK, and parked at 0.14 AU a cold hull burns
+through in 18 s. Harness §36.
+

@@ -17,7 +17,7 @@ import { isDry } from '../src/world/terrain.ts'
 import { rng } from '../src/world/noise.ts'
 import { body, bodyVelocity, bodyPosition, bodySpin } from '../src/world/system.ts'
 import { wind } from '../src/world/weather.ts'
-import { LAND_MAX_HSPEED, POD_TONNES, CARGO_PODS, JET_DRAG, JET_LIFT, JET_FLAP_LIFT } from '../src/world/config.ts'
+import { LAND_MAX_HSPEED, POD_TONNES, CARGO_PODS, JET_DRAG, JET_LIFT, JET_FLAP_LIFT, SUN_HEAT_HOME } from '../src/world/config.ts'
 import { FIELDS, resetRocks } from '../src/world/asteroids.ts'
 import { FIXED_DT, DRAG, LAND_MAX_VSPEED, GROUND_EFFECT_HEIGHT, CRUISE_MAX, CRUISE_DECEL, CRUISE_SECONDS, THRUST_ACCEL, BOOST_MULT, FUEL_TANK, FUEL_HOVER_BURN, FUEL_CRUISE_BURN, FUEL_PAD_REFILL, FUEL_SOLAR_TRICKLE, FUEL_RELIGHT, GUN_RANGE, GUN_COOLDOWN, BOLT_SPEED, HULL_LIMIT, HOVER_MAX_SPEED, CRUISE_FLOOR, CRUISE_FLOOR_SPEED } from '../src/world/config.ts'
 const GRAVITY = HOME.g, ATMOSPHERE_HEIGHT = HOME.air
@@ -945,6 +945,37 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol
     const t = until(c, () => c.state === 'landed' || c.state === 'crashed', 60, glide(c))
     check('off the far end at speed is a wreck', c.state === 'crashed', `${c.state} after ${t.toFixed(1)} s`)
   }
+}
+
+// 36. Out of the air in the jet (Chris, 2026-09-05: "we don't need to turn back into the floater before we go into
+// outer space, there should be enough momentum to go straight into the space ship"): a jet at speed, nose up, goes
+// from wings to cruise with no hover in between. And the sun (DESIGN §10m): warm at Cinder's orbit, a wreck at 0.14 AU.
+{
+  const c = new Craft(HOME); c.windy = false; c.time = 700
+  const fwd = new THREE.Vector3(1, 0, 0).sub(pad.clone().multiplyScalar(pad.x)).normalize()
+  c.placeAbove(body('home'), pad, 1200, fwd, fwd.clone().multiplyScalar(400))
+  c.toggleJet()
+  let hovered = false
+  const t = until(c, () => c.cruise, 120, () => {
+    if (!c.jet && !c.cruise) hovered = true
+    const up = c.pos.clone().normalize(), n = new THREE.Vector3(0, 0, -1).applyQuaternion(c.quat)
+    const aim = up.clone().addScaledVector(n.addScaledVector(up, -n.dot(up)).normalize(), -0.7).normalize()   // nose about 35° up
+    const a = c.aimControls(aim, 3)
+    return T(1, a.pitch, a.roll, a.yaw, 1)
+  })
+  check('a jet climbing out at speed goes straight into cruise, never through hover', c.cruise && !hovered && t < 120, `cruise after ${t.toFixed(0)} s at ${c.altitude().toFixed(0)} m doing ${c.speed().toFixed(0)} m/s`)
+  const aHome = body('home').orbit.a
+  check('the sun is a footnote at home', Craft.solarHeat(aHome) === SUN_HEAT_HOME && SUN_HEAT_HOME < 0.05 * HULL_LIMIT, `${SUN_HEAT_HOME} of ${HULL_LIMIT}`)
+  const cinder = body('hot')   // Cinder, the Mercury
+  check("warm at Cinder's orbit, well short of the limit", cinder && Craft.solarHeat(cinder.orbit.a) > 0.1 * HULL_LIMIT && Craft.solarHeat(cinder.orbit.a) < 0.3 * HULL_LIMIT, cinder ? `${Craft.solarHeat(cinder.orbit.a).toFixed(0)} at ${(cinder.orbit.a / aHome).toFixed(2)} AU` : 'no hot world')
+  const burnAt = aHome * Math.sqrt(SUN_HEAT_HOME / HULL_LIMIT)
+  check('the limit is reached around a sixth of the way in', burnAt / aHome > 0.12 && burnAt / aHome < 0.2, `${(burnAt / aHome).toFixed(2)} AU`)
+  // Parked 0.14 AU from the sun with the hull cold: the sun alone cooks it through inside a minute.
+  const s = new Craft(HOME); s.windy = false; s.time = 700
+  const sun = body('sun')
+  s.placeAbove(sun, new THREE.Vector3(0, 0, 1), 0.14 * aHome - sun.radius)
+  const ts = until(s, () => s.state !== 'flying', 120, () => IDLE)
+  check('parked at 0.14 AU the hull burns through inside a minute', s.burned && ts < 60, `${s.state}${s.burned ? ', burned' : ''} after ${ts.toFixed(0)} s, sun heat ${s.solarHeat.toFixed(0)}`)
 }
 
 console.log(`\n${pass}/${pass + fail} checks`)

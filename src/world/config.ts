@@ -160,6 +160,20 @@ export const JET_FLAP_TIME = 0.8
  */
 export const JET_AIR_FLOOR = 0.6
 export const JET_HEAT = 0.6
+/** Under this much air the drag floor fades out with the air, so a jet climbing out of the atmosphere keeps its speed into cruise (Chris, 2026-09-05: "there should be enough momentum to go straight into the space ship"). */
+export const JET_FLOOR_FADE = 0.3
+
+/**
+ * The sun's heat (Chris, 2026-09-05: "when you go towards the sun it should get really warm,
+ * hot, and you would likely burn up before you get there"). Hull temperature from the sun
+ * alone is SUN_HEAT_HOME at home's orbit, and goes as the inverse square of distance: warm
+ * at Cinder's orbit (Mercury, 0.39 AU: 17% of the limit), the limit itself at 0.16 AU, and
+ * nothing you can do about it but turn round. Adds to the air's heating, in vacuum too.
+ */
+export const SUN_HEAT_HOME = 25
+/** The warp look (Chris: "a bit like star trek when going warp, but not fully"): streaks past the ship in vacuum, fading in from this speed and full at STREAK_FULL. */
+export const STREAK_FROM = 1_500
+export const STREAK_FULL = 30_000
 /** Boost in the jet: a smaller multiplier than hover's 2.6, so the top end is about 450 m/s and the hull only glows, not burns, low down. */
 export const JET_BOOST_MULT = 1.6
 /** Lift per (m/s)² per unit air, per unit mass: the wings hold a g at √(g/JET_LIFT) ≈ 60 m/s in sea-level air, the stall speed. */
