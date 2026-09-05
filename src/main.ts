@@ -752,7 +752,7 @@ addEventListener('keydown', (e) => {
     if (e.code === 'ArrowDown' || e.code === 'KeyS') choice = (choice + 1) % choices.length
     if (!saved && choice === 0) choice = e.code === 'ArrowUp' || e.code === 'KeyW' ? choices.length - 1 : 1
     drawChoices()
-    if (e.code === 'Enter' || e.code === 'Space') choose(choices[choice].dataset.choice)
+    if (e.code === 'Enter' || e.code === 'Space' || e.code === 'KeyJ') choose(choices[choice].dataset.choice)   // J is A on a pad
     e.preventDefault(); return
   }
   if (demo && e.code !== 'Escape') { stopDemo(); toast('YOUR SHIP'); if (e.code === 'KeyP') return }
@@ -870,7 +870,10 @@ renderer.setAnimationLoop((now) => {
   let altitude: number, line: string
 
   if (mode === 'fly') {
+    input.poll()
     let c: Controls = input.read()
+    // The right stick orbits the camera when it is not busy yawing (yaw is its x in the jet; its y is always the camera's pitch).
+    if (input.pad) { chase.orbitPitch = Math.min(ChaseCam.MAX_PITCH, Math.max(-ChaseCam.MAX_PITCH, chase.orbitPitch + input.camY * 1.5 * dt)); if (Math.abs(input.camY) < 0.05 && Math.abs(chase.orbitPitch) > 0.01 && !craft.jet) chase.orbitPitch *= Math.max(0, 1 - 2 * dt) }
     // Dawn Shift.
     if (phase !== 'off') {
       const ph = elapsed - phaseAt
@@ -1017,12 +1020,12 @@ renderer.setAnimationLoop((now) => {
     ship.position.copy(craft.pos).sub(viewPos)
     streaks.update(dt, craft.vel, craft.speed(), craft.atmosphere() <= 0 && flying)
     streaks.lines.position.copy(ship.position)
-    if (craft.bounces > bouncesSeen) { bouncesSeen = craft.bounces; sound.hit(false); toast(craft.lastContact.vUp < -4.5 ? 'BOUNCED HARD   ·   ease the sink: under 3 m/s, nose a touch up' : craft.lastContact.tilt > 8 ? 'BOUNCED   ·   wings level at the touch' : 'BOUNCED   ·   too fast or nose down: flaps, Vref, nose up a touch') }
+    if (craft.bounces > bouncesSeen) { bouncesSeen = craft.bounces; sound.hit(false); input.rumble(0.7, 0.4, 150); toast(craft.lastContact.vUp < -4.5 ? 'BOUNCED HARD   ·   ease the sink: under 3 m/s, nose a touch up' : craft.lastContact.tilt > 8 ? 'BOUNCED   ·   wings level at the touch' : 'BOUNCED   ·   too fast or nose down: flaps, Vref, nose up a touch') }
     if (craft.bounces < bouncesSeen) bouncesSeen = craft.bounces
     if (craft.lastTouch === 'grass' && craft.state === 'rolling' && grassSaid !== craft.landings) { grassSaid = craft.landings; toast('OFF THE PAVING   ·   the grass has it, gear bent') }
     finalNow = nearestFinal()
     // The boom: crossing 340 m/s upward in air.
-    { const spd = craft.speed(); if (craft.jet && flying && craft.atmosphere() > 0.2 && lastSpeed < 340 && spd >= 340) { boomAt = elapsed; sound.boom(); toast('MACH 1') } lastSpeed = spd
+    { const spd = craft.speed(); if (craft.jet && flying && craft.atmosphere() > 0.2 && lastSpeed < 340 && spd >= 340) { boomAt = elapsed; sound.boom(); input.rumble(1, 0.6, 250); toast('MACH 1') } lastSpeed = spd
       const a = (elapsed - boomAt) / 0.45
       boomCone.visible = a >= 0 && a < 1
       if (boomCone.visible) { boomMat.opacity = 0.55 * (1 - a); boomCone.scale.setScalar(0.6 + 1.2 * a) } }
@@ -1075,6 +1078,7 @@ renderer.setAnimationLoop((now) => {
         }
         sound.hit(true)
       }
+      if (craft.state === 'rolling') input.rumble(craft.lastTouch === 'hard' ? 1 : 0.4, 0.3, craft.lastTouch === 'hard' ? 300 : 120)
       if (craft.state === 'rolling') toast(craft.lastTouch === 'hard' ? 'HARD LANDING   ·   gear bent, hull damaged   ·   / brakes' : craft.lastTouch === 'firm' ? 'FIRM   ·   / brakes   Q E steer' : 'ON THE RUNWAY   ·   / brakes   Q E steer   SPACE goes again')
       lastState = craft.state
     }
