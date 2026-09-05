@@ -437,7 +437,7 @@ const stopDemo = () => { demo = false; input.override = null; demoEl.hidden = tr
 const keyHeld = new Map<string, number>()
 const demoCaption = (c: Controls): string => {
   const press = (on: boolean, k: string) => { if (on) keyHeld.set(k, elapsed) }
-  press(c.thrust > 0, 'SPACE  thrust'); press(c.pitch > 0.05, 'W  nose down'); press(c.pitch < -0.05, 'S  nose up')
+  press(c.thrust > 0, 'SPACE  thrust'); press(c.boost > 0, 'SHIFT  boost'); press(c.pitch > 0.05, 'W  nose down'); press(c.pitch < -0.05, 'S  nose up')
   press(c.roll > 0.05, 'D  roll right'); press(c.roll < -0.05, 'A  roll left'); press(c.yaw > 0.05, 'E  yaw right'); press(c.yaw < -0.05, 'Q  yaw left'); press(c.vertical < 0, '/  dive')
   const keys = [...keyHeld].filter(([, t]) => elapsed - t < 0.35).map(([k]) => k)
   const doing = demoStep === 'dig' ? `digging: U on a seam fills a pod in ${DIG_SECONDS} s` : demoStep === 'sell' ? 'selling: U at a town sells everything aboard' : demoStep === 'refuel' ? 'refuelling on the pad, then off again' :

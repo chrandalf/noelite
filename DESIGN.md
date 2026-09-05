@@ -1280,3 +1280,39 @@ before. Harness §32 holds a third of a g in hand at full load.
 **A fresh hull is empty.** `spawnOn` clears the cargo; the save puts it back after. The
 wreck took the timber; the insurance did not cover it.
 
+## 10k. Arcade (Chris, 2026-09-05, evening)
+
+Chris: "players are going to get bored with lots of waiting unless there are fun things to
+do, this is not flight simulator, it needs to be more arcady ... I think we need to get the
+whole of that cycle down to less than a minute ... no we keep the same world shape, we just
+need to speed up the ship ... if we can't do less than a minute then do whatever is
+realistic, hovering seems to be the slowest ... but we can speed up take off too ... it's
+not just the demo, if we don't speed things up it will take ages for everyone to do
+anything."
+
+**Where the time went** (the pad-to-seam leg, 17.7 km, before): lift 3, climb 40, cruise
+10, dive 31, hover approach 57, settle and land 39. 170 s, of which the travel was 10.
+The loop (seam, three pods, town, sale) was about 375 s.
+
+**What changed, for everyone, not the demo:** THRUST_ACCEL 18 → 28 (thrust-to-weight
+2.85), DRAG 0.004 → 0.002: hover tops out near 100 m/s (was 45), a full-thrust climb is
+2.2 times quicker, a gale shoves a third as hard. The landing assist's descent floor is
+3 + 0.16·feet (was 2 + 0.11), and its hands-off profile 2 + 0.14·feet: the ship stops
+from 19 m/s in ten metres now, so it can come down harder and still touch under 4 m/s.
+The dig is 3 s a pod. A full ship (36 t dry, §10j) climbs to 60 m in 5 s.
+
+**What changed in the pilot:** boost on the climb out (the caption names SHIFT), the dive
+key held through the hover descent above 400 m (a hands-off fall is drag-limited to 70 m/s;
+the dive nearly doubles it), the dive out of cruise from 6 km at up to 220 m/s.
+
+**After:** pad to seam 108 s (lift 2, climb 13, cruise 11, dive 26, hover 33, settle 15,
+land 8), seam to outpost 111 s. The loop is about 230 s. Not a minute. What is left is the
+cruise floor at 2.5 km (hover from there down is 30 s at best) and the two long legs; I
+tried the floor at 1.5 km and it broke the arrival cap's gentle hand-off and gained nothing,
+so it stays. **Under a minute with this world shape needs the jet mode** (wings and lift,
+low and fast, no climb to cruise): that is the next build, ahead of the works generator.
+
+The harness moved with it: the 80 m landing test now climbs gently (full thrust coasts to
+300 m), the moon lift-off reads THRUST_ACCEL instead of 18, the moon pilot is proportional
+(a pulse of full thrust is seventeen moon gravities), and the wind test drops from 120 m.
+

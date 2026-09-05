@@ -14,7 +14,7 @@ export type Leg = 'lift' | 'climb' | 'cruise' | 'descend' | 'fly' | 'settle' | '
 export const DEMO_HEIGHT = 140
 export const DEMO_LEAN = 0.85
 export const DEMO_CLOSE = 20
-export const DEMO_SLOW = 2.5
+export const DEMO_SLOW = 4
 /** A leg longer than this goes up through the air and across in cruise (Chris, 2026-09-04: "have we not got the other faster version of the ship"). */
 export const DEMO_CRUISE_LEG = 8_000
 /** Metres over the ground to cruise at, and how far above the target to aim so the arrival cap reels you in over its hover floor. */
@@ -22,9 +22,9 @@ export const DEMO_CRUISE_HEIGHT = 6_000
 export const DEMO_ARRIVE_HEIGHT = 6_000
 /** The carrot: cruise aims at a point this far ahead along the great circle, at cruise height, so the nose rides the horizon on a small world. Dive inside DEMO_DESCEND of the target. */
 export const DEMO_CARROT = 5_000
-export const DEMO_DESCEND = 7_000
+export const DEMO_DESCEND = 6_000
 /** In the dive out of cruise, brake above this speed so hover can take the ship at the floor. */
-export const DEMO_DIVE_SPEED = 180
+export const DEMO_DIVE_SPEED = 220
 
 export class Pilot {
   /** Where to go: a point in the craft's local frame, on the ground. */
@@ -70,7 +70,7 @@ export class Pilot {
     // near it the cap has us slow and the floor hands us back to hover, which then flies the last bit.
     if (this.leg === 'climb') {
       if (craft.cruise) this.leg = 'cruise'
-      else { this.lean.set(0, 0, 0); return { ...IDLE, thrust: 1, ...this.aim(craft, 0) } }
+      else { this.lean.set(0, 0, 0); return { ...IDLE, thrust: 1, boost: 1, ...this.aim(craft, 0) } }   // SHIFT: the climb out is the one place boost pays
     }
     if (this.leg === 'cruise') {
       if (!craft.cruise) { this.leg = 'fly' }
@@ -126,7 +126,7 @@ export class Pilot {
     if (this.leg === 'settle') {
       // Down over the spot; hands off for the last stretch so the assist does the landing.
       if (alt < 30 && speed < DEMO_SLOW && dist < DEMO_CLOSE) { this.leg = 'down'; return IDLE }
-      const want = -Math.min(6, 1 + alt * 0.05)
+      const want = -Math.min(12, 2 + alt * 0.1)
       return { ...IDLE, thrust: craft.vUp() < want ? 1 : 0, ...this.aim(craft, 1) }
     }
     if (this.leg === 'down') return IDLE
@@ -136,7 +136,9 @@ export class Pilot {
     // Never under 70 m in 'fly': the assist's landing latch takes the ship at 60 m if it is leaned, and a leaned ship at 40 m over a wooded hillside flew into it.
     const height = 70 + (DEMO_HEIGHT - 70) * Math.min(1, Math.max(0, dist - 60) / 400)
     const want = Math.max(-(2 + 0.08 * alt), Math.min(8, 0.5 * (height - alt)))
-    return { ...IDLE, thrust: craft.vUp() < want ? 1 : 0, ...this.aim(craft, 1) }
+    // High up and wanting down faster than a fall gives: / (the dive) pushes; off below 400 m so the assist's floor has the last word.
+    const dive = alt > 400 && craft.vUp() > want + 10 ? -1 : 0
+    return { ...IDLE, thrust: craft.vUp() < want ? 1 : 0, vertical: dive, ...this.aim(craft, 1) }
   }
 
   private aim(craft: Craft, use: number): { pitch: number; roll: number; yaw: number } {

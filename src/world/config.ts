@@ -36,9 +36,15 @@ export const ATMOSPHERE_HEIGHT = 2000
  * vehicle rather than a feather (0.012 gave 29 m/s, a 53 s climb out of the air, and would
  * have made a 30 m/s wind shove the craft at 11 m/s²; weather made it show, 2026-09-02).
  */
-export const DRAG = 0.004
-/** m/s² along the craft's own up-axis. Thrust-to-weight ≈ 1.83 at Earth g. */
-export const THRUST_ACCEL = 18
+export const DRAG = 0.002
+/**
+ * m/s² along the craft's own up-axis. Thrust-to-weight ≈ 2.85 at Earth g. Was 18 (1.83) until
+ * 2026-09-05, Chris: "this is not flight simulator, it needs to be more arcady ... hovering
+ * seems to be the slowest ... we can speed up take off too". With DRAG halved, hover at a
+ * 0.85 rad lean tops out near 100 m/s (was 45), a full-thrust climb is 2.2 times quicker,
+ * and a 30 m/s wind shoves at a third of what it did. The world's distances are unchanged.
+ */
+export const THRUST_ACCEL = 28
 /** rad/s² from full stick, and the 1/s damping that stops it when you let go. */
 export const ANG_ACCEL = 6
 export const ANG_DAMP = 4
@@ -185,7 +191,7 @@ export const SHIP_TONNES = 36
 /** Drag area grows this much per pod. */
 export const POD_DRAG = 0.15
 /** Seconds to dig one pod out of a seam, landed inside its radius. */
-export const DIG_SECONDS = 5
+export const DIG_SECONDS = 3
 /** Credits per tonne a town pays at base for each good; a town short of it pays up to 60% more. */
 export const GOOD_PRICE = { water: 20, timber: 35, ore: 60, salt: 30, crystal: 480, ice: 45, helium: 220, sulphur: 90 } as const
 /** A town takes goods it has no use for at this share of base. */

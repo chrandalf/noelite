@@ -684,7 +684,8 @@ export class Craft {
   private assistLanding(c: Controls, alt: number, rho: number): Controls {
     const feet = Math.max(0, alt - HULL_CLEARANCE)
     const vUp = this.vRel.dot(this.up)
-    const vSafe = 2 + 0.11 * feet
+    // The floor on descent: 2 + 0.11·feet until 2026-09-05; with 2.85 g of thrust the ship stops from 19 m/s in ten metres, so steeper (Chris: "it needs to be more arcady").
+    const vSafe = 3 + 0.16 * feet
     const handsOff = !c.thrust && !c.boost && !c.pitch && !c.roll && !c.yaw && !c.vertical && !c.lateral && !c.fore
     const level = (lean: number, intoWind = 1) => {
       // Body-up toward local up, leaned against horizontal drift, and into the wind by what
@@ -730,7 +731,7 @@ export class Craft {
       // Hands off and sinking: fly it down. Come down at a fraction of the floor, kill the drift, touch gently.
       const { a, vH } = level(0.03 * Math.min(1, feet / 25 + 0.2), 0.7 + 0.3 * Math.min(1, feet / 10))
       this.assisting = true
-      const wantDown = -(1.2 + 0.07 * feet)
+      const wantDown = -(2 + 0.14 * feet)
       const thrust = vUp < wantDown || (vH > 2.5 && vUp < 0) ? 1 : 0
       return { ...c, pitch: a.pitch, roll: a.roll, yaw: 0, thrust }
     }

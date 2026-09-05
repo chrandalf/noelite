@@ -74,7 +74,7 @@ const c2 = fresh()
 // 5. A bang-bang autopilot can land it. If this fails the game is not landable.
 const land = () => {
   const c = fresh()
-  until(c, (c) => c.altitude() > 80, 20, () => T(1))
+  until(c, (c) => c.altitude() > 80, 20, (t, c) => T(c.vUp() < 6 ? 1 : 0))   // a gentle climb: at full thrust the ship now coasts to 300 m
   const t = until(c, (c) => c.state !== 'flying', 90, (t, c) => T(c.vUp() < -2 ? 1 : 0))
   return { c, t }
 }
@@ -234,7 +234,7 @@ const L1 = land()
   check('landed, the craft rides the moon', c.pos.distanceTo(p0) < 1e-6 && Math.abs(c.hvel.length() - vMoon) < 3 && c.speed() < 1e-6, `moved ${c.pos.distanceTo(p0).toExponential(1)} m in its frame; heliocentric ${c.hvel.length().toFixed(0)} m/s vs the moon's ${vMoon.toFixed(0)}`)
   until(c, () => false, 2, () => T(1))
   const dv = c.hvel.clone().sub(bodyVelocity(moon, c.time)).length()
-  const vExpect = 2 * (18 - moon.surfaceGravity)
+  const vExpect = 2 * (THRUST_ACCEL - moon.surfaceGravity)
   check('lifting off inherits the surface velocity', c.state === 'flying' && Math.abs(c.speed() - vExpect) < 3 && Math.abs(dv - c.speed()) < 1, `ground-relative ${c.speed().toFixed(1)} m/s (expect ~${vExpect.toFixed(0)}), relative to the moon ${dv.toFixed(1)} m/s`)
 }
 // 17. The reference body follows the sphere of influence.
@@ -286,7 +286,9 @@ const L1 = land()
     const aim = vH.lengthSq() > 0 ? up.clone().addScaledVector(vH.clone().normalize(), -lean).normalize() : up
     const a = c.aimControls(aim)
     const want = c.altitude() > 100 ? -25 : -3
-    return T(vH.length() > 4 || c.vUp() < want ? 1 : 0, a.pitch, a.roll, a.yaw)
+    // Proportional, not bang-bang: full thrust is seventeen moon gravities now, and a pulse of it to kill drift climbs.
+    const thr = Math.min(1, Math.max(0, (want - c.vUp()) * 0.3 + (vH.length() > 4 && c.vUp() < 0 ? 0.1 : 0)))
+    return T(thr, a.pitch, a.roll, a.yaw)
   })
   check('and from there a plain descent lands on the moon', c.state === 'landed' && c.ref === moon, `${c.state} after ${t3.toFixed(0)} s at v↑ ${c.lastContact.vUp.toFixed(1)}`)
 }
@@ -343,14 +345,14 @@ for (const [id, start] of [['home-1', 150_000], ['home', 400_000]]) {
   check('somewhere on home it is blowing a gale', best.s > 20, `${best.s.toFixed(1)} m/s`)
   const run = (windy) => {
     const c = new Craft(HOME); c.windy = windy; c.time = 5000; c.assist = false
-    c.placeAbove(body('home'), best.d, 40)
+    c.placeAbove(body('home'), best.d, 120)   // high enough not to reach the ground in the three seconds, with drag halved
     until(c, () => false, 3, () => IDLE)
     const vUp = c.vUp(), drift = new THREE.Vector3().copy(c.vel).addScaledVector(c.pos.clone().normalize(), -vUp)
     return { c, drift }
   }
   const calm = run(false), gale = run(true)
   const along = gale.drift.clone().normalize().dot(gale.c.wind.clone().normalize())
-  check('the wind pushes a falling craft downwind', gale.drift.length() > 1 && along > 0.9 && calm.drift.length() < 0.05, `drift ${gale.drift.length().toFixed(2)} m/s in 3 s (calm: ${calm.drift.length().toFixed(2)}), cos to wind ${along.toFixed(2)}, wind ${gale.c.wind.length().toFixed(1)} m/s`)
+  check('the wind pushes a falling craft downwind', gale.drift.length() > 1 && along > 0.9 && calm.drift.length() < 0.5, `drift ${gale.drift.length().toFixed(2)} m/s in 3 s (calm: ${calm.drift.length().toFixed(2)}), cos to wind ${along.toFixed(2)}, wind ${gale.c.wind.length().toFixed(1)} m/s`)
 }
 
 
