@@ -74,7 +74,7 @@ import { Clouds } from './engine/Clouds.ts'
 import { CloudPuffs } from './engine/CloudPuffs.ts'
 import { front, rainOf, cloudOf, moonDirection, TIDE_AMPLITUDE } from './world/weather.ts'
 import { setGroundClock } from './world/terrain.ts'
-import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE , FUEL_TANK, HULL_CLEARANCE, HULL_LIMIT, HULL_WARN, HULL_GLOW, CLOUD_BASE_FRAC, WRECK_HOLD, FUEL_PRICE, REPAIR_PRICE, LOAN_STEP, INSURANCE, DIG_SECONDS, POD_TONNES, JET_LIFT, shownDistance } from './world/config.ts'
+import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE , FUEL_TANK, HULL_CLEARANCE, HULL_LIMIT, HULL_WARN, HULL_GLOW, CLOUD_BASE_FRAC, WRECK_HOLD, FUEL_PRICE, REPAIR_PRICE, LOAN_STEP, INSURANCE, DIG_SECONDS, POD_TONNES, JET_LIFT, JET_FLAP_LIFT, shownDistance } from './world/config.ts'
 
 const q = new URLSearchParams(location.search)
 /** The save on disk, read once. ?reset=1 forgets it. A placement parameter starts you where it says, books kept. */
@@ -714,7 +714,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyM') sound.muted = !sound.muted
   if (e.code === 'KeyC') chase.reset()
   if (e.code === 'KeyG' && mode === 'fly') scan()
-  if (e.code === 'KeyJ' && mode === 'fly') { const r = craft.toggleJet(); toast(r === 'jet' ? 'JET   ·   nose steers, bank to turn, / brakes, J back to hover' : r === 'hover' ? 'HOVER' : r === 'no-air' ? 'NO AIR FOR WINGS' : craft.cruise ? 'IN CRUISE: WINGS ARE OUT ALREADY' : 'NOT ON THE GROUND') }
+  if (e.code === 'KeyJ' && mode === 'fly') { const r = craft.toggleJet(); toast(r === 'jet' ? 'JET   ·   nose steers, bank to turn, / flaps and brake, J back to hover' : r === 'hover' ? 'HOVER' : r === 'no-air' ? 'NO AIR FOR WINGS' : craft.cruise ? 'IN CRUISE: WINGS ARE OUT ALREADY' : 'NOT ON THE GROUND') }
   if (e.code === 'KeyU' && mode === 'fly') use()
   if (e.code === 'KeyO') orbitAP.engaged = !orbitAP.engaged && craft.state === 'flying'
   if (e.code === 'Tab') { e.preventDefault(); if (bodyTargets.includes(target)) targetIndex = (targetIndex + (e.shiftKey ? bodyTargets.length - 1 : 1)) % bodyTargets.length; target = bodyTargets[targetIndex]; fieldIndex = -1 }
@@ -925,6 +925,7 @@ renderer.setAnimationLoop((now) => {
     morph.set(morphed)
     morph.jet(jetK)
     if (craft.state === 'rolling') for (const w of morph.wheels) w.rotation.x += (craft.speed() / 0.32) * dt
+    morph.flaps(craft.flaps)
     // The speed cue: the field of view opens a little with jet speed, more on boost.
     { const wantFov = craft.jet ? 62 + 10 * Math.min(1, craft.speed() / 237) + (c.boost > 0 ? 4 : 0) : 62; const f = camera.fov + (wantFov - camera.fov) * Math.min(1, dt / 0.5); if (Math.abs(f - camera.fov) > 0.01) { camera.fov = f; camera.updateProjectionMatrix() } }
     // The hover engine fires down; in cruise the boosters fire back. Hand over halfway through the morph.
@@ -933,10 +934,10 @@ renderer.setAnimationLoop((now) => {
     // Flames flicker; the strobe flashes twice a second and a half, only in flight.
     { const k = 0.85 + 0.3 * Math.random(); flame.scale.set(1, k, 1); for (const f of morph.cruiseFlames) f.scale.set(1, 0.85 + 0.3 * Math.random(), 1) }
     { const ph = (now / 1000) % 1.5; strobe.visible = flying && (ph < 0.06 || (ph > 0.18 && ph < 0.24)) }
-    rcs.right.visible = flying && c.lateral < 0
-    rcs.left.visible = flying && c.lateral > 0
-    rcs.top.visible = flying && c.vertical < 0
-    rcs.rear.visible = flying && c.fore > 0
+    rcs.right.visible = flying && !craft.jet && c.lateral < 0
+    rcs.left.visible = flying && !craft.jet && c.lateral > 0
+    rcs.top.visible = flying && !craft.jet && c.vertical < 0
+    rcs.rear.visible = flying && !craft.jet && c.fore > 0
     altitude = craft.altitude()
     {
       const want = craft.state !== 'flying' || altitude < GEAR_ALT ? 1 : 0
@@ -1137,7 +1138,7 @@ renderer.setAnimationLoop((now) => {
     const apLine = orbitAP.engaged ? `   AUTOPILOT ${orbitAP.phase.toUpperCase()} ${craft.ref.name}  park ${((orbitAP.parkRadius(craft) - craft.terrain.radius) / 1000).toFixed(0)} km at ${orbitAP.parkSpeed(craft).toFixed(0)} m/s` : ''
     const rn = craft.rockNear
     const rockLine = rn.rock && rn.dist < 30000 ? `   ROCK ${fmtDist(rn.dist)}${rn.dist < 2000 ? (rn.rock.ice ? '  ICE' : '  STONE') : ''}${craft.cruise ? '  (F fires)' : '  (cannons stowed in hover)'}` : ''
-    const spaceLine = rho < 1 || craft.jet ? `${craft.cruise ? `CRUISE  cap ${fmtSpeed(craft.cap())}` : craft.jet ? `JET  stall ${Math.sqrt((craft.terrain.g * craft.massFactor()) / (JET_LIFT * Math.max(0.05, rho))).toFixed(0)} m/s  J hover` : 'HOVER'}${apLine}   SOI ${craft.ref.name}   orbit ${vOrb.toFixed(0)}   escape ${vEsc.toFixed(0)}   ${craft.cruise ? '' : vIn > vEsc ? '!! ESCAPING !!' : vIn > vOrb ? 'above orbital' : ''}   target ${tgt.name}${tgt.field ? ` (${fieldIndex + 1} of ${nearFields.length} nearest, V)` : ' (Tab)'}${rockLine}\n` : ''
+    const spaceLine = rho < 1 || craft.jet ? `${craft.cruise ? `CRUISE  cap ${fmtSpeed(craft.cap())}` : craft.jet ? `JET${craft.flaps > 0.3 ? '  FLAPS' : ''}  stall ${Math.sqrt((craft.terrain.g * craft.massFactor()) / (JET_LIFT * (1 + JET_FLAP_LIFT * craft.flaps) * Math.max(0.05, rho))).toFixed(0)} m/s  J hover` : 'HOVER'}${apLine}   SOI ${craft.ref.name}   orbit ${vOrb.toFixed(0)}   escape ${vEsc.toFixed(0)}   ${craft.cruise ? '' : vIn > vEsc ? '!! ESCAPING !!' : vIn > vOrb ? 'above orbital' : ''}   target ${tgt.name}${tgt.field ? ` (${fieldIndex + 1} of ${nearFields.length} nearest, V)` : ' (Tab)'}${rockLine}\n` : ''
     line = `alt ${(altitude < 500 ? altitude.toFixed(1) : shownDistance(altitude).toFixed(0)).padStart(6)} m   v↑ ${vUp.toFixed(1).padStart(5)} m/s   spd ${fmtSpeed(spd).padStart(9)}   tilt ${tilt.toFixed(0).padStart(2)}°   ${craft.state.toUpperCase()}   landings ${craft.landings}  crashes ${craft.crashes}\n` + spaceLine +
       (craft.state === 'crashed' ? `contact: ${craft.burned ? 'HULL BURNED THROUGH  ' : craft.hitRock ? 'ROCK  ' : ''}v↑ ${lc.vUp.toFixed(1)}  drift ${lc.vH.toFixed(1)}  tilt ${lc.tilt.toFixed(0)}°  slope ${lc.slope.toFixed(0)}°   R to respawn\n` : '') +
       `Esc  menu and controls   ${fps} fps   chunks ${refView.lod?.liveCount ?? 0}`

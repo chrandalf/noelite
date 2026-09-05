@@ -1354,6 +1354,19 @@ five-point canopy and a chin intake unfold from the flanks over the same half se
 nozzles walk to the tail and the flame comes out of them. Split-S at top speed eats 360 m of
 sky; worth a HUD tick. Canned Immelmann and split-S on a key: not built.
 
+**Later the same night** (Chris: "wheels for the gear on the jet please, also it should be
+able to go a bit faster, 50% at least"; then "remove the left and right and top thrusters on
+the jet, speed up another 50% as I want speed, and also need a good way to slow down, flaps
+please"). Wheels: in the jet form the three feet are tyres on axles, spun on the runway.
+Speed: JET_DRAG 0.0005 → 0.00022 → 0.0001, top 237 → 357 → 529 m/s; boost in the jet is
+1.6× (2.6× did 627 m/s and cooked the hull in thirty seconds low down). In thin air the
+drag never sees under 0.6 of an atmosphere, so the top speed stops climbing with height
+(at a quarter of the air it ran away to 1,000 m/s and burned), and the skin heats on the
+sea-level ramp at 0.6 of the rate; boost up high still cooks. No side, top or rear thrusters
+in the jet. `/` is flaps and airbrake: drag ×4, lift ×1.5 (stall 60 → 49 m/s), a brake along
+the nose, trailing-edge plates swing down over 0.8 s; from 300 m/s three seconds of it take
+off 116 m/s.
+
 Not yet: the demo pilot does not use it (its legs still climb to cruise), and there is no
 stall buzz or wind-over-wings sound beyond the cruise drive. Both next.
 

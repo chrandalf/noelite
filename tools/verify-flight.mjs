@@ -17,7 +17,7 @@ import { isDry } from '../src/world/terrain.ts'
 import { rng } from '../src/world/noise.ts'
 import { body, bodyVelocity, bodyPosition, bodySpin } from '../src/world/system.ts'
 import { wind } from '../src/world/weather.ts'
-import { LAND_MAX_HSPEED, POD_TONNES, CARGO_PODS, JET_DRAG, JET_LIFT } from '../src/world/config.ts'
+import { LAND_MAX_HSPEED, POD_TONNES, CARGO_PODS, JET_DRAG, JET_LIFT, JET_FLAP_LIFT } from '../src/world/config.ts'
 import { FIELDS, resetRocks } from '../src/world/asteroids.ts'
 import { FIXED_DT, DRAG, LAND_MAX_VSPEED, GROUND_EFFECT_HEIGHT, CRUISE_MAX, CRUISE_DECEL, CRUISE_SECONDS, THRUST_ACCEL, BOOST_MULT, FUEL_TANK, FUEL_HOVER_BURN, FUEL_CRUISE_BURN, FUEL_PAD_REFILL, FUEL_SOLAR_TRICKLE, FUEL_RELIGHT, GUN_RANGE, GUN_COOLDOWN, BOLT_SPEED, HULL_LIMIT, HOVER_MAX_SPEED, CRUISE_FLOOR, CRUISE_FLOOR_SPEED } from '../src/world/config.ts'
 const GRAVITY = HOME.g, ATMOSPHERE_HEIGHT = HOME.air
@@ -834,10 +834,35 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol
   {
     const { c } = jetAt(300, 40); c.toggleJet()
     const level = () => { const up = c.pos.clone().normalize(); const a = c.aimControls(up, 3); return T(1, a.pitch, a.roll, a.yaw) }
-    const t = until(c, () => c.speed() > 330, 60, level)
-    check('a jet reaches 330 m/s, half again on the first night', c.speed() > 330 && t < 40, `${t.toFixed(1)} s, top ≈ √(T/JET_DRAG) = ${Math.sqrt(THRUST_ACCEL / JET_DRAG).toFixed(0)} m/s`)
+    const t = until(c, () => c.speed() > 480, 90, level)
+    check('a jet reaches 480 m/s: half again, twice (Chris)', c.speed() > 480 && t < 60, `${t.toFixed(1)} s, top ≈ √(T/JET_DRAG) = ${Math.sqrt(THRUST_ACCEL / JET_DRAG).toFixed(0)} m/s`)
     until(c, () => false, 30, () => { const up = c.pos.clone().normalize(); const a = c.aimControls(up, 3); return T(1, a.pitch, a.roll, a.yaw, 1) })
     check('thirty seconds of full boost low down glows but does not burn through', c.damage < 0.5 && !c.burned, `${c.speed().toFixed(0)} m/s, damage ${c.damage.toFixed(2)}`)
+  }
+
+  // Flaps and the airbrake on /: from 300 m/s they take off speed hard; with them out the stall is lower and the ship holds height at 52 m/s.
+  {
+    const { c } = jetAt(400, 300); c.toggleJet()
+    const v0 = c.speed()
+    until(c, () => false, 3, () => { const up = c.pos.clone().normalize(); const a = c.aimControls(up, 3); return T(0, a.pitch, a.roll, a.yaw, 0, 0, -1) })
+    check('flaps and brake held for 3 s from 300 m/s take off more than 100 m/s', v0 - c.speed() > 100 && c.flaps > 0.9, `${v0.toFixed(0)} → ${c.speed().toFixed(0)} m/s, flaps ${c.flaps.toFixed(2)}`)
+    const vStallFlaps = Math.sqrt(HOME.g / (JET_LIFT * (1 + JET_FLAP_LIFT)))
+    check('with the flaps out the stall speed is under 50 m/s', vStallFlaps < 50, `${vStallFlaps.toFixed(0)} m/s`)
+  }
+  // No side or top thrusters in the jet: the lateral key does nothing to the velocity.
+  {
+    const { c } = jetAt(400, 150); c.toggleJet()
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(c.quat)
+    const s0 = c.vel.dot(right)
+    until(c, () => false, 2, () => T(0, 0, 0, 0, 0, 1, 0))
+    check('the jet has no side thrusters: , and . do nothing', Math.abs(c.vel.dot(right) - s0) < 0.5, `${(c.vel.dot(right) - s0).toFixed(2)} m/s sideways after 2 s of the key`)
+  }
+  // Heat: full speed a kilometre up for thirty seconds glows at most; the jet's skin is not a re-entry belly.
+  {
+    const { c } = jetAt(1200, 300); c.toggleJet()
+    const level = () => { const up = c.pos.clone().normalize(); const a = c.aimControls(up, 3); return T(1, a.pitch, a.roll, a.yaw) }
+    until(c, () => false, 40, level)
+    check('thirty seconds at full speed a kilometre up does not burn the hull', c.damage < 0.3 && !c.burned, `${c.speed().toFixed(0)} m/s at ${c.altitude().toFixed(0)} m, damage ${c.damage.toFixed(2)}`)
   }
   // The stall: at 30 m/s in sea-level air the wings hold under a quarter of the weight, and it sinks.
   {

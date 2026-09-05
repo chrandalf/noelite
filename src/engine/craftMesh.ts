@@ -120,7 +120,7 @@ export type Gear = THREE.Group[]
  * in cruise; two boosters slide out of the back and carry the cruise flame. main drives
  * `set(morph)` from the craft's cruise flag, 0 dart, 1 TIE.
  */
-export type Morph = { set: (m: number) => void; /** The jet's wheels, for main to spin on the runway. */ wheels: THREE.Mesh[]; /** The jet form, 0 dart to 1 jet: the hull's morph target, wings, fins, canopy, intake, the nozzles at the tail. */ jet: (k: number) => void; cruiseFlames: THREE.Mesh[]; flashes: THREE.Mesh[] }
+export type Morph = { set: (m: number) => void; /** The jet's flaps, 0 up to 1 down: the trailing-edge plates swing down. */ flaps: (f: number) => void; /** The jet's wheels, for main to spin on the runway. */ wheels: THREE.Mesh[]; /** The jet form, 0 dart to 1 jet: the hull's morph target, wings, fins, canopy, intake, the nozzles at the tail. */ jet: (k: number) => void; cruiseFlames: THREE.Mesh[]; flashes: THREE.Mesh[] }
 
 /** Ship plus an engine flame that shows while thrusting, and four small RCS puffs. */
 export function buildCraftMesh(material: THREE.Material): { root: THREE.Group; flame: THREE.Mesh; rcs: Rcs; gear: Gear; morph: Morph; strobe: THREE.Mesh; glowMats: THREE.MeshLambertMaterial[]; plasma: THREE.Mesh; haze: THREE.Mesh } {
@@ -148,13 +148,33 @@ export function buildCraftMesh(material: THREE.Material): { root: THREE.Group; f
   const cF: P = [0, 0.42, -3.4], cT: P = [0, 0.95, -1.9], cR: P = [0, 0.62, -0.4], cL: P = [-0.42, 0.55, -1.6], cRt: P = [0.42, 0.55, -1.6]
   const canopyTris: P[][] = [[cF, cL, cT], [cF, cT, cRt], [cT, cL, cR], [cT, cR, cRt], [cF, cRt, cL], [cR, cL, cRt]]
   const intakeTris: P[][] = [[[-0.55, -0.45, -2.6], [0.55, -0.45, -2.6], [0.55, -0.45, -1.6]], [[-0.55, -0.45, -2.6], [0.55, -0.45, -1.6], [-0.55, -0.45, -1.6]]]
+  const jetPartsExtra: THREE.Object3D[] = []
   const wings = plates([...wingL, ...mirror(wingL)], WHITE)
   const lerx = plates([...lerxL, ...mirror(lerxL)], DARK)
   const fins = plates([...finL, ...mirror(finL)], CREAM)
   const stabs = plates([...stabL, ...mirror(stabL)], WHITE)
   const canopy = plates(canopyTris, GLASS)
   const intake = plates(intakeTris, DARK)
-  const jetParts = [wings, lerx, fins, stabs, canopy, intake]
+  // Flaps: a plate along each wing's trailing edge, hinged there, swinging down with the flaps.
+  const flapMat = new THREE.MeshLambertMaterial({ color: new THREE.Color(CREAM[0] * 0.92, CREAM[1] * 0.92, CREAM[2] * 0.92), side: THREE.DoubleSide })
+  flapMat.name = 'jet-flap'
+  const flapPlates: THREE.Mesh[] = []
+  for (const side of [-1, 1]) {
+    const hinge = new THREE.Group()
+    // The trailing edge runs from (0.8, 3.5) at the root to (3.5, 2.9) at the tip: hinge along it.
+    const inner = new THREE.Vector3(side * 0.8, -0.05, 3.5), tip = new THREE.Vector3(side * 3.5, -0.05, 2.9)
+    hinge.position.copy(inner).add(tip).multiplyScalar(0.5)
+    const edge = tip.clone().sub(inner)
+    hinge.rotation.y = Math.atan2(edge.x, edge.z) - Math.PI / 2
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(edge.length() - 0.2, 0.06, 0.7), flapMat)
+    plate.position.z = 0.35
+    hinge.add(plate)
+    root.add(hinge)
+    flapPlates.push(plate)
+    hinge.visible = false
+    jetPartsExtra.push(hinge)
+  }
+  const jetParts = [wings, lerx, fins, stabs, canopy, intake, ...jetPartsExtra]
   for (const p of jetParts) { p.visible = false; root.add(p) }
   // Landing skids: the craft's centre sits HULL_CLEARANCE (1.6 m) above the ground and the
   // keel is only 0.75 m down, so without legs it hangs in the air over its own shadow
@@ -292,6 +312,7 @@ export function buildCraftMesh(material: THREE.Material): { root: THREE.Group; f
     cruiseFlames,
     flashes,
     wheels,
+    flaps: (f: number) => { for (const p of flapPlates) p.rotation.x = 0.7 * Math.min(1, Math.max(0, f)) },
     jet: (k: number) => {
       const t = Math.min(1, Math.max(0, k))
       jetK = t

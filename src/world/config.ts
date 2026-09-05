@@ -147,7 +147,19 @@ export const CRUISE_BRAKE = 0.8
  * scales with the air, so thin air stalls faster and no air is no wings.
  */
 /** Streamlined drag per metre at sea level: top speed √(THRUST/JET_DRAG) ≈ 357 m/s, 575 with boost (Chris, 2026-09-05: "it should be able to go a bit faster, 50% at least"; was 0.0005, 237 m/s). */
-export const JET_DRAG = 0.00022
+export const JET_DRAG = 0.0001   // 2026-09-05, later: "speed up another 50% as I want speed": √(28/0.0001) ≈ 529 m/s
+/** Flaps and airbrake on / in the jet (Chris: "need a good way to slow down, flaps please"): drag times (1 + JET_FLAP_DRAG), lift times (1 + JET_FLAP_LIFT) so the stall drops from 60 to 49 m/s, a brake along the nose on top, and they take JET_FLAP_TIME seconds to run out. */
+export const JET_FLAP_DRAG = 3
+export const JET_FLAP_LIFT = 0.5
+export const JET_FLAP_TIME = 0.8
+/**
+ * The jet in thin air: its drag never sees less than JET_AIR_FLOOR of an atmosphere, so the
+ * top speed stops climbing with height (at a quarter of the air it ran away to 1,000 m/s),
+ * and its skin heats on the sea-level ramp at JET_HEAT of the rate, so a kilometre up at
+ * full speed glows at most. Boost up high still cooks; that is the limiter.
+ */
+export const JET_AIR_FLOOR = 0.6
+export const JET_HEAT = 0.6
 /** Boost in the jet: a smaller multiplier than hover's 2.6, so the top end is about 450 m/s and the hull only glows, not burns, low down. */
 export const JET_BOOST_MULT = 1.6
 /** Lift per (m/s)² per unit air, per unit mass: the wings hold a g at √(g/JET_LIFT) ≈ 60 m/s in sea-level air, the stall speed. */
