@@ -23,6 +23,7 @@
 //   ?station=2         start landed on pad 2 of home's station (0: hanging 300 m over it)
 //   ?outpost=3         start landed on home's third outpost (-3: hanging 300 m over it)
 //   ?assist=0          landing assist off (so a drop is a drop)
+//   J                  jet mode, in air: wings out, the engine along the nose, bank to turn, / brakes, J again for hover (hover lands; the jet flies)
 //   G                  the scanner: pings the nearest seam on this body within range onto the compass (and, on home, the contact)
 //   U                  landed on a seam: dig a pod; landed at a town: sell what you carry
 //   P / ?demo=1        the demo: the ship plays the loop itself and says what it is pressing; any key takes over
@@ -71,7 +72,7 @@ import { Clouds } from './engine/Clouds.ts'
 import { CloudPuffs } from './engine/CloudPuffs.ts'
 import { front, rainOf, cloudOf, moonDirection, TIDE_AMPLITUDE } from './world/weather.ts'
 import { setGroundClock } from './world/terrain.ts'
-import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE , FUEL_TANK, HULL_CLEARANCE, HULL_LIMIT, HULL_WARN, HULL_GLOW, CLOUD_BASE_FRAC, WRECK_HOLD, FUEL_PRICE, REPAIR_PRICE, LOAN_STEP, INSURANCE, DIG_SECONDS, POD_TONNES, shownDistance } from './world/config.ts'
+import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE , FUEL_TANK, HULL_CLEARANCE, HULL_LIMIT, HULL_WARN, HULL_GLOW, CLOUD_BASE_FRAC, WRECK_HOLD, FUEL_PRICE, REPAIR_PRICE, LOAN_STEP, INSURANCE, DIG_SECONDS, POD_TONNES, JET_LIFT, shownDistance } from './world/config.ts'
 
 const q = new URLSearchParams(location.search)
 /** The save on disk, read once. ?reset=1 forgets it. A placement parameter starts you where it says, books kept. */
@@ -706,6 +707,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyM') sound.muted = !sound.muted
   if (e.code === 'KeyC') chase.reset()
   if (e.code === 'KeyG' && mode === 'fly') scan()
+  if (e.code === 'KeyJ' && mode === 'fly') { const r = craft.toggleJet(); toast(r === 'jet' ? 'JET   ·   nose steers, bank to turn, / brakes, J back to hover' : r === 'hover' ? 'HOVER' : r === 'no-air' ? 'NO AIR FOR WINGS' : craft.cruise ? 'IN CRUISE: WINGS ARE OUT ALREADY' : 'NOT ON THE GROUND') }
   if (e.code === 'KeyU' && mode === 'fly') use()
   if (e.code === 'KeyO') orbitAP.engaged = !orbitAP.engaged && craft.state === 'flying'
   if (e.code === 'Tab') { e.preventDefault(); if (bodyTargets.includes(target)) targetIndex = (targetIndex + (e.shiftKey ? bodyTargets.length - 1 : 1)) % bodyTargets.length; target = bodyTargets[targetIndex]; fieldIndex = -1 }
@@ -910,7 +912,7 @@ renderer.setAnimationLoop((now) => {
     if (craft.state === 'crashed') { crashedAt ??= elapsed; chase.orbitYaw += 0.25 * dt; if (elapsed - crashedAt > WRECK_HOLD) respawn() }
     ship.quaternion.copy(craft.quat)
     const flying = craft.state === 'flying'
-    morphed += ((craft.cruise ? 1 : 0) - morphed) * Math.min(1, dt / 0.5)
+    morphed += ((craft.cruise || craft.jet ? 1 : 0) - morphed) * Math.min(1, dt / 0.5)
     morph.set(morphed)
     // The hover engine fires down; in cruise the boosters fire back. Hand over halfway through the morph.
     flame.visible = craft.thrusting && flying && morphed < 0.5
@@ -1121,7 +1123,7 @@ renderer.setAnimationLoop((now) => {
     const apLine = orbitAP.engaged ? `   AUTOPILOT ${orbitAP.phase.toUpperCase()} ${craft.ref.name}  park ${((orbitAP.parkRadius(craft) - craft.terrain.radius) / 1000).toFixed(0)} km at ${orbitAP.parkSpeed(craft).toFixed(0)} m/s` : ''
     const rn = craft.rockNear
     const rockLine = rn.rock && rn.dist < 30000 ? `   ROCK ${fmtDist(rn.dist)}${rn.dist < 2000 ? (rn.rock.ice ? '  ICE' : '  STONE') : ''}${craft.cruise ? '  (F fires)' : '  (cannons stowed in hover)'}` : ''
-    const spaceLine = rho < 1 ? `${craft.cruise ? `CRUISE  cap ${fmtSpeed(craft.cap())}` : 'HOVER'}${apLine}   SOI ${craft.ref.name}   orbit ${vOrb.toFixed(0)}   escape ${vEsc.toFixed(0)}   ${craft.cruise ? '' : vIn > vEsc ? '!! ESCAPING !!' : vIn > vOrb ? 'above orbital' : ''}   target ${tgt.name}${tgt.field ? ` (${fieldIndex + 1} of ${nearFields.length} nearest, V)` : ' (Tab)'}${rockLine}\n` : ''
+    const spaceLine = rho < 1 || craft.jet ? `${craft.cruise ? `CRUISE  cap ${fmtSpeed(craft.cap())}` : craft.jet ? `JET  stall ${Math.sqrt(craft.terrain.g / (JET_LIFT * Math.max(0.05, rho))).toFixed(0)} m/s  J hover` : 'HOVER'}${apLine}   SOI ${craft.ref.name}   orbit ${vOrb.toFixed(0)}   escape ${vEsc.toFixed(0)}   ${craft.cruise ? '' : vIn > vEsc ? '!! ESCAPING !!' : vIn > vOrb ? 'above orbital' : ''}   target ${tgt.name}${tgt.field ? ` (${fieldIndex + 1} of ${nearFields.length} nearest, V)` : ' (Tab)'}${rockLine}\n` : ''
     line = `alt ${(altitude < 500 ? altitude.toFixed(1) : shownDistance(altitude).toFixed(0)).padStart(6)} m   v↑ ${vUp.toFixed(1).padStart(5)} m/s   spd ${fmtSpeed(spd).padStart(9)}   tilt ${tilt.toFixed(0).padStart(2)}°   ${craft.state.toUpperCase()}   landings ${craft.landings}  crashes ${craft.crashes}\n` + spaceLine +
       (craft.state === 'crashed' ? `contact: ${craft.burned ? 'HULL BURNED THROUGH  ' : craft.hitRock ? 'ROCK  ' : ''}v↑ ${lc.vUp.toFixed(1)}  drift ${lc.vH.toFixed(1)}  tilt ${lc.tilt.toFixed(0)}°  slope ${lc.slope.toFixed(0)}°   R to respawn\n` : '') +
       `Esc  menu and controls   ${fps} fps   chunks ${refView.lod?.liveCount ?? 0}`

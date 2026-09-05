@@ -1316,3 +1316,27 @@ The harness moved with it: the 80 m landing test now climbs gently (full thrust 
 300 m), the moon lift-off reads THRUST_ACCEL instead of 18, the moon pilot is proportional
 (a pulse of full thrust is seventeen moon gravities), and the wind test drops from 120 m.
 
+## 10l. Jet mode (Chris, 2026-09-05, night)
+
+Chris: "I thought we were going to have the ability to fly like a mig or fighter jet rather
+than hover over land, be great fun flying around the mountains ... hover is still best way
+to land but we need a different mode ... that mode will only work in planets with
+atmospheres."
+
+**J flicks it, in air.** The wings come out (the cruise morph), the engine fires along the
+nose, and the ship flies like an arcade jet: where you point is where you go (velocity
+across the nose bleeds away in JET_ALIGN_TAU 0.7 s), a bank turns you at g·tan(bank)/v
+about local up, the way a real wing's tilted lift would, so you roll and it comes round and
+roll level and it stops; pitch and yaw have half the hover stick. The wings cancel gravity
+along body-up on their own while there is speed for it (auto-trim, nothing to hold), up to
+3.5 g; under the stall speed, √(g / (JET_LIFT·air)), 60 m/s in sea-level air, they cannot,
+and you sink. Drag is JET_DRAG 0.0005, a quarter of hover's: top speed about 237 m/s, 380
+on boost. `/` is a brake. The landing assist is off in jet; the ground is the ground, and a
+hillside at 200 m/s is a wreck. J again is hover, which is how you land. Thin air raises the
+stall speed by itself; below half JET_MIN_AIR the wings fold to hover on their own; cruise
+takes over above the air as before. The hull at 380 m/s in sea-level air heats to a fifth of
+its limit, so no re-entry glow low down. Harness §34.
+
+Not yet: the demo pilot does not use it (its legs still climb to cruise), and there is no
+stall buzz or wind-over-wings sound beyond the cruise drive. Both next.
+

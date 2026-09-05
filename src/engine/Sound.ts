@@ -170,7 +170,7 @@ export class Sound {
     // Chris, 2026-09-03: "once you get into space there would be no sound right?"
     const airK = 0.45 + 0.55 * Math.min(1, rho * 3)
     // Hover engine only while hovering; cruise drive only in cruise. Both idle quietly when flying.
-    const hover = on && !craft.cruise, cruise = on && craft.cruise
+    const hover = on && !craft.cruise && !craft.jet, cruise = on && (craft.cruise || craft.jet)
     ramp(this.hoverGain!.gain, hover ? (0.05 + 0.32 * throttle) * airK : 0)
     ramp(this.pinkGain!.gain, hover ? (0.02 + 0.16 * throttle) * airK : cruise ? 0.03 * throttle * airK : 0)
     // Standby tick.
@@ -186,10 +186,10 @@ export class Sound {
     ramp(this.windGain!.gain, 0.25 * air * air, 0.2)
     ramp(this.windFilter!.frequency, 300 + 900 * air, 0.3)
     // RCS hiss.
-    const rcs = on && (c.lateral !== 0 || c.fore !== 0 || (c.vertical !== 0 && !craft.cruise)) ? 0.06 * airK : 0
+    const rcs = on && (c.lateral !== 0 || c.fore !== 0 || (c.vertical !== 0 && !craft.cruise && !craft.jet)) ? 0.06 * airK : 0
     ramp(this.rcsGain!.gain, rcs, 0.03)
     // The altimeter: a soft sine blip, only descending, under 60 m, quickening as the ground comes up.
-    const descending = on && craft.vUp() < -1 && !craft.cruise
+    const descending = on && craft.vUp() < -1 && !craft.cruise && !craft.jet
     if (descending && craft.altitude() < 60 && now >= this.nextBlip) {
       const alt = craft.altitude()
       this.nextBlip = now + Math.min(1.5, Math.max(0.15, alt / 30))

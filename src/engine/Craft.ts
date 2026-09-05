@@ -29,6 +29,7 @@ import {
   CRUISE_ENTER, CRUISE_EXIT, CRUISE_FLOOR, CRUISE_ALIGN_TAU, CRUISE_MAX, CRUISE_FLOOR_SPEED, CRUISE_BRAKE, CRUISE_DECEL, CRUISE_SECONDS, CRUISE_SPOOL,
   FUEL_TANK, FUEL_HOVER_BURN, FUEL_CRUISE_BURN, FUEL_RCS_BURN, FUEL_PAD_REFILL, FUEL_SOLAR_TRICKLE, FUEL_RELIGHT, PAD_RADIUS,
   CRASH_DAMAGE_SCALE, CRASH_MIN_DAMAGE, FUEL_PRICE, REPAIR_PRICE, CARGO_PODS, POD_TONNES, SHIP_TONNES, POD_DRAG, DIVE_ACCEL,
+  JET_DRAG, JET_LIFT, JET_LIFT_MAX_G, JET_ALIGN_TAU, JET_MIN_AIR, JET_ANG, JET_BANK_MAX_TAN,
   GUN_RANGE, GUN_COOLDOWN, ICE_REACH, BOLT_SPEED,
   GUN_MUZZLE, HEAT_K, HEAT_RAMP_LO, HEAT_RAMP_HI, HEAT_RAMP_MIN, HEAT_TAU, COOL_RATE, COOL_MIN, HULL_LIMIT, DAMAGE_TAU, HOVER_MAX_SPEED,
 } from '../world/config.ts'
@@ -86,6 +87,9 @@ export class Craft {
    * altitude, so an airless moon still gets a hover landing.
    */
   cruise = false
+  /** Jet mode: wings and lift in air, flicked with J. Never together with cruise. */
+  jet = false
+  private readonly bodyRight = new THREE.Vector3()
   /** Metres to the nearest thing: the reference body's ground below, another body's sphere, or a rock. Drives the thrust gain. */
   proximity = Infinity
   /** Metres to the ground of the reference body, and to the nearest other body's surface. The two cap profiles key off these. */
@@ -327,6 +331,7 @@ export class Craft {
     this.state = 'landed'
     this.thrusting = false
     this.cruise = false
+    this.jet = false
     this.fuel = FUEL_TANK
     this.burn = 0
     this.cargo.length = 0   // a fresh hull carries nothing; the save puts its cargo back after this
@@ -339,6 +344,15 @@ export class Craft {
     this.accumulator = 0
     this.frameAt(this.time)
     this.syncHelio()
+  }
+
+  /** J: wings out in air, or back to hover. Says what happened, for the toast. */
+  toggleJet(): 'jet' | 'hover' | 'no-air' | 'no' {
+    if (this.jet) { this.jet = false; return 'hover' }
+    if (this.state !== 'flying' || this.cruise) return 'no'
+    if (this.atmosphere() < JET_MIN_AIR) return 'no-air'
+    this.jet = true
+    return 'jet'
   }
 
   /** Something outside the physics moved the ship (the boob shoved it): take the local pose and re-derive the heliocentric state, which the substep integrates. */
@@ -361,6 +375,7 @@ export class Craft {
     this.state = 'flying'
     this.thrusting = false
     this.cruise = false
+    this.jet = false
     this.accumulator = 0
     this.frameAt(this.time)
     this.syncHelio()
@@ -382,6 +397,7 @@ export class Craft {
     this.state = 'flying'
     this.thrusting = false
     this.cruise = true
+    this.jet = false
     this.hitRock = null
     this.accumulator = 0
     this.fieldWeight = 1
@@ -478,13 +494,15 @@ export class Craft {
     // HOVER_MAX_SPEED you are still re-entering, in cruise, with the air dragging and the
     // hull heating, and the way out is to flip and brake (DESIGN §8b item 4).
     if (this.cruise ? (rhoNow > CRUISE_EXIT || alt < CRUISE_FLOOR) && (rhoNow <= 0 || this.vRel.length() < HOVER_MAX_SPEED) : rhoNow < CRUISE_ENTER && alt > CRUISE_FLOOR * 1.2 && !this.cruiseLocked) this.cruise = !this.cruise
+    // Wings need air: cruise takes over above it, and under half the jet's minimum they fold back to hover.
+    if (this.cruise || rhoNow < JET_MIN_AIR * 0.5) this.jet = false
     this.hold = holdAt(alt)
     this.frameVelAt(this.rel, this.frameVel)
     this.vRel.copy(this.hvel).sub(this.frameVel)
 
     // Landing assist, before attitude and thrust read the controls.
     this.assisting = false
-    if (this.assist && !this.cruise && alt < 500 && THRUST_ACCEL > this.terrain.g * 1.1) {
+    if (this.assist && !this.cruise && !this.jet && alt < 500 && THRUST_ACCEL > this.terrain.g * 1.1) {
       c = this.assistLanding(c, alt, rhoNow)
       // The assist cannot burn what is not there.
       if (dry && (c.thrust || c.boost)) c = { ...c, thrust: 0, boost: 0 }
@@ -496,9 +514,10 @@ export class Craft {
     // against the stars. Rotation, not force: blending it is harmless.
     // Loaded, the ship turns as it climbs: slower by its mass.
     const mass = this.massFactor()
-    this.angVel.x -= (c.pitch * ANG_ACCEL * h) / mass
-    this.angVel.z -= (c.roll * ANG_ACCEL * h) / mass
-    this.angVel.y -= (c.yaw * ANG_ACCEL * 0.6 * h) / mass
+    const stick = this.jet ? JET_ANG : 1
+    this.angVel.x -= (c.pitch * ANG_ACCEL * stick * h) / mass
+    this.angVel.z -= (c.roll * ANG_ACCEL * (this.jet ? 0.8 : 1) * h) / mass
+    this.angVel.y -= (c.yaw * ANG_ACCEL * 0.6 * stick * h) / mass
     this.angVel.multiplyScalar(Math.exp(-ANG_DAMP * h))
     this.dq.set(this.angVel.x * h * 0.5, this.angVel.y * h * 0.5, this.angVel.z * h * 0.5, 1).normalize()
     this.hquat.multiply(this.dq).normalize()
@@ -507,14 +526,26 @@ export class Craft {
       this.dq.setFromAxisAngle(this.tmp.copy(this.omega).divideScalar(wh), this.hold * wh * h)
       this.hquat.premultiply(this.dq).normalize()
     }
+    if (this.jet) {
+      // The coordinated turn: a bank turns the nose about local up at g·tan(bank)/v, the rate
+      // a real wing's tilted lift would give, so you roll and it turns; roll level and it stops.
+      this.bodyUp.copy(BODY_UP).applyQuaternion(this.hquat)
+      this.bodyRight.set(1, 0, 0).applyQuaternion(this.hquat)
+      const cosBank = Math.max(0.2, this.bodyUp.dot(this.up))
+      const tanBank = Math.max(-JET_BANK_MAX_TAN, Math.min(JET_BANK_MAX_TAN, this.bodyRight.dot(this.up) / cosBank))
+      const vFwd = Math.max(30, this.vRel.dot(this.nose.copy(BODY_FWD).applyQuaternion(this.hquat)))
+      const turn = (gravityAt(r, this.terrain) * tanBank) / vFwd
+      if (Math.abs(turn) > 1e-6) { this.dq.setFromAxisAngle(this.up, turn * h); this.hquat.premultiply(this.dq).normalize() }
+    }
 
     const mainThrust = (THRUST_ACCEL * c.thrust * (1 + c.boost * (BOOST_MULT - 1))) / mass
     const cap = this.cap()
     // What this substep costs. Boost multiplies burn the way it multiplies thrust; the
     // cruise brake burns like the cruise engine; the RCS sips.
-    this.burn = c.thrust * (this.cruise ? FUEL_CRUISE_BURN : FUEL_HOVER_BURN) * (1 + c.boost * (BOOST_MULT - 1))
-      + (this.cruise && c.vertical < 0 ? FUEL_CRUISE_BURN * CRUISE_BRAKE : 0)
-      + FUEL_RCS_BURN * (Math.abs(c.lateral) + (this.cruise ? 0 : Math.abs(c.vertical)) + Math.abs(c.fore))
+    const noseDrive = this.cruise || this.jet
+    this.burn = c.thrust * (noseDrive ? FUEL_CRUISE_BURN : FUEL_HOVER_BURN) * (1 + c.boost * (BOOST_MULT - 1))
+      + (noseDrive && c.vertical < 0 ? FUEL_CRUISE_BURN * CRUISE_BRAKE : 0)
+      + FUEL_RCS_BURN * (Math.abs(c.lateral) + (noseDrive ? 0 : Math.abs(c.vertical)) + Math.abs(c.fore))
     this.fuel = Math.max(0, this.fuel - this.burn * h)
     if (this.cruise) {
       // Cruise: the engine fires along the nose, spooled so full thrust reaches whatever
@@ -529,17 +560,33 @@ export class Craft {
         const vPar = this.vRel.dot(this.nose)
         if (vPar > 0) this.acc.addScaledVector(this.nose, -Math.min(THRUST_ACCEL * CRUISE_BRAKE * gain, vPar / h))
       }
+    } else if (this.jet) {
+      // Jet: the engine along the nose; the wings cancel gravity along body-up while the
+      // speed gives them the lift (auto-trim, capped at JET_LIFT_MAX_G); / is a brake on
+      // the nose. Under the stall speed the lift falls short and the ship sinks.
+      this.nose.copy(BODY_FWD).applyQuaternion(this.hquat)
+      this.bodyUp.copy(BODY_UP).applyQuaternion(this.hquat)
+      if (c.thrust > 0) this.acc.addScaledVector(this.nose, mainThrust)
+      const vFwd = Math.max(0, this.vRel.dot(this.nose))
+      const g = gravityAt(r, this.terrain)
+      const need = g * this.bodyUp.dot(this.up)
+      const can = Math.min(JET_LIFT * rhoNow * vFwd * vFwd, JET_LIFT_MAX_G * g)
+      if (need > 0) this.acc.addScaledVector(this.bodyUp, Math.min(need, can))
+      if (c.vertical < 0) {
+        const vPar = this.vRel.dot(this.nose)
+        if (vPar > 0) this.acc.addScaledVector(this.nose, -Math.min(THRUST_ACCEL * CRUISE_BRAKE, vPar / h))
+      }
     } else if (c.thrust > 0) {
       this.bodyUp.copy(BODY_UP).applyQuaternion(this.hquat)
       this.acc.addScaledVector(this.bodyUp, mainThrust)
     }
     // RCS: small pushes along the body axes. Translation without tilting. In cruise the
     // top thruster is the brake instead, handled above.
-    if (c.lateral || (c.vertical && !this.cruise) || c.fore) {
-      this.rcs.set(c.lateral, this.cruise ? 0 : c.vertical, -c.fore).multiplyScalar(RCS_ACCEL / mass).applyQuaternion(this.hquat)
+    if (c.lateral || (c.vertical && !noseDrive) || c.fore) {
+      this.rcs.set(c.lateral, noseDrive ? 0 : c.vertical, -c.fore).multiplyScalar(RCS_ACCEL / mass).applyQuaternion(this.hquat)
       this.acc.add(this.rcs)
       // The dive: / in hover, off the pad, pushes down toward the ground; the assist's floor still holds.
-      if (!this.cruise && c.vertical < 0 && this.state === 'flying') this.acc.addScaledVector(this.up, (-DIVE_ACCEL * -c.vertical) / mass)
+      if (!noseDrive && c.vertical < 0 && this.state === 'flying') this.acc.addScaledVector(this.up, (-DIVE_ACCEL * -c.vertical) / mass)
     }
     // Ground effect. A cushion in the last few metres, plus damping against
     // descent, both fading to nothing at GROUND_EFFECT_HEIGHT. It is the ground
@@ -557,13 +604,24 @@ export class Craft {
       this.tmp.copy(this.wind).applyQuaternion(this.spin)
       this.tmp.subVectors(this.vRel, this.tmp)
       const speed = this.tmp.length()
-      if (speed > 0) this.acc.addScaledVector(this.tmp, (-DRAG * rhoNow * speed * (1 + POD_DRAG * this.cargo.length)) / mass)
+      if (speed > 0) this.acc.addScaledVector(this.tmp, (-(this.jet ? JET_DRAG : DRAG) * rhoNow * speed * (1 + POD_DRAG * this.cargo.length)) / mass)
       this.heat(rhoNow, speed, h)
     } else { this.wind.set(0, 0, 0); this.heat(0, 0, h) }
     if (this.damage >= 1) { this.burnUp(); return }
 
     this.stepBolts(h)
     this.hvel.addScaledVector(this.acc, h)
+    if (this.jet) {
+      // Where you point is where you go: velocity across the nose bleeds away, on the velocity relative to the body.
+      this.vRel.copy(this.hvel).sub(this.frameVel)
+      const vPar = this.vRel.dot(this.nose)
+      // The grip is the wing's: full above the stall speed, fading with the square of the speed
+      // under it, so a stalled ship falls instead of being steered by wings that have no air.
+      const grip = Math.min(1, (JET_LIFT * rhoNow * vPar * vPar) / gravityAt(r, this.terrain))
+      const bleed = 1 - Math.exp((-h * grip) / JET_ALIGN_TAU)
+      this.vRel.addScaledVector(this.nose, -vPar).multiplyScalar(1 - bleed).addScaledVector(this.nose, vPar)
+      this.hvel.copy(this.frameVel).add(this.vRel)
+    }
     if (this.cruise) {
       // Flight assist: velocity across the nose bleeds away, so where you point is where
       // you go; and above the cap the assist eases you back. Not physics. Very playable.

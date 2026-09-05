@@ -17,7 +17,7 @@ import { isDry } from '../src/world/terrain.ts'
 import { rng } from '../src/world/noise.ts'
 import { body, bodyVelocity, bodyPosition, bodySpin } from '../src/world/system.ts'
 import { wind } from '../src/world/weather.ts'
-import { LAND_MAX_HSPEED, POD_TONNES, CARGO_PODS } from '../src/world/config.ts'
+import { LAND_MAX_HSPEED, POD_TONNES, CARGO_PODS, JET_DRAG, JET_LIFT } from '../src/world/config.ts'
 import { FIELDS, resetRocks } from '../src/world/asteroids.ts'
 import { FIXED_DT, DRAG, LAND_MAX_VSPEED, GROUND_EFFECT_HEIGHT, CRUISE_MAX, CRUISE_DECEL, CRUISE_SECONDS, THRUST_ACCEL, BOOST_MULT, FUEL_TANK, FUEL_HOVER_BURN, FUEL_CRUISE_BURN, FUEL_PAD_REFILL, FUEL_SOLAR_TRICKLE, FUEL_RELIGHT, GUN_RANGE, GUN_COOLDOWN, BOLT_SPEED, HULL_LIMIT, HOVER_MAX_SPEED, CRUISE_FLOOR, CRUISE_FLOOR_SPEED } from '../src/world/config.ts'
 const GRAVITY = HOME.g, ATMOSPHERE_HEIGHT = HOME.air
@@ -789,6 +789,67 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol
     const t = until(c, () => c.state !== 'flying' && pilot.leg === 'down' || c.state === 'crashed', 900, () => { const k = pilot.controls(c); c.arrive = pilot.leg === 'cruise' ? pilot.arrive(c) : Infinity; c.arriveFloor = true; return k })
     const h = c.padHere()
     check('and the demo pilot lands on it', c.state === 'landed' && h?.station !== null && h?.station !== undefined, `${t.toFixed(0)} s, ${h ? `pad ${h.pad}` : 'no pad under it'}, ${pilot.distance(c).toFixed(0)} m off`)
+  }
+}
+
+// 34. Jet mode (DESIGN §10l): flicked in air, it gets fast, holds height hands off at speed, turns on a
+// bank, sinks under the stall, wrecks on a hillside, and J again hands back to a hover that lands.
+{
+  const jetAt = (alt, speed, t0 = 700) => {
+    const c = new Craft(HOME); c.windy = false; c.time = t0
+    const fwd = new THREE.Vector3(1, 0, 0).sub(pad.clone().multiplyScalar(pad.x)).normalize()
+    c.placeAbove(body('home'), pad, alt, fwd, fwd.clone().multiplyScalar(speed))
+    return { c, fwd }
+  }
+  const heading = (c) => { const n = new THREE.Vector3(0, 0, -1).applyQuaternion(c.quat); const up = c.pos.clone().normalize(); return n.addScaledVector(up, -n.dot(up)).normalize() }
+  // On the ground J does nothing; in the air it flicks; on the moon it says no air.
+  { const c = fresh(); check('J on the ground does nothing', c.toggleJet() === 'no' && !c.jet) }
+  { const { c } = jetAt(300, 40); check('J in the air flicks the wings out', c.toggleJet() === 'jet' && c.jet && !c.cruise) ; check('and J again folds them', c.toggleJet() === 'hover' && !c.jet) }
+  { const c = new Craft(HOME); const moon = body('home-1'); c.placeAbove(moon, new THREE.Vector3(0, 0, 1), 200); check('over an airless moon there is no jet', c.toggleJet() === 'no-air' && !c.jet) }
+  // Speed: full thrust, nose held level, from 40 m/s.
+  {
+    const { c, fwd } = jetAt(300, 40); c.toggleJet()
+    const level = () => { const up = c.pos.clone().normalize(); const a = c.aimControls(up, 3); return T(1, a.pitch, a.roll, a.yaw) }
+    let lo = Infinity, hi = -Infinity
+    const t = until(c, () => c.speed() > 200, 60, () => { lo = Math.min(lo, c.altitude()); hi = Math.max(hi, c.altitude()); return level() })
+    const vTop = Math.sqrt(THRUST_ACCEL / JET_DRAG)
+    check('a jet reaches 200 m/s in under half a minute', c.speed() > 200 && t < 30, `${t.toFixed(1)} s; top speed ≈ √(T/JET_DRAG) = ${vTop.toFixed(0)} m/s`)
+    check('and holds its height hands off while it does', hi - lo < 120 && c.altitude() > 150, `${lo.toFixed(0)} to ${hi.toFixed(0)} m`)
+    check('the wings burn cruise fuel, not hover fuel', c.burn > 0 && Math.abs(c.burn - FUEL_CRUISE_BURN) < 1e-9, `${c.burn} a second`)
+    // A bank turns it: roll right for a second, hands off the roll, and the heading swings right.
+    const h0 = heading(c)
+    let banked = 0
+    until(c, () => false, 1.2, () => T(1, 0, 1, 0))
+    const bank = () => { const bu = new THREE.Vector3(0, 1, 0).applyQuaternion(c.quat); const up = c.pos.clone().normalize(); return Math.acos(Math.min(1, bu.dot(up))) * 180 / Math.PI }
+    banked = bank()
+    until(c, () => false, 8, () => T(1))
+    const h1 = heading(c)
+    const up = c.pos.clone().normalize()
+    const swung = Math.atan2(h0.clone().cross(h1).dot(up), h0.dot(h1)) * 180 / Math.PI
+    check('a bank turns it, the way a wing does', banked > 15 && swung < -25, `banked ${banked.toFixed(0)}°, heading swung ${swung.toFixed(0)}° (negative is right)`)
+    check('without losing the sky', c.altitude() > 60 && c.state === 'flying', `${c.altitude().toFixed(0)} m`)
+  }
+  // The stall: at 30 m/s in sea-level air the wings hold under a quarter of the weight, and it sinks.
+  {
+    const { c } = jetAt(400, 30); c.toggleJet()
+    const vStall = Math.sqrt(HOME.g / JET_LIFT)
+    until(c, () => false, 4, () => T(0))
+    check(`under the stall speed (${vStall.toFixed(0)} m/s at sea level) it sinks`, c.vUp() < -8, `v↑ ${c.vUp().toFixed(1)} m/s after 4 s at ${c.speed().toFixed(0)} m/s`)
+  }
+  // The ground is the ground: nose down at speed and it is a wreck, not a landing.
+  {
+    const { c } = jetAt(250, 150); c.toggleJet()
+    const down = () => { const up = c.pos.clone().normalize(); const n = new THREE.Vector3(0, 0, -1).applyQuaternion(c.quat); const aim = up.clone().addScaledVector(n, 0.5).normalize(); const a = c.aimControls(aim, 3); return T(1, a.pitch, a.roll, a.yaw) }
+    const t = until(c, () => c.state !== 'flying', 40, down)
+    check('nose down at 150 m/s, the hillside wins', c.state === 'crashed' && c.crashes === 1, `${c.state} after ${t.toFixed(1)} s at ${c.lastContact.vH.toFixed(0)} m/s`)
+  }
+  // Back to hover, hands off: the assist lands it from a jet's speed.
+  {
+    const { c } = jetAt(300, 60); c.toggleJet()
+    until(c, () => c.speed() > 150, 30, () => T(1))
+    c.toggleJet()
+    const t = until(c, () => c.state !== 'flying', 240, () => IDLE)
+    check('J back to hover at 150 m/s, hands off, and the assist lands it', c.state === 'landed' && c.lastContact.vH < LAND_MAX_HSPEED, `${c.state} after ${t.toFixed(0)} s, drift ${c.lastContact.vH.toFixed(1)} m/s`)
   }
 }
 

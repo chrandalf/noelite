@@ -136,6 +136,31 @@ export const CRUISE_SPOOL = 4
 /** Brake (the / key in cruise) as a fraction of main thrust. */
 export const CRUISE_BRAKE = 0.8
 
+/**
+ * Jet mode (Chris, 2026-09-05: "the ability to fly like a mig or fighter jet rather than
+ * hover over land, be great fun flying around the mountains ... hover is still best way to
+ * land but we need a different mode ... that mode will only work in planets with
+ * atmospheres"). J flicks it in air. The engine fires along the nose, the wings give lift
+ * that cancels gravity while there is speed for it (auto-trim: no stick to hold), velocity
+ * follows the nose, a bank turns you (a coordinated turn from the bank angle), / is a
+ * brake, and below the stall speed the wings cannot hold you up and you sink. Everything
+ * scales with the air, so thin air stalls faster and no air is no wings.
+ */
+/** Streamlined drag per metre at sea level: top speed √(THRUST/JET_DRAG) ≈ 237 m/s, 380 with boost. */
+export const JET_DRAG = 0.0005
+/** Lift per (m/s)² per unit air, per unit mass: the wings hold a g at √(g/JET_LIFT) ≈ 60 m/s in sea-level air, the stall speed. */
+export const JET_LIFT = 0.0027
+/** The most the wings pull, in g. */
+export const JET_LIFT_MAX_G = 3.5
+/** Seconds for velocity across the nose to bleed away: where you point is where you go. */
+export const JET_ALIGN_TAU = 0.7
+/** Air below which J does nothing (and the wings fold back to hover under half of it). */
+export const JET_MIN_AIR = 0.15
+/** Pitch and yaw authority in jet, as a share of hover's: fast air, smaller stick. */
+export const JET_ANG = 0.5
+/** The steepest bank the coordinated turn honours, as tan(bank). */
+export const JET_BANK_MAX_TAN = 3
+
 // ---- Fuel (2026-09-03). The first number that gates reach. ----
 
 /**
