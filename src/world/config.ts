@@ -180,11 +180,12 @@ export const INSURANCE = 500
 /** Pods the hull carries, tonnes per pod, and the dry ship's tonnes the pods are felt against. */
 export const CARGO_PODS = 3
 export const POD_TONNES = 4
-export const SHIP_TONNES = 12
+/** The empty ship. With three 4 t pods the mass factor is 1.33: 13.5 m/s² of thrust against 9.8 of gravity. At 12 t it was 2, thrust 9, and a full ship could not hover (Chris, 2026-09-05: "the weight is keeping the ship too low"). */
+export const SHIP_TONNES = 36
 /** Drag area grows this much per pod. */
 export const POD_DRAG = 0.15
 /** Seconds to dig one pod out of a seam, landed inside its radius. */
-export const DIG_SECONDS = 20
+export const DIG_SECONDS = 5
 /** Credits per tonne a town pays at base for each good; a town short of it pays up to 60% more. */
 export const GOOD_PRICE = { water: 20, timber: 35, ore: 60, salt: 30, crystal: 480, ice: 45, helium: 220, sulphur: 90 } as const
 /** A town takes goods it has no use for at this share of base. */

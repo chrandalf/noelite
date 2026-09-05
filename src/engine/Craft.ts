@@ -329,6 +329,7 @@ export class Craft {
     this.cruise = false
     this.fuel = FUEL_TANK
     this.burn = 0
+    this.cargo.length = 0   // a fresh hull carries nothing; the save puts its cargo back after this
     this.hitRock = null
     this.hull = 0
     this.damage = 0

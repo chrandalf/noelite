@@ -1253,3 +1253,30 @@ from outside was lost the next step; the harness has the round trip.
 Not yet: a chronicle line when it is first seen (§10h's chronicle does not exist yet), and
 it only lives on home. If Ben wants one on every world he can ask for it himself.
 
+## 10j. The dig you can see, modules, weight (Chris, 2026-09-05, after the boob)
+
+Chris: "digging needs to have some sort of animation and be 4 times quicker"; "the timber
+is being put under the thrust, which is wrong, need the ship to have modules that load";
+"the weight is keeping the ship too low"; "when I crash, I seem to have the timber still."
+
+**The dig** is 5 s (was 20). An auger runs out from under the keel over the first 12%,
+spins into the ground while the pod fills (to 80%), and comes home over the last 8%. A
+spoil heap the colour of the good grows on the ground beside the ship and stays there
+(eight heaps recycled, not saved). The cargo module for this pod fills on the ground beside
+the auger, scaling up with the fill, then hops to its slot on the hull between 80% and 92%.
+The ship shakes while drilling, dust puffs off the ground, and the sound is a low sawtooth
+rising with the fill plus grit. `src/engine/Digger.ts`; the module handling is in main.
+
+**Modules.** The pods were drums under the tail, which is where the engine is. Now three
+crates clamped to the top of the hull: one each side of the spine on the top facets, one on
+the ridge behind the spine, each with a dark strap, coloured by the good aboard. Slots are
+computed from the hull's own planes so they sit on the plate.
+
+**Weight.** SHIP_TONNES was 12; with three 4 t pods the mass factor was 2 and the thrust
+9 m/s² against 9.8 of gravity: a full ship could not hover, which is what "too low" was.
+Now 36 t: a full load is a factor of 1.33, thrust 13.5. Turning and drag scale with it as
+before. Harness §32 holds a third of a g in hand at full load.
+
+**A fresh hull is empty.** `spawnOn` clears the cargo; the save puts it back after. The
+wreck took the timber; the insurance did not cover it.
+

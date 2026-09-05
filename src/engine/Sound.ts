@@ -56,6 +56,9 @@ export class Sound {
   private rcsGain: GainNode | null = null
   private rainGain: GainNode | null = null
   private servoGain: GainNode | null = null
+  private digOsc: OscillatorNode | null = null
+  private digGain: GainNode | null = null
+  private digGrit: GainNode | null = null
   private muffle: BiquadFilterNode | null = null
   private pinkGain: GainNode | null = null
   private padGain: GainNode | null = null
@@ -127,6 +130,21 @@ export class Sound {
     { const { f, g } = src('wind'); this.rainGain = g; f.frequency.value = 3200; f.Q.value = 0.4 }
     // Servos: the gear and the wing morph, a filtered whir while they move.
     { const { f, g } = src('hover'); this.servoGain = g; f.frequency.value = 900; f.Q.value = 2.5 }
+    // The auger: a low sawtooth through a lowpass, rising as the pod fills, and grit from the noise.
+    this.digOsc = ctx.createOscillator(); this.digOsc.type = 'sawtooth'; this.digOsc.frequency.value = 58
+    const digF = ctx.createBiquadFilter(); digF.type = 'lowpass'; digF.frequency.value = 420; digF.Q.value = 1.2
+    this.digGain = ctx.createGain(); this.digGain.gain.value = 0
+    this.digOsc.connect(digF).connect(this.digGain).connect(master); this.digOsc.start()
+    { const { f, g } = src('hover'); this.digGrit = g; f.frequency.value = 1300; f.Q.value = 1.6 }
+  }
+
+  /** The auger, every frame: `level` 0 off to 1 drilling, `p` the dig's progress for the pitch. */
+  dig(level: number, p: number): void {
+    if (!this.ctx || !this.digGain || !this.digGrit || !this.digOsc) return
+    const t = this.ctx.currentTime, on = this.muted ? 0 : level
+    this.digGain.gain.setTargetAtTime(0.09 * on, t, 0.08)
+    this.digGrit.gain.setTargetAtTime(0.05 * on, t, 0.08)
+    this.digOsc.frequency.setTargetAtTime(58 + 44 * p, t, 0.1)
   }
 
   /** Every frame. `rho` is the air at the craft, 0 in vacuum; `zoom` the chase camera's distance factor (1 default); `rain` 0..1; `gear` 1 down; `morph` 0 dart, 1 TIE. */

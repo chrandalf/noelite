@@ -16,7 +16,7 @@ import { isDry } from '../src/world/terrain.ts'
 import { rng } from '../src/world/noise.ts'
 import { body, bodyVelocity, bodyPosition, bodySpin } from '../src/world/system.ts'
 import { wind } from '../src/world/weather.ts'
-import { LAND_MAX_HSPEED } from '../src/world/config.ts'
+import { LAND_MAX_HSPEED, POD_TONNES, CARGO_PODS } from '../src/world/config.ts'
 import { FIELDS, resetRocks } from '../src/world/asteroids.ts'
 import { FIXED_DT, DRAG, LAND_MAX_VSPEED, GROUND_EFFECT_HEIGHT, CRUISE_MAX, CRUISE_DECEL, CRUISE_SECONDS, THRUST_ACCEL, BOOST_MULT, FUEL_TANK, FUEL_HOVER_BURN, FUEL_CRUISE_BURN, FUEL_PAD_REFILL, FUEL_SOLAR_TRICKLE, FUEL_RELIGHT, GUN_RANGE, GUN_COOLDOWN, BOLT_SPEED, HULL_LIMIT, HOVER_MAX_SPEED, CRUISE_FLOOR, CRUISE_FLOOR_SPEED } from '../src/world/config.ts'
 const GRAVITY = HOME.g, ATMOSPHERE_HEIGHT = HOME.air
@@ -758,6 +758,17 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol
   let gust = 0
   const th = until(c, () => c.state !== 'flying', 240, () => { gust = Math.max(gust, c.wind.length()); return IDLE })
   check('hands off in the storm, the assist leans into the wind and lands under the drift limit', c.state === 'landed' && c.lastContact.vH < LAND_MAX_HSPEED, `${th.toFixed(0)} s, wind ${gust.toFixed(0)} m/s, drift ${c.lastContact.vH.toFixed(1)} m/s, tilt ${c.lastContact.tilt.toFixed(0)}°`)
+}
+
+// 32. Cargo (Chris, 2026-09-05): a full ship still flies, and a replacement hull carries nothing.
+{
+  const c = fresh()
+  for (let i = 0; i < CARGO_PODS; i++) c.load('timber', POD_TONNES)
+  check('three pods aboard, the thrust still clears gravity by a third', THRUST_ACCEL / c.massFactor() > 1.3 * GRAVITY, `${(THRUST_ACCEL / c.massFactor()).toFixed(1)} m/s² against g ${GRAVITY.toFixed(1)}, factor ${c.massFactor().toFixed(2)}`)
+  const t = until(c, () => c.altitude() > 60, 60, () => T(1))
+  check('and a full ship climbs to 60 m in under twenty seconds', c.altitude() > 60 && t < 20, `${t.toFixed(1)} s`)
+  c.spawnOn(pad, new THREE.Vector3(1, 0, 0), 'radial')
+  check('a fresh hull carries nothing: the cargo went with the wreck', c.cargo.length === 0)
 }
 
 console.log(`\n${pass}/${pass + fail} checks`)

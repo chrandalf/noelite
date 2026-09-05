@@ -53,6 +53,7 @@ import { buildBase, updateBase, type BaseView } from './engine/Base.ts'
 import { Wreck, buildWreckMeshes, syncWreckMeshes } from './engine/Wreck.ts'
 import { Boob, boobName, BOOB_BODY, BOOB_SCAN_RANGE } from './world/boob.ts'
 import { buildBoob, syncBoob } from './engine/Boob.ts'
+import { Digger, GOOD_COLOUR, MODULE_GROUND } from './engine/Digger.ts'
 import { Bank } from './world/economy.ts'
 import { snapshot, restore, isSave } from './world/save.ts'
 import { seamsOf, type Seam } from './world/seams.ts'
@@ -231,11 +232,21 @@ ship.renderOrder = 2
 // distance) and Three multiplies matrices in float32, which puts it 100 m from where the
 // camera is looking. Bodies never showed this: their frames are 40 km across.
 world.add(ship)
-// Cargo pods, Lander style: drums clamped under the wings and on the spine, one per pod carried.
-const pods: THREE.Mesh[] = [[-2.0, -0.55, 1.4], [2.0, -0.55, 1.4], [0, -0.95, 1.9]].map(([x, y, z]) => {
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 1.7, 8), new THREE.MeshLambertMaterial({ color: 0xc9a24a }))
-  ;(m.material as THREE.Material).name = 'pod'
-  m.rotation.x = Math.PI / 2; m.position.set(x, y, z); m.visible = false; ship.add(m); return m
+// Cargo modules (Chris, 2026-09-05: "the timber is being put under the thrust, which is wrong,
+// need the ship to have modules that load"): crates clamped to the top of the hull, one each
+// side of the spine and one on the ridge behind it, the colour of what is in them. The pods
+// were drums under the tail, which is where the engine is. A module fills on the ground beside
+// the auger and hops up to its slot at the end of the dig.
+const topY = (x: number, z: number) => (3.795 * (z + 4.6) - 8.28 * Math.abs(x)) / 18.15   // the top facets' plane through the nose, spine and tail tips
+const MODULE_SLOTS = [new THREE.Vector3(1.25, topY(1.25, 0.9) + 0.22, 0.9), new THREE.Vector3(-1.25, topY(1.25, 0.9) + 0.22, 0.9), new THREE.Vector3(0, 1.15 * (1 - 1.0 / 1.7) + 0.22, 1.9)]
+const modules: THREE.Mesh[] = MODULE_SLOTS.map((slot) => {
+  const mat = new THREE.MeshLambertMaterial({ color: 0xc9a24a })
+  mat.name = 'module'
+  const m = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.55, 1.3), mat)
+  const strap = new THREE.Mesh(new THREE.BoxGeometry(1.06, 0.14, 1.36), new THREE.MeshLambertMaterial({ color: 0x2a2d33 }))
+  ;(strap.material as THREE.Material).name = 'module-strap'
+  m.add(strap)
+  m.position.copy(slot); m.visible = false; ship.add(m); return m
 })
 ship.visible = mode === 'fly'
 const padSite = padOf(HOME)!
@@ -253,6 +264,10 @@ const boob = new Boob()
 const boobView = buildBoob()
 views.find((v) => v.body.id === BOOB_BODY)!.group.add(boobView.group)
 const boobPos = new THREE.Vector3(), boobVel = new THREE.Vector3()
+// The dig you can see (DESIGN §10j): the auger under the keel, the heaps in the body's frame.
+const digger = new Digger(homeView.group)
+ship.add(digger.group)
+let digDust = 0
 const fireball = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), new THREE.MeshBasicMaterial({ color: 0xff8830, transparent: true, opacity: 0.9, depthWrite: false }))
 ;(fireball.material as THREE.Material).name = 'fireball'
 fireball.visible = false
@@ -282,6 +297,7 @@ let refView = homeView
 function switchFrame(): void {
   refView = views.find((v) => v.body === craft.ref)!
   refView.group.add(shadow.mesh, dust.points, rain.lines, puffs.mesh, puffs.shadows, marks.group)
+  for (const h of digger.heapsAll()) refView.group.add(h)
   shadow.terrain = dust.terrain = chase.terrain = craft.terrain
   chase.snap()
 }
@@ -919,6 +935,27 @@ renderer.setAnimationLoop((now) => {
     ship.position.copy(craft.pos).sub(viewPos)
     // Into the water: the hull goes down.
     if (craft.state === 'crashed' && craft.sunk) { sink += 1.4 * dt; ship.position.addScaledVector(wtmp.copy(craft.pos).normalize(), -sink) }
+    // The dig: the auger, the heap, the module filling on the ground and hopping to its slot, the ship shaking, dust and the sound.
+    {
+      const seamNow = digging >= 0 ? craft.seamHere() : null
+      const ph = digger.update(digging >= 0 && seamNow ? digging / DIG_SECONDS : -1, dt, seamNow?.good ?? null, craft)
+      const slot = craft.cargo.length
+      if (ph.on && seamNow && slot < modules.length) {
+        const mod = modules[slot]
+        mod.visible = true
+        ;(mod.material as THREE.MeshLambertMaterial).color.setHex(GOOD_COLOUR[seamNow.good])
+        const k = ph.hop * ph.hop * (3 - 2 * ph.hop)
+        mod.position.lerpVectors(MODULE_GROUND, MODULE_SLOTS[slot], k)
+        const s = ph.hop > 0 ? 1 : 0.2 + 0.8 * ph.fill
+        mod.scale.set(s, s, s)
+      }
+      if (ph.drilling) {
+        ship.position.add(wtmp.set(Math.random() - 0.5, 0, Math.random() - 0.5).applyQuaternion(craft.quat).multiplyScalar(0.07))
+        digDust -= dt
+        if (digDust <= 0) { digDust = 0.09; dust.burst(craft.pos, 2) }
+      }
+      sound.dig(ph.drilling ? 1 : 0, ph.on ? digging / DIG_SECONDS : 0)
+    }
     if (Math.abs(altitude) < 0.05) altitude = 0
     if (!off.has('shadow')) shadow.update(craft)
     if (!off.has('dust')) dust.update(dt, craft.pos, altitude, flame.visible)
@@ -1012,7 +1049,7 @@ renderer.setAnimationLoop((now) => {
       bankEl.textContent = `${credits(bank.balance)}${bank.loan > 0 ? `   LOAN ${credits(bank.loan)}` : ''}`
       const seamHere = craft.state === 'landed' ? craft.seamHere() : null
       cargoEl.textContent = digging >= 0 ? `DIGGING ${Math.round(100 * digging / DIG_SECONDS)}%` : craft.cargo.length ? `CARGO ${craft.cargo.map((c) => `${c.good.toUpperCase()} ${c.tonnes.toFixed(0)} t`).join(' · ')}` : seamHere ? `ON SEAM  ${seamHere.good.toUpperCase()} ${seamHere.richness.toFixed(0)} t   U digs` : townHere() ? '' : ''
-      for (let i = 0; i < pods.length; i++) pods[i].visible = i < craft.cargo.length
+      for (let i = 0; i < modules.length; i++) if (i < craft.cargo.length) { modules[i].visible = true; modules[i].position.copy(MODULE_SLOTS[i]); modules[i].scale.setScalar(1); (modules[i].material as THREE.MeshLambertMaterial).color.setHex(GOOD_COLOUR[craft.cargo[i].good]) } else if (!(digging >= 0 && i === craft.cargo.length)) modules[i].visible = false
       if ((frames & 15) === 0) goalEl.textContent = goalLine()
       bankEl.className = 'atmos' + (bank.balance < 200 ? ' low' : '')
       const glow = Math.min(1, Math.max(0, (over - HULL_GLOW) / (HULL_WARN - HULL_GLOW)))
@@ -1149,7 +1186,7 @@ void tmp
   mode, planet, craft, input, free, views, asteroids, ship,
   /** The opening's phase and the letterbox, for the probes. */
   phase: () => phase, barFrac: () => barFrac, titleBody: () => titleBody,
-  outposts: outpostViews, wrecks, bank, scan, scanHit: () => scanHit, boob, boobView, scanBoob: () => scanBoob, use, digging: () => digging, townHere, towns: allTowns, startDemo, stopDemo, demo: () => demo, demoStep: () => demoStep, pilot, starting: () => starting, sandbox: () => sandbox,
+  outposts: outpostViews, wrecks, bank, scan, scanHit: () => scanHit, boob, boobView, scanBoob: () => scanBoob, digger, modules, use, digging: () => digging, townHere, towns: allTowns, startDemo, stopDemo, demo: () => demo, demoStep: () => demoStep, pilot, starting: () => starting, sandbox: () => sandbox,
   /** True only once the LOD has updated since the last place() and its queue is empty. */
   ready: () => updates > placedAt + 1 && planet.pendingCount === 0,
   /** Free mode: put the camera at p looking at a. */
