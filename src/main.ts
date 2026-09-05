@@ -1230,7 +1230,7 @@ renderer.setAnimationLoop((now) => {
     const spaceLine = rho < 1 || craft.jet ? `${craft.cruise ? `CRUISE  cap ${fmtSpeed(craft.cap())}` : craft.jet ? `JET${craft.flaps > 0.3 ? `  FLAPS  Vref ${craft.vRef().toFixed(0)}` : ''}  stall ${craft.stallSpeed().toFixed(0)} m/s${craft.throttle > 0 && craft.flaps > 0.5 && !c.thrust ? '  AUTO-THR' : ''}${finalLine()}  J hover` : 'HOVER'}${apLine}   SOI ${craft.ref.name}   orbit ${vOrb.toFixed(0)}   escape ${vEsc.toFixed(0)}   ${craft.cruise ? '' : vIn > vEsc ? '!! ESCAPING !!' : vIn > vOrb ? 'above orbital' : ''}   target ${tgt.name}${tgt.field ? ` (${fieldIndex + 1} of ${nearFields.length} nearest, V)` : ' (Tab)'}${rockLine}\n` : ''
     line = `alt ${(altitude < 500 ? altitude.toFixed(1) : shownDistance(altitude).toFixed(0)).padStart(6)} m   v↑ ${vUp.toFixed(1).padStart(5)} m/s   spd ${fmtSpeed(spd).padStart(9)}   tilt ${tilt.toFixed(0).padStart(2)}°   ${craft.state.toUpperCase()}   landings ${craft.landings}  crashes ${craft.crashes}\n` + spaceLine +
       (craft.state === 'crashed' ? `contact: ${craft.burned ? 'HULL BURNED THROUGH  ' : craft.hitRock ? 'ROCK  ' : ''}v↑ ${lc.vUp.toFixed(1)}  drift ${lc.vH.toFixed(1)}  tilt ${lc.tilt.toFixed(0)}°  slope ${lc.slope.toFixed(0)}°   R to respawn\n` : '') +
-      `Esc  menu and controls   ${fps} fps   chunks ${refView.lod?.liveCount ?? 0}`
+      `Esc  menu and controls   ${fps} fps   chunks ${refView.lod?.liveCount ?? 0}${input.pad ? `   PAD ${input.pad.id.slice(0, 24)}` : ''}`
   } else {
     setGroundClock(t)
     weatherFront = -1; rainNow = 0; cloudNow = 0; windNow = 4

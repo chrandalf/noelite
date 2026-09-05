@@ -32,6 +32,7 @@ export class KeyInput {
   padSeen = false
 
   constructor() {
+    addEventListener('gamepadconnected', (e) => console.log('controller:', (e as GamepadEvent).gamepad.id, 'mapping', (e as GamepadEvent).gamepad.mapping))
     addEventListener('keydown', (e) => { if (CODES.includes(e.code)) { this.down.add(e.code); e.preventDefault() } })
     addEventListener('keyup', (e) => this.down.delete(e.code))
     addEventListener('blur', () => this.down.clear())
