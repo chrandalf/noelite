@@ -1471,3 +1471,37 @@ second draw), which the logarithmic depth buffer and the headless probes both ma
 awkward; shadows from the sun on the ground would be the single biggest step up in the
 look and are a day's work with the LOD; an outline pass is the other one worth a day.
 
+## 10p. The other worlds (Chris, 2026-09-05, late; not yet built)
+
+Chris: "also need more detail on the other planets, if this is random generated before we
+get there then fine, each game can have a different seed loaded, but there needs to be lots
+on each planet and be obvious including the moon, craters, man on the moon etc."
+
+**What there is.** Every body is a pure function of the master seed and its kind: airless rock
+is folded noise with ridges, terrestrials have seas, belts and forests, the ice worlds caps.
+There are no craters, no landmarks, and the seed is a constant (MASTER_SEED, "NOEL"): every
+game is the same system.
+
+**The brief, as I read it.**
+1. **Craters on airless bodies.** A seeded field of rimmed bowls by size class (a few big, many
+   small, the classic power law), with a raised rim, a flat floor, ejecta brightening in the
+   palette, and central peaks on the largest. Vale I first, then Cinder, the dwarfs, the ice
+   moons. The terrain harness re-tests the profile: rim above the plain, floor below, landable
+   floors.
+2. **Landmarks, one or two a body, obvious from the air and on the compass once found.** The
+   moon gets the man on the moon: a lander relic, a flag, footprints round it, at a seeded
+   mare site, and a plaque line for the chronicle. Cinder a lava field that glows at night.
+   The ice worlds a geyser field. The gas giant's moons a monolith. Halo its rings (the old
+   debt). Each is a small flat-polygon set like the boob, scannable as a CONTACT.
+3. **A seed per game.** NEW GAME rolls one (or takes `?seed=`), the save carries it, and the
+   system, the seams, the towns and the landmarks all come from it. Home stays home (its
+   terrain and pad are what the harnesses know), so the seed changes the rest of the system:
+   which worlds exist, where the craters and landmarks are, what the seams are. The harness
+   runs its checks on two seeds.
+4. **Variety per kind**, cheap: dune fields on the desert worlds (a directional ridge field),
+   frozen seas with pressure ridges on the ice worlds (currently the water shader, another
+   debt), volcanic cones on the hot ones.
+
+Order: craters and the moon's landmark first (the moon is the first place anyone goes), then
+the seed, then the rest. Built on a branch beside play, like the jet.
+
