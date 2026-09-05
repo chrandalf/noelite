@@ -12,6 +12,8 @@ const NEAR = { back: 14, up: 10 }
 const FAR = { back: 30, up: 26 }
 const FAR_ALT = 150
 const SHIP = { back: 24, up: 9 }
+/** The jet's camera (research/jet-stunts-2026-09-05.md): low and close, looking ahead, rolling part way with the ship, a flat follow gain so the frame lags a snap. */
+const JET = { back: 26, up: 5, ahead: 14, rollFollow: 0.6, gain: 7 }
 const CAM_CLEARANCE = 2.5
 const Y = new THREE.Vector3(0, 1, 0)
 
@@ -62,7 +64,8 @@ export class ChaseCam {
     // Planet frame. Heading is the nose flattened onto the local horizon; when
     // the nose points straight up or down, keep the last good heading.
     const t = Math.min(1, Math.max(0, craft.altitude() / FAR_ALT))
-    const BACK = NEAR.back + (FAR.back - NEAR.back) * t, UP = NEAR.up + (FAR.up - NEAR.up) * t
+    const jet = craft.jet
+    const BACK = jet ? JET.back : NEAR.back + (FAR.back - NEAR.back) * t, UP = jet ? JET.up : NEAR.up + (FAR.up - NEAR.up) * t
     this.f.set(0, 0, -1).applyQuaternion(craft.quat).addScaledVector(this.up, -this.f.dot(this.up))
     if (this.f.lengthSq() > 0.04) this.fwd.lerp(this.f.normalize(), this.first ? 1 : 1 - Math.exp(-2.5 * dt))
     this.fwd.addScaledVector(this.up, -this.fwd.dot(this.up)).normalize()
@@ -74,6 +77,7 @@ export class ChaseCam {
     const elev = Math.min(ChaseCam.MAX_PITCH, Math.max(-ChaseCam.MAX_PITCH, Math.atan2(UP, BACK) + this.orbitPitch))
     this.targetP.copy(craft.pos).addScaledVector(this.up, distP * Math.sin(elev)).addScaledVector(this.viewFwd, -distP * Math.cos(elev))
     this.lookP.copy(craft.pos).addScaledVector(this.up, 1.5)
+    if (jet) this.lookP.addScaledVector(this.viewFwd, JET.ahead)
 
     // Ship frame. Same spherical orbit as the planet frame, in body axes: elevation from
     // the ship's own horizontal, then yaw about its spine, so the two frames agree.
@@ -87,11 +91,11 @@ export class ChaseCam {
     // Blend.
     this.target.lerpVectors(this.targetS, this.targetP, density)
     this.look.lerpVectors(this.lookS, this.lookP, density)
-    this.camUp.lerpVectors(this.upS, this.up, density)
+    this.camUp.lerpVectors(this.upS, this.up, jet ? Math.min(density, 1 - JET.rollFollow) : density)
     if (this.camUp.lengthSq() < 1e-6) this.camUp.copy(this.up)
     this.camUp.normalize()
 
-    const k = 6 + craft.speed() * 0.5
+    const k = jet ? JET.gain : 6 + craft.speed() * 0.5
     this.offWant.copy(this.target).sub(craft.pos)
     this.offNow.lerp(this.offWant, this.first ? 1 : 1 - Math.exp(-k * dt))
     this.pos.copy(craft.pos).add(this.offNow)

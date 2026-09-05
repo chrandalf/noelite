@@ -12,7 +12,7 @@ import { Pilot } from '../src/engine/Demo.ts'
 import { Boob, boobDir, boobPos, boobFound, loadBoob, BOOB_RADIUS, BOOB_ALT, BOOB_BOB, BOOB_SPEED, BOOB_SIGHT } from '../src/world/boob.ts'
 import { seamsOf } from '../src/world/seams.ts'
 import { landingFor, townsOn } from '../src/world/town.ts'
-import { outpostsOf, PAD_RADIUS } from '../src/world/height.ts'
+import { outpostsOf, PAD_RADIUS, runwaysOf, RUNWAY_HALF } from '../src/world/height.ts'
 import { isDry } from '../src/world/terrain.ts'
 import { rng } from '../src/world/noise.ts'
 import { body, bodyVelocity, bodyPosition, bodySpin } from '../src/world/system.ts'
@@ -819,14 +819,14 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol
     // A bank turns it: roll right for a second, hands off the roll, and the heading swings right.
     const h0 = heading(c)
     let banked = 0
-    until(c, () => false, 1.2, () => T(1, 0, 1, 0))
+    until(c, () => false, 0.25, () => T(1, 0, 1, 0))   // 60° at 240°/s
     const bank = () => { const bu = new THREE.Vector3(0, 1, 0).applyQuaternion(c.quat); const up = c.pos.clone().normalize(); return Math.acos(Math.min(1, bu.dot(up))) * 180 / Math.PI }
     banked = bank()
-    until(c, () => false, 8, () => T(1))
+    until(c, () => false, 4, () => T(1))
     const h1 = heading(c)
     const up = c.pos.clone().normalize()
     const swung = Math.atan2(h0.clone().cross(h1).dot(up), h0.dot(h1)) * 180 / Math.PI
-    check('a bank turns it, the way a wing does', banked > 15 && swung < -25, `banked ${banked.toFixed(0)}°, heading swung ${swung.toFixed(0)}° (negative is right)`)
+    check('a bank turns it, the way a wing does', banked > 15 && swung < -6, `banked ${banked.toFixed(0)}°, heading swung ${swung.toFixed(0)}° (negative is right)`)
     check('without losing the sky', c.altitude() > 60 && c.state === 'flying', `${c.altitude().toFixed(0)} m`)
   }
   // The stall: at 30 m/s in sea-level air the wings hold under a quarter of the weight, and it sinks.
@@ -850,6 +850,65 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol
     c.toggleJet()
     const t = until(c, () => c.state !== 'flying', 240, () => IDLE)
     check('J back to hover at 150 m/s, hands off, and the assist lands it', c.state === 'landed' && c.lastContact.vH < LAND_MAX_HSPEED, `${c.state} after ${t.toFixed(0)} s, drift ${c.lastContact.vH.toFixed(1)} m/s`)
+  }
+}
+
+// 35. The runway (DESIGN §10l-2): a jet touching down on the strip, along it, rolls out and stops; across
+// it, or off it, the old limits hold and it is a wreck; thrust during the rollout is a touch-and-go.
+{
+  const rw = runwaysOf(HOME)[0]
+  const along = new THREE.Vector3(rw.along.x, rw.along.y, rw.along.z), centre = new THREE.Vector3(rw.dir.x, rw.dir.y, rw.dir.z)
+  const threshold = (back) => centre.clone().addScaledVector(along, -back / HOME.radius).normalize()
+  const touching = (speed, headingOff = 0, back = RUNWAY_HALF - 30) => {
+    const c = new Craft(HOME); c.windy = false; c.time = 700
+    const up = threshold(back)
+    const head = along.clone().applyAxisAngle(up, headingOff * Math.PI / 180)
+    c.placeAbove(body('home'), up, 3, head, head.clone().multiplyScalar(speed).addScaledVector(up, -2))
+    c.toggleJet()
+    return c
+  }
+  // The approach: the nose held two degrees under the horizon until the wheels touch, then hands off (or the brake).
+  const glide = (c, onGround = IDLE) => () => {
+    if (c.state !== 'flying') return onGround
+    const up = c.pos.clone().normalize(), n = new THREE.Vector3(0, 0, -1).applyQuaternion(c.quat)
+    const aim = up.clone().addScaledVector(n.addScaledVector(up, -n.dot(up)).normalize(), 0.035).normalize()
+    const a = c.aimControls(aim, 3)
+    return T(0, a.pitch, a.roll, a.yaw)
+  }
+  {
+    const c = touching(55)   // under the stall (60): the wings let it sink onto the strip; at 70 they hold it level
+    let rolled = false, rollSpeed = 0
+    const step = glide(c, T(0, 0, 0, 0, 0, 0, -1))
+    const t = until(c, () => c.state === 'landed' || c.state === 'crashed', 60, () => { if (c.state === 'rolling') { rolled = true; rollSpeed = Math.max(rollSpeed, c.speed()) } return step() })
+    const gone = Math.acos(Math.min(1, c.pos.clone().normalize().dot(threshold(RUNWAY_HALF - 30)))) * HOME.radius
+    check('a jet down on the strip at 55 m/s along it rolls out and stops', rolled && c.state === 'landed' && c.crashes === 0, `${c.state} after ${t.toFixed(1)} s, ${gone.toFixed(0)} m of paving used, rolled at up to ${rollSpeed.toFixed(0)} m/s`)
+    check('with the brake held it stops inside the strip', gone < 2 * RUNWAY_HALF - 40, `${gone.toFixed(0)} m of ${2 * RUNWAY_HALF}`)
+    check('and it counts as a landing with the wings folded', c.landings === 1 && !c.jet)
+  }
+  {
+    const c = touching(55)
+    let rolled = false
+    until(c, () => c.state === 'rolling', 8, glide(c))
+    rolled = c.state === 'rolling'
+    until(c, () => c.state !== 'rolling', 3, () => T(1))
+    check('thrust on the roll is a touch-and-go: flying again', rolled && c.state === 'flying')
+  }
+  {
+    const c = touching(55, 40)
+    const t = until(c, () => c.state !== 'flying', 10, glide(c))
+    check('40° across the strip at 55 m/s is a wreck', c.state === 'crashed', `${c.state} after ${t.toFixed(1)} s`)
+  }
+  {
+    const c = new Craft(HOME); c.windy = false; c.time = 700
+    const head = new THREE.Vector3(1, 0, 0).sub(pad.clone().multiplyScalar(pad.x)).normalize()
+    c.placeAbove(body('home'), pad, 3, head, head.clone().multiplyScalar(55).addScaledVector(pad, -2)); c.toggleJet()
+    const t = until(c, () => c.state !== 'flying', 10, glide(c))
+    check('55 m/s onto the pad, which is not a runway, is a wreck', c.state === 'crashed', `${c.state} after ${t.toFixed(1)} s`)
+  }
+  {
+    const c = touching(55, 0, 60)   // too little paving left: off the end at speed
+    const t = until(c, () => c.state === 'landed' || c.state === 'crashed', 60, glide(c))
+    check('off the far end at speed is a wreck', c.state === 'crashed', `${c.state} after ${t.toFixed(1)} s`)
   }
 }
 

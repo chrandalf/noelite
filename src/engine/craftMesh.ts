@@ -32,6 +32,12 @@ function jitter(x: number, y: number, z: number): number {
  * stripe. Chris, 2026-09-02: "put some textures on the ship make it look snazzy".
  */
 type Kind = 'top' | 'bottom' | 'back'
+/**
+ * The jet's hull (DESIGN §10l-2, research/jet-stunts-2026-09-05.md): the same five points,
+ * moved. The wide dart pinches to a needle 9 m long and 1.8 m across the tail. Built as a
+ * morph target of the same triangle list, so Three lerps it, and the livery stays put.
+ */
+const JET_V: Record<'N' | 'TL' | 'TR' | 'T' | 'B', P> = { N: [0, 0, -5.4], TL: [-0.9, 0, 3.6], TR: [0.9, 0, 3.6], T: [0, 0.75, 0.4], B: [0, -0.55, 0.4] }
 /** The six hull facets, hull frame, with their livery base colour: what a wreck breaks into. */
 export const HULL_FACETS: [P, P, P, P, Kind][] = [
   [N, TR, T, CREAM, 'top'], [N, T, TL, WHITE, 'top'],
@@ -44,38 +50,65 @@ export function buildCraftGeometry(): THREE.BufferGeometry {
   const centroid = new THREE.Vector3()
   for (const p of [N, TL, TR, T, B]) centroid.add(new THREE.Vector3(...p))
   centroid.divideScalar(5)
+  // The jet's points, keyed by the dart's, so a facet built on the dart can be rebuilt on the jet triangle for triangle.
+  const jetOf = new Map<P, P>([[N, JET_V.N], [TL, JET_V.TL], [TR, JET_V.TR], [T, JET_V.T], [B, JET_V.B]])
+  const jetCentroid = new THREE.Vector3()
+  for (const p of Object.values(JET_V)) jetCentroid.add(new THREE.Vector3(...p))
+  jetCentroid.divideScalar(5)
 
   const pos: number[] = [], nor: number[] = [], col: number[] = []
-  const n = new THREE.Vector3(), mid = new THREE.Vector3()
-  const emit = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, colour: P) => {
+  const jpos: number[] = [], jnor: number[] = []
+  const n = new THREE.Vector3(), mid = new THREE.Vector3(), jn = new THREE.Vector3()
+  // The dart decides the winding and the colour; the jet's triangle takes the same order, so the morph never twists a face.
+  const emit = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, colour: P, ja: THREE.Vector3, jb: THREE.Vector3, jc: THREE.Vector3) => {
     n.crossVectors(b.clone().sub(a), c.clone().sub(a)).normalize()
     mid.copy(a).add(b).add(c).divideScalar(3).sub(centroid)
-    const order = n.dot(mid) >= 0 ? [a, b, c] : [a, c, b]
-    if (n.dot(mid) < 0) n.negate()
-    for (const v of order) { pos.push(v.x, v.y, v.z); nor.push(n.x, n.y, n.z); col.push(...colour) }
+    const flip = n.dot(mid) < 0
+    const order = flip ? [a, c, b] : [a, b, c]
+    const jorder = flip ? [ja, jc, jb] : [ja, jb, jc]
+    if (flip) n.negate()
+    jn.crossVectors(jorder[1].clone().sub(jorder[0]), jorder[2].clone().sub(jorder[0])).normalize()
+    if (jn.dot(mid.copy(ja).add(jb).add(jc).divideScalar(3).sub(jetCentroid)) < 0) jn.negate()
+    for (let i = 0; i < 3; i++) { const v = order[i], jv = jorder[i]; pos.push(v.x, v.y, v.z); nor.push(n.x, n.y, n.z); col.push(...colour); jpos.push(jv.x, jv.y, jv.z); jnor.push(jn.x, jn.y, jn.z) }
   }
-  const paint = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, base: P, kind: Kind) => {
+  const paint = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, base: P, kind: Kind, ja: THREE.Vector3, jb: THREE.Vector3, jc: THREE.Vector3) => {
     const cx = (a.x + b.x + c.x) / 3, cy = (a.y + b.y + c.y) / 3, cz = (a.z + b.z + c.z) / 3
     let colour: P = base
     if (kind === 'top' && cz < -1.9 && Math.abs(cx) < 0.7) colour = GLASS
     else if (kind === 'top' && Math.abs(cx) < 0.3) colour = NAVY
     else if (kind === 'bottom' && Math.abs(cx) < 0.3) colour = STRIPE
     const k = 1 + 0.05 * jitter(cx, cy, cz)
-    emit(a, b, c, [colour[0] * k, colour[1] * k, colour[2] * k])
+    emit(a, b, c, [colour[0] * k, colour[1] * k, colour[2] * k], ja, jb, jc)
   }
-  const split = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, level: number, base: P, kind: Kind) => {
-    if (level === 0) { paint(a, b, c, base, kind); return }
+  const split = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, level: number, base: P, kind: Kind, ja: THREE.Vector3, jb: THREE.Vector3, jc: THREE.Vector3) => {
+    if (level === 0) { paint(a, b, c, base, kind, ja, jb, jc); return }
     const ab = a.clone().lerp(b, 0.5), bc = b.clone().lerp(c, 0.5), ca = c.clone().lerp(a, 0.5)
-    split(a, ab, ca, level - 1, base, kind); split(ab, b, bc, level - 1, base, kind)
-    split(ca, bc, c, level - 1, base, kind); split(ab, bc, ca, level - 1, base, kind)
+    const jab = ja.clone().lerp(jb, 0.5), jbc = jb.clone().lerp(jc, 0.5), jca = jc.clone().lerp(ja, 0.5)
+    split(a, ab, ca, level - 1, base, kind, ja, jab, jca); split(ab, b, bc, level - 1, base, kind, jab, jb, jbc)
+    split(ca, bc, c, level - 1, base, kind, jca, jbc, jc); split(ab, bc, ca, level - 1, base, kind, jab, jbc, jca)
   }
-  for (const [pa, pb, pc, colour, kind] of faces) split(new THREE.Vector3(...pa), new THREE.Vector3(...pb), new THREE.Vector3(...pc), 2, colour, kind)
+  for (const [pa, pb, pc, colour, kind] of faces) split(new THREE.Vector3(...pa), new THREE.Vector3(...pb), new THREE.Vector3(...pc), 2, colour, kind, new THREE.Vector3(...jetOf.get(pa)!), new THREE.Vector3(...jetOf.get(pb)!), new THREE.Vector3(...jetOf.get(pc)!))
   const g = new THREE.BufferGeometry()
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
   g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3))
   g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3))
+  g.morphAttributes.position = [new THREE.Float32BufferAttribute(jpos, 3)]
+  g.morphAttributes.normal = [new THREE.Float32BufferAttribute(jnor, 3)]
   return g
 }
+
+/** Flat triangles from a vertex list, one colour, both sides lit: the jet's wings, fins and canopy. */
+function plates(tris: P[][], colour: P): THREE.Mesh {
+  const pos: number[] = []
+  for (const [a, b, c] of tris) pos.push(...a, ...b, ...c)
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+  g.computeVertexNormals()
+  const m = new THREE.MeshLambertMaterial({ color: new THREE.Color(colour[0], colour[1], colour[2]), side: THREE.DoubleSide })
+  m.name = 'jet-plate'
+  return new THREE.Mesh(g, m)
+}
+const mirror = (tris: P[][]): P[][] => tris.map((t) => t.map(([x, y, z]) => [-x, y, z] as P))
 
 export type Rcs = { left: THREE.Mesh; right: THREE.Mesh; top: THREE.Mesh; rear: THREE.Mesh }
 /** Three landing legs, each a group hinged at the hull; scale.y is how far down it is (1 down, ~0 up). */
@@ -87,20 +120,42 @@ export type Gear = THREE.Group[]
  * in cruise; two boosters slide out of the back and carry the cruise flame. main drives
  * `set(morph)` from the craft's cruise flag, 0 dart, 1 TIE.
  */
-export type Morph = { set: (m: number) => void; cruiseFlames: THREE.Mesh[]; flashes: THREE.Mesh[] }
+export type Morph = { set: (m: number) => void; /** The jet form, 0 dart to 1 jet: the hull's morph target, wings, fins, canopy, intake, the nozzles at the tail. */ jet: (k: number) => void; cruiseFlames: THREE.Mesh[]; flashes: THREE.Mesh[] }
 
 /** Ship plus an engine flame that shows while thrusting, and four small RCS puffs. */
 export function buildCraftMesh(material: THREE.Material): { root: THREE.Group; flame: THREE.Mesh; rcs: Rcs; gear: Gear; morph: Morph; strobe: THREE.Mesh; glowMats: THREE.MeshLambertMaterial[]; plasma: THREE.Mesh; haze: THREE.Mesh } {
   const root = new THREE.Group()
-  root.add(new THREE.Mesh(buildCraftGeometry(), material))
+  const hull = new THREE.Mesh(buildCraftGeometry(), material)
+  hull.updateMorphTargets()
+  root.add(hull)
   // Trim: two engine nozzles on the back face and the navigation lights on the wingtips.
   const metal = new THREE.MeshLambertMaterial({ color: 0x2c2f36 })
   metal.name = 'nozzle'
+  const nozzles: THREE.Mesh[] = []
   for (const x of [-1.0, 1.0]) {
     const noz = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.2, 0.5, 6), metal)
     noz.position.set(x, 0.2, 2.55); noz.rotation.x = Math.PI / 2
     root.add(noz)
+    nozzles.push(noz)
   }
+  // The jet's parts (research/jet-stunts-2026-09-05.md): 45° swept wings, the LERX sliver, twin
+  // canted fins, small stabilators, a five-point canopy and a chin intake. All folded flat
+  // into the hull at k = 0 and out at k = 1.
+  const wingL: P[][] = [[[-0.7, -0.05, -0.8], [-3.5, -0.05, 2.0], [-3.5, -0.05, 2.9]], [[-0.7, -0.05, -0.8], [-3.5, -0.05, 2.9], [-0.8, -0.05, 3.5]]]
+  const lerxL: P[][] = [[[-0.7, -0.05, -0.8], [-0.34, -0.05, -3.6], [-0.5, -0.05, -0.8]]]
+  const finL: P[][] = [[[-0.75, 0.35, 1.8], [-0.85, 0.35, 3.5], [-1.55, 2.05, 3.1]]]
+  const stabL: P[][] = [[[-0.9, 0.0, 2.9], [-2.2, 0.0, 3.9], [-0.95, 0.0, 3.6]]]
+  const cF: P = [0, 0.42, -3.4], cT: P = [0, 0.95, -1.9], cR: P = [0, 0.62, -0.4], cL: P = [-0.42, 0.55, -1.6], cRt: P = [0.42, 0.55, -1.6]
+  const canopyTris: P[][] = [[cF, cL, cT], [cF, cT, cRt], [cT, cL, cR], [cT, cR, cRt], [cF, cRt, cL], [cR, cL, cRt]]
+  const intakeTris: P[][] = [[[-0.55, -0.45, -2.6], [0.55, -0.45, -2.6], [0.55, -0.45, -1.6]], [[-0.55, -0.45, -2.6], [0.55, -0.45, -1.6], [-0.55, -0.45, -1.6]]]
+  const wings = plates([...wingL, ...mirror(wingL)], WHITE)
+  const lerx = plates([...lerxL, ...mirror(lerxL)], DARK)
+  const fins = plates([...finL, ...mirror(finL)], CREAM)
+  const stabs = plates([...stabL, ...mirror(stabL)], WHITE)
+  const canopy = plates(canopyTris, GLASS)
+  const intake = plates(intakeTris, DARK)
+  const jetParts = [wings, lerx, fins, stabs, canopy, intake]
+  for (const p of jetParts) { p.visible = false; root.add(p) }
   // Landing skids: the craft's centre sits HULL_CLEARANCE (1.6 m) above the ground and the
   // keel is only 0.75 m down, so without legs it hangs in the air over its own shadow
   // (Chris, 2026-09-02: "looks like it's not quite on the ground"). Three legs to -1.6.
@@ -220,9 +275,30 @@ export function buildCraftMesh(material: THREE.Material): { root: THREE.Group; f
     root.add(fl)
     flashes.push(fl)
   }
+  let jetK = 0
   const morph: Morph = {
     cruiseFlames,
     flashes,
+    jet: (k: number) => {
+      const t = Math.min(1, Math.max(0, k))
+      jetK = t
+      if (hull.morphTargetInfluences) hull.morphTargetInfluences[0] = t
+      const on = t > 0.05
+      for (const p of jetParts) p.visible = on
+      wings.scale.x = 0.04 + 0.96 * t
+      lerx.scale.x = wings.scale.x
+      fins.scale.y = 0.02 + 0.98 * t
+      stabs.scale.x = 0.05 + 0.95 * t
+      canopy.scale.y = t
+      intake.scale.z = 0.1 + 0.9 * t
+      // The nozzles walk back to the tail and grow; in the jet the cruise flames come out of them.
+      for (let i = 0; i < nozzles.length; i++) {
+        const x = (i === 0 ? -1 : 1) * (1.0 - 0.5 * t)
+        nozzles[i].position.set(x, 0.2 - 0.15 * t, 2.55 + 1.15 * t)
+        nozzles[i].scale.setScalar(1 + 0.6 * t)
+        if (t > 0.5) cruiseFlames[i].position.set(x, 0.05, 3.7 + 0.75)
+      }
+    },
     set: (m: number) => {
       const t = Math.min(1, Math.max(0, m))
       for (const { g, fold } of panels) {
@@ -232,7 +308,7 @@ export function buildCraftMesh(material: THREE.Material): { root: THREE.Group; f
       }
       for (let i = 0; i < boosters.length; i++) {
         boosters[i].position.z = 1.85 + 1.55 * t
-        cruiseFlames[i].position.set(boosters[i].position.x, 0.2, boosters[i].position.z + 0.75 + 1.6)
+        if (jetK <= 0.5) cruiseFlames[i].position.set(boosters[i].position.x, 0.2, boosters[i].position.z + 0.75 + 1.6)
       }
       // Barrels slide forward out of the wing: stowed they sit inside the hull, scaled to a stub.
       for (const b of barrels) { b.position.z = 2.4 - 2.0 * t; b.scale.z = 0.12 + 0.88 * t; b.visible = t > 0.05 }

@@ -155,7 +155,8 @@ export const BASE_BLEND = 40
 /** Metres above the sea a pad wants to sit: enough for a view, not a mountain. */
 const PAD_MIN = 25, PAD_MAX = 140
 
-export type PadSite = { dir: UnitVector; h: number; radius: number; blend: number }
+/** A flattened site: a disc of `radius` round `dir`, ramping back over `blend`; with `along` and `half` set it is a strip that long each way along that tangent (a runway, DESIGN §10l-2). */
+export type PadSite = { dir: UnitVector; h: number; radius: number; blend: number; along?: UnitVector; half?: number }
 /** A station: a flat disc with numbered pads round a dome. The first authored place (DESIGN §10). */
 export type Station = { name: string; site: PadSite; pads: { dir: UnitVector; n: number }[] }
 const pads = new Map<string, PadSite | null>()
@@ -253,13 +254,95 @@ export function outpostsOf(t: Terrain): Outpost[] {
   return list
 }
 
-/** Every flattened site on the body: the pad, the station's disc, the outposts. */
+/** Every flattened site on the body: the pad, the station's disc, the outposts, the runways. */
 function sitesOf(t: Terrain): PadSite[] {
   const out: PadSite[] = []
   const p = padOf(t); if (p) out.push(p)
   const s = stationOf(t); if (s) out.push(s.site)
   for (const o of outpostsOf(t)) out.push(o.site)
+  for (const r of runwaysOf(t)) out.push(r)
   return out
+}
+
+/** Metres: half the runway's length, and its paved width. The flat is a shade wider than the paving. */
+export const RUNWAY_HALF = 220
+export const RUNWAY_WIDTH = 30
+const runways = new Map<string, PadSite[]>()
+let findingRunways = false
+
+/** Metres from `p` to a strip site's flat: to the segment along `along` if it is a strip, else to the centre. `u` is along the strip, `v` across it. */
+export function stripOffset(p: UnitVector, site: PadSite, t: Terrain): { dist: number; u: number; v: number } {
+  const ox = (p.x - site.dir.x) * t.radius, oy = (p.y - site.dir.y) * t.radius, oz = (p.z - site.dir.z) * t.radius
+  if (!site.along || !site.half) { const d = Math.hypot(ox, oy, oz); return { dist: d, u: 0, v: d } }
+  const u = ox * site.along.x + oy * site.along.y + oz * site.along.z
+  const v = Math.hypot(ox - site.along.x * u, oy - site.along.y * u, oz - site.along.z * u)
+  return { dist: Math.hypot(Math.max(0, Math.abs(u) - site.half), v), u, v }
+}
+
+/**
+ * The body's runways (DESIGN §10l-2): one off the home base and one off the station, each a
+ * strip 2·RUNWAY_HALF long starting past the site's ramp, on the heading round the compass
+ * where the ground along it is flattest and dry. Found once. Nothing while the finder runs,
+ * so the strips do not see themselves.
+ */
+export function runwaysOf(t: Terrain): PadSite[] {
+  if (findingRunways || t.water || !SETTLED.has(t.kind) || !t.amplitude) return []
+  let list = runways.get(t.id)
+  if (list !== undefined) return list
+  findingRunways = true
+  list = []
+  const anchors: PadSite[] = []
+  const p = padOf(t); if (p) anchors.push(p)
+  const s = stationOf(t); if (s) anchors.push(s.site)
+  const sea = t.sea ?? -Infinity
+  for (const a of anchors) {
+    const a0 = Math.abs(a.dir.x) < 0.9 ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 }
+    const t1 = norm(cross(a0, a.dir)), t2 = cross(a.dir, t1)
+    let best: PadSite | null = null, bestScore = Infinity
+    for (let k = 0; k < 24; k++) {
+      const ang = (k / 24) * Math.PI * 2
+      const hx = t1.x * Math.cos(ang) + t2.x * Math.sin(ang), hy = t1.y * Math.cos(ang) + t2.y * Math.sin(ang), hz = t1.z * Math.cos(ang) + t2.z * Math.sin(ang)
+      const off = (a.radius + a.blend + RUNWAY_HALF + 40) / t.radius
+      const centre = norm({ x: a.dir.x + hx * off, y: a.dir.y + hy * off, z: a.dir.z + hz * off })
+      // The heading at the centre: the same tangent, re-projected there.
+      const c = centre
+      const dot = hx * c.x + hy * c.y + hz * c.z
+      const along = norm({ x: hx - c.x * dot, y: hy - c.y * dot, z: hz - c.z * dot })
+      let sum = 0, lo = Infinity, hi = -Infinity, bad = false
+      const hs: number[] = []
+      for (let i = -5; i <= 5; i++) {
+        const q = norm({ x: c.x + along.x * (i * RUNWAY_HALF / 5) / t.radius, y: c.y + along.y * (i * RUNWAY_HALF / 5) / t.radius, z: c.z + along.z * (i * RUNWAY_HALF / 5) / t.radius })
+        const hq = baseHeight(q, t)
+        if (hq < sea + 4 || clump(q, t) > CLUMP_EDGE - 0.15) { bad = true; break }
+        hs.push(hq); sum += hq; lo = Math.min(lo, hq); hi = Math.max(hi, hq)
+      }
+      if (bad) continue
+      const score = hi - lo
+      if (score < bestScore) { bestScore = score; best = { dir: c, h: sum / hs.length, radius: RUNWAY_WIDTH / 2 + 6, blend: 40, along, half: RUNWAY_HALF } }
+    }
+    if (best) {
+      // A ramp as long as the hill it covers, like the discs: the blend is three times the biggest drop along the outline.
+      let diff = 0
+      const b = best
+      for (let i = -6; i <= 6; i++) for (const side of [-1, 1]) {
+        const across = norm(cross(b.along!, b.dir))
+        const rr = (b.radius + b.blend) / t.radius
+        const q = norm({ x: b.dir.x + b.along!.x * (i * b.half! / 5) / t.radius + across.x * side * rr, y: b.dir.y + b.along!.y * (i * b.half! / 5) / t.radius + across.y * side * rr, z: b.dir.z + b.along!.z * (i * b.half! / 5) / t.radius + across.z * side * rr })
+        diff = Math.max(diff, Math.abs(baseHeight(q, t) - b.h))
+      }
+      b.blend = Math.max(40, 3 * diff)
+      list.push(b)
+    }
+  }
+  runways.set(t.id, list)
+  findingRunways = false
+  return list
+}
+
+/** The runway under `p`, with where along it (`u`, metres from the centre) and across it (`v`), or null. */
+export function onRunway(p: UnitVector, t: Terrain): { site: PadSite; u: number; v: number } | null {
+  for (const r of runwaysOf(t)) { const o = stripOffset(p, r, t); if (Math.abs(o.u) <= r.half! && o.v <= RUNWAY_WIDTH / 2) return { site: r, u: o.u, v: o.v } }
+  return null
 }
 
 /**
@@ -332,9 +415,9 @@ function applySites(p: UnitVector, t: Terrain, base: number): number {
   let h = base
   for (const site of sitesOf(t)) {
     const c = p.x * site.dir.x + p.y * site.dir.y + p.z * site.dir.z
-    const outer = (site.radius + site.blend) / t.radius
+    const outer = (site.radius + site.blend + (site.half ?? 0)) / t.radius
     if (c < Math.cos(outer)) continue
-    const dist = Math.acos(Math.min(1, c)) * t.radius
+    const dist = site.half ? stripOffset(p, site, t).dist : Math.acos(Math.min(1, c)) * t.radius
     const w = 1 - smooth(site.radius, site.radius + site.blend, dist)
     h = h + (site.h - h) * w
   }

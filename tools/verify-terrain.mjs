@@ -10,6 +10,7 @@ import { TERRAIN_AMPLITUDE, PLANET_RADIUS, MASTER_SEED } from '../src/world/conf
 import { rng } from '../src/world/noise.ts'
 import { wind, front, tide, WIND_CALM, WIND_STORM, TIDE_AMPLITUDE } from '../src/world/weather.ts'
 import { seamsOf, goodAt, seamBodies, tierOf, seamsWanted, SEAMS_PER_BODY, SEAM_MIN_FROM_PAD } from '../src/world/seams.ts'
+import { runwaysOf, onRunway, RUNWAY_HALF, RUNWAY_WIDTH, padOf as padSiteOf, stationOf as stationSiteOf } from '../src/world/height.ts'
 import { terrainOf, padOf, stationOf, outpostsOf, STATION_RADIUS, STATION_PAD_OFFSET, STATION_MIN_FROM_PAD, OUTPOSTS_PER_BODY, OUTPOST_MIN_APART, OUTPOST_RADIUS } from '../src/world/height.ts'
 import { slopeDeg } from '../src/world/terrain.ts'
 import { forestAt } from '../src/world/forest.ts'
@@ -272,6 +273,31 @@ for (const t of [HOME, terrainOf(body('terra-a'))]) {
   check('ore on the red world is richer than at home', oreHome !== null && oreRust !== null && oreRust > oreHome * 1.8, `${oreHome?.toFixed(0)} t vs ${oreRust?.toFixed(0)} t`)
   const iceRime = seamsOf(terrainOf(body('giant-2'))).filter((s) => s.good === 'ice').length
   check('the ice moon is mostly ice', iceRime >= SEAMS_PER_BODY / 2, `${iceRime} of ${SEAMS_PER_BODY}`)
+}
+
+// Runways (DESIGN §10l-2): one off the home base and one off the station, flat along their length
+// and across their width, dry, a strip's length from the site they serve.
+{
+  const rws = runwaysOf(HOME)
+  check('home has two runways, one off the base and one off the station', rws.length === 2)
+  const n3 = (v) => { const l = Math.hypot(v.x, v.y, v.z); return { x: v.x / l, y: v.y / l, z: v.z / l } }
+  let worst = 0, dry = true
+  for (const r of rws) {
+    const across = n3({ x: r.along.y * r.dir.z - r.along.z * r.dir.y, y: r.along.z * r.dir.x - r.along.x * r.dir.z, z: r.along.x * r.dir.y - r.along.y * r.dir.x })
+    for (let i = -10; i <= 10; i++) for (const side of [-1, 0, 1]) {
+      const q = n3({ x: r.dir.x + (r.along.x * i * RUNWAY_HALF / 10 + across.x * side * RUNWAY_WIDTH / 2) / HOME.radius, y: r.dir.y + (r.along.y * i * RUNWAY_HALF / 10 + across.y * side * RUNWAY_WIDTH / 2) / HOME.radius, z: r.dir.z + (r.along.z * i * RUNWAY_HALF / 10 + across.z * side * RUNWAY_WIDTH / 2) / HOME.radius })
+      worst = Math.max(worst, Math.abs(height(q, HOME) - r.h))
+      if (HOME.sea !== null && height(q, HOME) < HOME.sea + 3) dry = false
+    }
+  }
+  check('each runway is level along its length and across its width', worst < 0.5, `worst ${worst.toFixed(2)} m off its height`)
+  check('and dry', dry)
+  const pad = padSiteOf(HOME), st = stationSiteOf(HOME)
+  const dist = (a, b) => Math.acos(Math.min(1, a.x * b.x + a.y * b.y + a.z * b.z)) * HOME.radius
+  const near = (site) => rws.some((r) => dist(r.dir, site.dir) < site.radius + site.blend + RUNWAY_HALF + 120)
+  check('one sits just past the base, the other just past the station', near(pad) && near(st.site))
+  const mid = rws[0]
+  check('onRunway finds a point on the strip and not one beside it', onRunway(mid.dir, HOME) !== null && onRunway(n3({ x: mid.dir.x + (mid.along.y * mid.dir.z - mid.along.z * mid.dir.y) * 60 / HOME.radius, y: mid.dir.y + (mid.along.z * mid.dir.x - mid.along.x * mid.dir.z) * 60 / HOME.radius, z: mid.dir.z + (mid.along.x * mid.dir.y - mid.along.y * mid.dir.x) * 60 / HOME.radius }), HOME) === null)
 }
 
 console.log(`\n${pass}/${pass + fail} checks`)

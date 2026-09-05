@@ -1337,6 +1337,23 @@ stall speed by itself; below half JET_MIN_AIR the wings fold to hover on their o
 takes over above the air as before. The hull at 380 m/s in sea-level air heats to a fifth of
 its limit, so no re-entry glow low down. Harness §34.
 
+**Tuned the same night from `research/jet-stunts-2026-09-05.md`** (Chris: "needs to be
+able to do stunts easily"). The stick is Rocket League's: each axis chases stick × cap in
+about 0.16 s, no mass in it: pitch 75°/s (a 4.8 s loop at any speed), roll 240°/s (a 360 in
+1.5 s), yaw 30°/s. Velocity follows the nose in 0.2 s (0.7 flew 28° nose-high round a loop);
+the grip fades with the square of the lift ratio under the stall, so the stall mushes then
+drops. The lift is signed and capped at 4 g, so inverted flight holds (the old guard made
+the wings do nothing upside down). Pulling costs 4.5 m/s² of speed per unit of stick. Wings
+level themselves slowly (τ 2.5 s, dead band 8°) with the roll stick centred and the ship
+upright, so a held bank still turns you and a roll still completes. The camera in jet sits
+back 26 and up 5, looks 14 m ahead, rolls 60% with the ship, lags a snap (a flat gain of 7),
+and the field of view opens 10° with speed, 4° more on boost. Ground effect is off in jet.
+The look: the hull's five points slide to a needle (nose −5.4, tail ±0.9) as a morph target
+of the same triangles, and 45° wings, a LERX sliver, twin canted fins, stabilators, a
+five-point canopy and a chin intake unfold from the flanks over the same half second; the
+nozzles walk to the tail and the flame comes out of them. Split-S at top speed eats 360 m of
+sky; worth a HUD tick. Canned Immelmann and split-S on a key: not built.
+
 Not yet: the demo pilot does not use it (its legs still climb to cruise), and there is no
 stall buzz or wind-over-wings sound beyond the cruise drive. Both next.
 

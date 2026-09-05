@@ -150,16 +150,34 @@ export const CRUISE_BRAKE = 0.8
 export const JET_DRAG = 0.0005
 /** Lift per (m/s)² per unit air, per unit mass: the wings hold a g at √(g/JET_LIFT) ≈ 60 m/s in sea-level air, the stall speed. */
 export const JET_LIFT = 0.0027
-/** The most the wings pull, in g. */
-export const JET_LIFT_MAX_G = 3.5
-/** Seconds for velocity across the nose to bleed away: where you point is where you go. */
-export const JET_ALIGN_TAU = 0.7
+/** The most the wings pull, in g, signed: inverted they push toward the belly, so inverted flight holds. */
+export const JET_LIFT_MAX_G = 4
+/** Seconds for velocity across the nose to bleed away: where you point is where you go. 0.7 flew 28° nose-high round a loop (research/jet-stunts-2026-09-05.md); 0.2 is 15°. */
+export const JET_ALIGN_TAU = 0.2
 /** Air below which J does nothing (and the wings fold back to hover under half of it). */
 export const JET_MIN_AIR = 0.15
-/** Pitch and yaw authority in jet, as a share of hover's: fast air, smaller stick. */
-export const JET_ANG = 0.5
+/**
+ * The jet's stick (research/jet-stunts-2026-09-05.md, Rocket League's model): each axis chases
+ * a target rate of stick × cap, reaching it in about 0.16 s and stopping as fast when the
+ * stick centres, with no mass in it, so cargo never slows a roll. Pitch 75°/s is a 4.8 s loop
+ * at any speed, roll 240°/s is the F-16 number, yaw 30°/s kicks a hammerhead and no more.
+ */
+export const JET_PITCH_RATE = 1.31
+export const JET_ROLL_RATE = 4.19
+export const JET_YAW_RATE = 0.52
+export const JET_RESPONSE = 6
+/** Wings level themselves with the roll stick centred and the ship upright: seconds, and the dead band in radians. Slow, so a held bank still turns you. */
+export const JET_LEVEL_TAU = 2.5
+export const JET_LEVEL_DEAD = 0.14
+/** m/s² of speed lost along the flight path per unit of pitch stick: pulling costs speed, so the throttle matters in a loop. */
+export const JET_INDUCED = 4.5
 /** The steepest bank the coordinated turn honours, as tan(bank). */
 export const JET_BANK_MAX_TAN = 3
+/** The runway rollout: m/s² lost on the wheels, more with / held, rad/s of steer on Q/E, and how far off the strip's heading a touchdown may be. */
+export const ROLL_DECEL = 3
+export const ROLL_BRAKE = 9
+export const ROLL_STEER = 0.35
+export const RUNWAY_HEADING_DEG = 15
 
 // ---- Fuel (2026-09-03). The first number that gates reach. ----
 

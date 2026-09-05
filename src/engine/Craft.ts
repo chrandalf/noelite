@@ -15,7 +15,7 @@
 // this straight from Node.
 import * as THREE from 'three'
 import type { Terrain } from '../world/height.ts'
-import { terrainOf, padOf, stationOf, outpostsOf, type Station, type Outpost } from '../world/height.ts'
+import { onRunway, terrainOf, padOf, stationOf, outpostsOf, type Station, type Outpost } from '../world/height.ts'
 import { seamsOf, type Seam, type Good } from '../world/seams.ts'
 import { groundRadius, surfaceNormal, slopeDeg, setGroundClock, isDry } from '../world/terrain.ts'
 import { wind } from '../world/weather.ts'
@@ -29,7 +29,7 @@ import {
   CRUISE_ENTER, CRUISE_EXIT, CRUISE_FLOOR, CRUISE_ALIGN_TAU, CRUISE_MAX, CRUISE_FLOOR_SPEED, CRUISE_BRAKE, CRUISE_DECEL, CRUISE_SECONDS, CRUISE_SPOOL,
   FUEL_TANK, FUEL_HOVER_BURN, FUEL_CRUISE_BURN, FUEL_RCS_BURN, FUEL_PAD_REFILL, FUEL_SOLAR_TRICKLE, FUEL_RELIGHT, PAD_RADIUS,
   CRASH_DAMAGE_SCALE, CRASH_MIN_DAMAGE, FUEL_PRICE, REPAIR_PRICE, CARGO_PODS, POD_TONNES, SHIP_TONNES, POD_DRAG, DIVE_ACCEL,
-  JET_DRAG, JET_LIFT, JET_LIFT_MAX_G, JET_ALIGN_TAU, JET_MIN_AIR, JET_ANG, JET_BANK_MAX_TAN,
+  JET_DRAG, JET_LIFT, JET_LIFT_MAX_G, JET_ALIGN_TAU, JET_MIN_AIR, JET_BANK_MAX_TAN, JET_PITCH_RATE, JET_ROLL_RATE, JET_YAW_RATE, JET_RESPONSE, JET_LEVEL_TAU, JET_LEVEL_DEAD, JET_INDUCED, ROLL_DECEL, ROLL_BRAKE, ROLL_STEER, RUNWAY_HEADING_DEG,
   GUN_RANGE, GUN_COOLDOWN, ICE_REACH, BOLT_SPEED,
   GUN_MUZZLE, HEAT_K, HEAT_RAMP_LO, HEAT_RAMP_HI, HEAT_RAMP_MIN, HEAT_TAU, COOL_RATE, COOL_MIN, HULL_LIMIT, DAMAGE_TAU, HOVER_MAX_SPEED,
 } from '../world/config.ts'
@@ -42,7 +42,8 @@ import {
 export type Controls = { pitch: number; roll: number; yaw: number; thrust: number; boost: number; lateral: number; vertical: number; fore: number }
 export const IDLE: Readonly<Controls> = Object.freeze({ pitch: 0, roll: 0, yaw: 0, thrust: 0, boost: 0, lateral: 0, vertical: 0, fore: 0 })
 
-export type CraftState = 'landed' | 'flying' | 'crashed'
+/** `rolling`: on a runway at speed after a jet landing, slowing on its wheels (DESIGN §10l-2). */
+export type CraftState = 'landed' | 'flying' | 'crashed' | 'rolling'
 
 export type Bolt = { pos: THREE.Vector3; vel: THREE.Vector3; dir: THREE.Vector3; dies: number; alive: boolean; side: number }
 export type BoltHit = { hit: Hit; broke: boolean; fuel: number }
@@ -422,6 +423,7 @@ export class Craft {
     this.thrusting = c.thrust > 0
     this.refChanged = false
     setGroundClock(this.time)
+    if (this.state === 'rolling') { this.rollStep(h, c); return }
     if (this.state !== 'flying') {
       if (this.state === 'landed' && (c.thrust > 0 || c.vertical > 0)) this.state = 'flying'
       else {
@@ -514,11 +516,28 @@ export class Craft {
     // against the stars. Rotation, not force: blending it is harmless.
     // Loaded, the ship turns as it climbs: slower by its mass.
     const mass = this.massFactor()
-    const stick = this.jet ? JET_ANG : 1
-    this.angVel.x -= (c.pitch * ANG_ACCEL * stick * h) / mass
-    this.angVel.z -= (c.roll * ANG_ACCEL * (this.jet ? 0.8 : 1) * h) / mass
-    this.angVel.y -= (c.yaw * ANG_ACCEL * 0.6 * stick * h) / mass
-    this.angVel.multiplyScalar(Math.exp(-ANG_DAMP * h))
+    if (this.jet) {
+      // The jet's stick: each axis chases stick × cap (see config); with the roll stick centred
+      // and the ship upright, the wings level themselves slowly, so inverted flight still holds.
+      const k = 1 - Math.exp(-JET_RESPONSE * h)
+      let rollWant = -c.roll * JET_ROLL_RATE
+      if (Math.abs(c.roll) < 0.05) {
+        this.bodyUp.copy(BODY_UP).applyQuaternion(this.hquat)
+        this.bodyRight.set(1, 0, 0).applyQuaternion(this.hquat)
+        if (this.bodyUp.dot(this.up) > 0) {
+          const bank = Math.asin(Math.max(-1, Math.min(1, this.bodyRight.dot(this.up))))
+          if (Math.abs(bank) > JET_LEVEL_DEAD) rollWant = -bank / JET_LEVEL_TAU
+        }
+      }
+      this.angVel.x += (-c.pitch * JET_PITCH_RATE - this.angVel.x) * k
+      this.angVel.z += (rollWant - this.angVel.z) * k
+      this.angVel.y += (-c.yaw * JET_YAW_RATE - this.angVel.y) * k
+    } else {
+      this.angVel.x -= (c.pitch * ANG_ACCEL * h) / mass
+      this.angVel.z -= (c.roll * ANG_ACCEL * h) / mass
+      this.angVel.y -= (c.yaw * ANG_ACCEL * 0.6 * h) / mass
+      this.angVel.multiplyScalar(Math.exp(-ANG_DAMP * h))
+    }
     this.dq.set(this.angVel.x * h * 0.5, this.angVel.y * h * 0.5, this.angVel.z * h * 0.5, 1).normalize()
     this.hquat.multiply(this.dq).normalize()
     const wh = this.omega.length()
@@ -569,10 +588,14 @@ export class Craft {
       if (c.thrust > 0) this.acc.addScaledVector(this.nose, mainThrust)
       const vFwd = Math.max(0, this.vRel.dot(this.nose))
       const g = gravityAt(r, this.terrain)
+      // Signed: upright the wing pushes toward the canopy, inverted toward the belly (a wing
+      // at negative alpha), so inverted flight holds too. The cargo rides on the wings: lift
+      // per unit mass falls with the mass factor, so a full ship stalls 15% faster.
       const need = g * this.bodyUp.dot(this.up)
-      // The wings carry the cargo too: lift per unit mass falls with the mass factor, so a full ship stalls 15% faster.
       const can = Math.min((JET_LIFT * rhoNow * vFwd * vFwd) / mass, JET_LIFT_MAX_G * g)
-      if (need > 0) this.acc.addScaledVector(this.bodyUp, Math.min(need, can))
+      this.acc.addScaledVector(this.bodyUp, Math.max(-can, Math.min(can, need)))
+      // Pulling costs speed: induced drag along the flight path with the pitch stick.
+      if (c.pitch !== 0 && vFwd > 1) this.acc.addScaledVector(this.nose, -JET_INDUCED * Math.abs(c.pitch))
       if (c.vertical < 0) {
         const vPar = this.vRel.dot(this.nose)
         if (vPar > 0) this.acc.addScaledVector(this.nose, -Math.min(THRUST_ACCEL * CRUISE_BRAKE, vPar / h))
@@ -593,7 +616,7 @@ export class Craft {
     // descent, both fading to nothing at GROUND_EFFECT_HEIGHT. It is the ground
     // answering back, and it is what makes the last part of a landing readable.
     const feet = alt - HULL_CLEARANCE
-    if (feet < GROUND_EFFECT_HEIGHT) {
+    if (feet < GROUND_EFFECT_HEIGHT && !this.jet) {
       const k = 1 - Math.max(0, feet) / GROUND_EFFECT_HEIGHT
       this.acc.addScaledVector(this.up, GROUND_EFFECT_ACCEL_G * this.terrain.g * k)
       const vUp = this.vRel.dot(this.up)
@@ -616,9 +639,11 @@ export class Craft {
       // Where you point is where you go: velocity across the nose bleeds away, on the velocity relative to the body.
       this.vRel.copy(this.hvel).sub(this.frameVel)
       const vPar = this.vRel.dot(this.nose)
-      // The grip is the wing's: full above the stall speed, fading with the square of the speed
-      // under it, so a stalled ship falls instead of being steered by wings that have no air.
-      const grip = Math.min(1, (JET_LIFT * rhoNow * vPar * vPar) / (gravityAt(r, this.terrain) * this.massFactor()))
+      // The grip is the wing's: full above the stall speed and falling with the square of the
+      // lift ratio under it (a quarter of the lift is a sixteenth of the grip), so near the stall
+      // the ship mushes and well under it, it drops instead of being steered by wings with no air.
+      const ratio = Math.min(1, (JET_LIFT * rhoNow * vPar * vPar) / (gravityAt(r, this.terrain) * this.massFactor()))
+      const grip = ratio * ratio
       const bleed = 1 - Math.exp((-h * grip) / JET_ALIGN_TAU)
       this.vRel.addScaledVector(this.nose, -vPar).multiplyScalar(1 - bleed).addScaledVector(this.nose, vPar)
       this.hvel.copy(this.frameVel).add(this.vRel)
@@ -664,6 +689,29 @@ export class Craft {
       // Contact damage (DESIGN §10): none inside the limits; over them it adds to the hull's.
       // Short of a whole hull it is a hard landing, gear bent; at a whole hull, or any hard
       // contact with water, it is a wreck.
+      // A jet landing on a runway (DESIGN §10l-2): inside the strip, within RUNWAY_HEADING_DEG of
+      // its heading, sinking under the limit and near level, the speed along the strip is kept
+      // and the ship rolls out on its wheels instead of failing the drift limit.
+      const rw = this.jet ? onRunway(this.localDir, this.terrain) : null
+      if (rw && vUp > -LAND_MAX_VSPEED && tilt < LAND_MAX_TILT) {
+        this.nose.copy(BODY_FWD).applyQuaternion(this.hquat).applyQuaternion(this.spinInv)
+        const alongCos = Math.abs(this.nose.x * rw.site.along!.x + this.nose.y * rw.site.along!.y + this.nose.z * rw.site.along!.z)
+        if (alongCos > Math.cos((RUNWAY_HEADING_DEG * Math.PI) / 180)) {
+          this.jet = false
+          this.lastContact = { vUp, vH, tilt, slope }
+          this.contactVel.copy(this.vRel).applyQuaternion(this.spinInv)
+          this.syncLocal()
+          this.up.copy(this.pos).normalize()
+          this.pos.copy(this.up).multiplyScalar(ground + HULL_CLEARANCE)
+          this.vel.copy(this.contactVel).addScaledVector(this.up, -this.contactVel.dot(this.up))
+          this.angVel.set(0, 0, 0)
+          this.state = 'rolling'
+          this.alignTo(surfaceNormal(this.up, this.terrain, this.n), this.vel)
+          this.rest()
+          this.syncHelio()
+          return
+        }
+      }
       this.jet = false   // wings fold on the ground, landed or wrecked
       const dmg = Craft.contactDamage(vUp, vH, tilt, slope)
       const dry = isDry(this.localDir, this.terrain)
@@ -886,6 +934,52 @@ export class Craft {
     this.frameVelAt(this.rel, this.frameVel)
     this.hvel.copy(this.vel).applyQuaternion(this.spin).add(this.frameVel)
     this.hquat.copy(this.spin).multiply(this.quat)
+  }
+
+  /**
+   * On the runway: the ship slows on its wheels at ROLL_DECEL, harder with / held, steers a
+   * little on Q/E, stays on the ground, and stops to 'landed'. Thrust takes it flying again
+   * (a touch-and-go). Running off the paving above the drift limit is a wreck.
+   */
+  private rollStep(h: number, c: Controls): void {
+    this.burn = 0
+    this.stepBolts(h)
+    this.heat(0, 0, h)
+    if (c.thrust > 0 || c.vertical > 0) {
+      this.state = 'flying'
+      this.frameAt(this.time)
+      this.syncHelio()
+      return
+    }
+    const speed = this.vel.length()
+    const dv = Math.min(speed, (ROLL_DECEL + (c.vertical < 0 ? ROLL_BRAKE : 0)) * h)
+    if (speed > 1e-6) this.vel.multiplyScalar((speed - dv) / speed)
+    this.up.copy(this.pos).normalize()
+    if (c.yaw && speed > 1) { this.dq.setFromAxisAngle(this.up, -c.yaw * ROLL_STEER * h); this.vel.applyQuaternion(this.dq) }
+    this.pos.addScaledVector(this.vel, h)
+    this.up.copy(this.pos).normalize()
+    this.pos.copy(this.up).multiplyScalar(groundRadius(this.up, this.terrain) + HULL_CLEARANCE)
+    this.vel.addScaledVector(this.up, -this.vel.dot(this.up))
+    if (this.vel.lengthSq() > 0.01) this.alignTo(surfaceNormal(this.up, this.terrain, this.n), this.vel)
+    const left = speed - dv
+    if (!onRunway(this.up, this.terrain) && left > LAND_MAX_HSPEED) {
+      // Off the paving at speed: a wreck, on the same terms as any hard contact.
+      this.lastContact = { vUp: 0, vH: left, tilt: 0, slope: 0 }
+      this.contactVel.copy(this.vel)
+      this.vel.set(0, 0, 0)
+      this.state = 'crashed'
+      this.damage = 1
+      this.crashes++
+      this.rest()
+    } else if (left < 0.5) {
+      this.vel.set(0, 0, 0)
+      this.state = 'landed'
+      this.landings++
+      this.rest()
+    }
+    this.time += h
+    this.frameAt(this.time)
+    this.syncHelio()
   }
 
   private rest(): void { this.restPos.copy(this.pos); this.restQuat.copy(this.quat) }

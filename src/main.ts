@@ -35,7 +35,7 @@
 import * as THREE from 'three'
 import { PlanetLOD } from './world/lod.ts'
 import { FlyCam } from './engine/FlyCam.ts'
-import { Craft, IDLE, type Controls } from './engine/Craft.ts'
+import { type CraftState, Craft, IDLE, type Controls } from './engine/Craft.ts'
 import { KeyInput } from './engine/Input.ts'
 import { ChaseCam } from './engine/ChaseCam.ts'
 import { buildCraftMesh } from './engine/craftMesh.ts'
@@ -54,6 +54,8 @@ import { buildBase, updateBase, type BaseView } from './engine/Base.ts'
 import { Wreck, buildWreckMeshes, syncWreckMeshes } from './engine/Wreck.ts'
 import { Boob, boobName, BOOB_BODY, BOOB_SCAN_RANGE } from './world/boob.ts'
 import { buildBoob, syncBoob } from './engine/Boob.ts'
+import { buildRunway, updateRunway, type RunwayView } from './engine/Runway.ts'
+import { runwaysOf, onRunway } from './world/height.ts'
 import { Digger, GOOD_COLOUR, MODULE_GROUND } from './engine/Digger.ts'
 import { Bank } from './world/economy.ts'
 import { snapshot, restore, isSave } from './world/save.ts'
@@ -221,6 +223,8 @@ shipMaterial.name = 'ship'
 const { root: ship, flame, rcs, gear, morph, strobe, glowMats, plasma, haze } = buildCraftMesh(shipMaterial)
 /** 0 dart, 1 TIE. Follows the craft's cruise flag over about a second and a half. */
 let morphed = 0
+/** The jet form, eased over half a second. */
+let jetK = 0
 /** Muzzle flash timers, left and right, in ms of `now`. */
 const flashUntil = [0, 0]
 /** 1 down, 0 up. Goes up above GEAR_ALT over the ground, down below it, over about a second. */
@@ -287,7 +291,7 @@ const SUNRISE_T = 103
 const bootParts: HTMLElement[][] = []
 const localTime = (t: number) => { const h = ((t % 2400) + 2400) % 2400 / 100; const hh = Math.floor(h), mm = Math.floor((h - hh) * 60); return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}` }
 /** Last frame's state, for the touchdown and lift-off moments. */
-let lastState: 'landed' | 'flying' | 'crashed' = 'landed'
+let lastState: CraftState = 'landed'
 const rain = new Rain()
 const puffs = new CloudPuffs()
 const sound = new Sound()
@@ -542,7 +546,7 @@ if (saved && mode === 'fly') {
   setTimeout(() => toast(`LOADED   ·   ${whereAmI().toUpperCase()}`), 0)
 }
 /** Where the ship is: a pad's name for the save and the menu. */
-const whereAmI = (): string => { const h = craft.padHere(); const sm = craft.seamHere(); return h?.station ? `${h.station.name} pad ${h.pad}` : h?.outpost ? h.outpost.name : h ? 'the home pad' : sm ? `the ${sm.good} seam on ${craft.ref.name}` : `${craft.ref.name}, open ground` }
+const whereAmI = (): string => { const h = craft.padHere(); const sm = craft.seamHere(); return h?.station ? `${h.station.name} pad ${h.pad}` : h?.outpost ? h.outpost.name : h ? 'the home pad' : sm ? `the ${sm.good} seam on ${craft.ref.name}` : onRunway(craft.pos.clone().normalize(), craft.terrain) ? `the runway on ${craft.ref.name}` : `${craft.ref.name}, open ground` }
 /** Write the save if the ship is on the ground. True if it did. */
 const saveGame = (): boolean => {
   if (sandbox) return false
@@ -599,6 +603,9 @@ for (const v of views) { const sv = buildStation(v.terrain); if (sv) { v.group.a
 // The outpost round each pad.
 const baseViews: BaseView[] = []
 for (const v of views) { const bv = buildBase(v.terrain); if (bv) { v.group.add(bv.group); baseViews.push(bv) } }
+// Runways (DESIGN §10l-2): a strip off the home base and one off the station, for jet landings.
+const runwayViews: RunwayView[] = []
+for (const v of views) for (const r of runwaysOf(v.terrain)) { const rv = buildRunway(v.terrain, r); v.group.add(rv.group); runwayViews.push(rv) }
 // The outposts dotted round each body (Chris, 2026-09-04): a pad and a half-density base each,
 // drawn only within OUTPOST_DRAW of the craft so six bases do not cost six bases of draw calls.
 type OutpostView = { view: BodyView; o: Outpost; group: THREE.Group; bv: BaseView; rel: THREE.Vector3 }
@@ -772,6 +779,7 @@ function placeBodies(t: number, frame: Body): void {
     }
   }
   for (const s of stationViews) updateStation(s.sv, t, dayNow)
+  for (const rv of runwayViews) updateRunway(rv, dayNow)
   for (const b of baseViews) updateBase(b, t, dayNow)
   // Outposts: where each one is this frame; drawn and lit only within OUTPOST_DRAW of the craft.
   for (const ov of outpostViews) {
@@ -912,11 +920,15 @@ renderer.setAnimationLoop((now) => {
     if (craft.state === 'crashed') { crashedAt ??= elapsed; chase.orbitYaw += 0.25 * dt; if (elapsed - crashedAt > WRECK_HOLD) respawn() }
     ship.quaternion.copy(craft.quat)
     const flying = craft.state === 'flying'
-    morphed += ((craft.cruise || craft.jet ? 1 : 0) - morphed) * Math.min(1, dt / 0.5)
+    morphed += ((craft.cruise ? 1 : 0) - morphed) * Math.min(1, dt / 0.5)
+    jetK += ((craft.jet ? 1 : 0) - jetK) * Math.min(1, dt / 0.5)
     morph.set(morphed)
+    morph.jet(jetK)
+    // The speed cue: the field of view opens a little with jet speed, more on boost.
+    { const wantFov = craft.jet ? 62 + 10 * Math.min(1, craft.speed() / 237) + (c.boost > 0 ? 4 : 0) : 62; const f = camera.fov + (wantFov - camera.fov) * Math.min(1, dt / 0.5); if (Math.abs(f - camera.fov) > 0.01) { camera.fov = f; camera.updateProjectionMatrix() } }
     // The hover engine fires down; in cruise the boosters fire back. Hand over halfway through the morph.
-    flame.visible = craft.thrusting && flying && morphed < 0.5
-    for (const f of morph.cruiseFlames) f.visible = craft.thrusting && flying && morphed >= 0.5
+    flame.visible = craft.thrusting && flying && morphed < 0.5 && jetK < 0.5
+    for (const f of morph.cruiseFlames) f.visible = craft.thrusting && flying && (morphed >= 0.5 || jetK >= 0.5)
     // Flames flicker; the strobe flashes twice a second and a half, only in flight.
     { const k = 0.85 + 0.3 * Math.random(); flame.scale.set(1, k, 1); for (const f of morph.cruiseFlames) f.scale.set(1, 0.85 + 0.3 * Math.random(), 1) }
     { const ph = (now / 1000) % 1.5; strobe.visible = flying && (ph < 0.06 || (ph > 0.18 && ph < 0.24)) }
@@ -981,6 +993,7 @@ renderer.setAnimationLoop((now) => {
         }
         sound.hit(true)
       }
+      if (craft.state === 'rolling') toast('ON THE RUNWAY   ·   / brakes   Q E steer   SPACE goes again')
       lastState = craft.state
     }
     for (const w of wrecks) if (!w.wreck.settled()) { w.wreck.step(dt); syncWreckMeshes(w.wreck, w.meshes) }
