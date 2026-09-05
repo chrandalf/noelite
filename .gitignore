@@ -3,3 +3,6 @@ dist/
 *.local
 .DS_Store
 .vite/
+
+# screenshots for Chris
+shots/

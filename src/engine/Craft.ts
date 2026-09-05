@@ -112,6 +112,8 @@ export class Craft {
   assisting = false
   /** Once the low-level branch has taken the attitude it keeps it until you climb or stop sinking, so a held stick cannot re-tilt the ship between touches of the floor. */
   private assistLatch = false
+  /** The assist's wind term, its own scratch: the substep's `tmp` is busy inside level(). */
+  private readonly windH = new THREE.Vector3()
   /** Weather on. The harness turns it off for tests that are not about weather. */
   windy = true
   /** The wind at the craft, m/s, local frame. Zero in vacuum. */
@@ -482,7 +484,7 @@ export class Craft {
     // Landing assist, before attitude and thrust read the controls.
     this.assisting = false
     if (this.assist && !this.cruise && alt < 500 && THRUST_ACCEL > this.terrain.g * 1.1) {
-      c = this.assistLanding(c, alt)
+      c = this.assistLanding(c, alt, rhoNow)
       // The assist cannot burn what is not there.
       if (dry && (c.thrust || c.boost)) c = { ...c, thrust: 0, boost: 0 }
     }
@@ -677,18 +679,29 @@ export class Craft {
     }
   }
 
-  /** The landing assist's controls: the floor on descent speed, and the hands-off landing. `alt` is the hull centre's altitude. */
-  private assistLanding(c: Controls, alt: number): Controls {
+  /** The landing assist's controls: the floor on descent speed, and the hands-off landing. `alt` is the hull centre's altitude, `rho` the air here (passed in: atmosphere() calls altitude(), which writes the substep's `up`). */
+  private assistLanding(c: Controls, alt: number, rho: number): Controls {
     const feet = Math.max(0, alt - HULL_CLEARANCE)
     const vUp = this.vRel.dot(this.up)
     const vSafe = 2 + 0.11 * feet
     const handsOff = !c.thrust && !c.boost && !c.pitch && !c.roll && !c.yaw && !c.vertical && !c.lateral && !c.fore
-    const level = (lean: number) => {
-      // Body-up toward local up, leaned against horizontal drift.
+    const level = (lean: number, intoWind = 1) => {
+      // Body-up toward local up, leaned against horizontal drift, and into the wind by what
+      // the wind's drag needs (drag over g is the tangent of the lean that holds station):
+      // a P term on drift alone settles downwind at several m/s in a stiff breeze and the
+      // touch is over LAND_MAX_HSPEED. `intoWind` fades that so the touch is nearly upright.
       this.tmp.copy(this.vRel).addScaledVector(this.up, -vUp)
       const vH = this.tmp.length()
       this.fwd.copy(this.up)
-      if (vH > 0.5 && lean > 0) this.fwd.addScaledVector(this.tmp.divideScalar(vH), -Math.min(0.6, vH * lean)).normalize()
+      const w = this.wind.length()
+      if (w > 0.5 && intoWind > 0) {
+        this.windH.copy(this.wind).applyQuaternion(this.spin)
+        this.windH.addScaledVector(this.up, -this.windH.dot(this.up))
+        const wh = this.windH.length()
+        if (wh > 0.5) this.fwd.addScaledVector(this.windH.divideScalar(wh), -Math.min(0.35, (DRAG * rho * wh * wh) / this.terrain.g) * intoWind)
+      }
+      if (vH > 0.5 && lean > 0) this.fwd.addScaledVector(this.tmp.divideScalar(vH), -Math.min(0.6, vH * lean))
+      this.fwd.normalize()
       this.n.copy(this.fwd).applyQuaternion(this.spinInv) // local frame, which aimControls wants
       return { a: this.aimControls(this.n, 4), vH }
     }
@@ -707,14 +720,14 @@ export class Craft {
       // while holding height, then come down on the profile. The lean against drift fades
       // out over the last 25 m so the touch is upright. Full pitch into the ground was
       // arriving at 2 m/s and 41° and crashing on the tilt.
-      const { a, vH } = level(0.02 * Math.min(1, feet / 25))
+      const { a, vH } = level(0.02 * Math.min(1, feet / 25), 0.7 + 0.3 * Math.min(1, feet / 10))
       this.assisting = true
       const thrust = (vH > 3 && vUp < 0) || vUp < -(1.2 + 0.07 * feet) ? 1 : c.thrust
       return { ...c, pitch: a.pitch, roll: a.roll, yaw: 0, thrust }
     }
     if (handsOff && feet < 400 && vUp < 0.5) {
       // Hands off and sinking: fly it down. Come down at a fraction of the floor, kill the drift, touch gently.
-      const { a, vH } = level(0.03 * Math.min(1, feet / 25 + 0.2))
+      const { a, vH } = level(0.03 * Math.min(1, feet / 25 + 0.2), 0.7 + 0.3 * Math.min(1, feet / 10))
       this.assisting = true
       const wantDown = -(1.2 + 0.07 * feet)
       const thrust = vUp < wantDown || (vH > 2.5 && vUp < 0) ? 1 : 0

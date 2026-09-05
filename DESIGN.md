@@ -1204,6 +1204,22 @@ plain URL shows a starfield with the name and three choices, CONTINUE (with the 
 save's time and place, greyed when there is none), NEW GAME (the opening; with a save it
 asks by starting over on the next load), DEMO (a sandbox: nothing loaded, nothing
 saved). Arrows or W/S, Enter or Space, or click. The game sits frozen behind it.
+
+**2026-09-05, after Chris watched it.** "It took a few minutes to try and land, wasn't sure
+what it was doing, then it just floated until it crashed." A 23 m/s wind at the timber
+seam. The settle leg's lean was capped at 0.25 rad, which is about what 25 m/s of wind
+needs just to hold station, and the spring alone settles downwind of the spot; so it
+drifted out past 60 m, went back to 'fly', climbed to 140 m, came back, settled, drifted,
+four times, then handed off blown out of the seam to an assist that only saw ground drift
+and touched down at 7 m/s sideways on a slope. Two fixes, both the same idea: the pilot
+and the assist lean into the wind by its drag over g (the tangent of the lean that holds
+station), the spring handling only what is left. The 'fly' height also eases from 140 m to
+70 m over the last 400 m so a lost spot is not a climb back to height; never under 70 m,
+because the assist's landing latch takes a leaned ship at 60 m. Flight harness §31 flies
+the leg in every weather of the day, the storm hour first, and lands the ship hands off in
+the storm under the drift limit. Sixteen of sixteen land inside the seam in 163 to 181 s.
+One more trap paid for: `atmosphere()` calls `altitude()`, which writes the substep's `up`
+scratch vector in the local frame; the assist takes the density as an argument now.
 `tools/probe-start.mjs`.
 
 **Small hours, 2026-09-05.** The title sits over the real sky: 30 km over the pad a few

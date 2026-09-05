@@ -16,6 +16,7 @@ import { isDry } from '../src/world/terrain.ts'
 import { rng } from '../src/world/noise.ts'
 import { body, bodyVelocity, bodyPosition, bodySpin } from '../src/world/system.ts'
 import { wind } from '../src/world/weather.ts'
+import { LAND_MAX_HSPEED } from '../src/world/config.ts'
 import { FIELDS, resetRocks } from '../src/world/asteroids.ts'
 import { FIXED_DT, DRAG, LAND_MAX_VSPEED, GROUND_EFFECT_HEIGHT, CRUISE_MAX, CRUISE_DECEL, CRUISE_SECONDS, THRUST_ACCEL, BOOST_MULT, FUEL_TANK, FUEL_HOVER_BURN, FUEL_CRUISE_BURN, FUEL_PAD_REFILL, FUEL_SOLAR_TRICKLE, FUEL_RELIGHT, GUN_RANGE, GUN_COOLDOWN, BOLT_SPEED, HULL_LIMIT, HOVER_MAX_SPEED, CRUISE_FLOOR, CRUISE_FLOOR_SPEED } from '../src/world/config.ts'
 const GRAVITY = HOME.g, ATMOSPHERE_HEIGHT = HOME.air
@@ -723,6 +724,40 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol
   c.shove(p2, v2)
   c.substep(FIXED_DT, IDLE)
   check('a shoved craft carries on from where it was shoved to', c.pos.distanceTo(p2) < 25 * FIXED_DT + 0.5 && c.vel.dot(n) > 20, `${c.pos.distanceTo(p2).toFixed(2)} m on, ${c.vel.dot(n).toFixed(1)} m/s out`)
+}
+
+// 31. The demo in weather (Chris, 2026-09-05: "it took a few minutes to try and land, wasn't sure what
+// it was doing, then it just floated until it crashed"). A 23 m/s wind at a timber seam: the settle
+// leg could not hold station (its lean was capped under what the wind's drag needed), tried four
+// times, was blown out of the seam and handed to an assist that was blind to the wind. Now the
+// pilot and the assist both lean into the wind by drag over g. Every weather of the day, worst first.
+{
+  const seamLeg = (t0) => {
+    const c = new Craft(HOME); c.windy = true; c.time = t0; c.spawnOn(pad, new THREE.Vector3(1, 0, 0), 'surface')
+    const upS = c.pos.clone().normalize()
+    const seam = seamsOf(HOME).map((s) => ({ s, d: new THREE.Vector3(s.dir.x, s.dir.y, s.dir.z) })).sort((a, b) => b.d.dot(upS) - a.d.dot(upS))[0]
+    const pilot = new Pilot(); pilot.goTo(seam.d.clone().multiplyScalar(HOME.radius + seam.s.h))
+    let settles = 0, last = '', gust = 0
+    const t = until(c, () => c.state !== 'flying' && pilot.leg === 'down' || c.state === 'crashed', 900, () => {
+      const k = pilot.controls(c); c.arrive = pilot.leg === 'cruise' ? pilot.arrive(c) : Infinity; c.arriveFloor = true
+      if (pilot.leg !== last) { if (pilot.leg === 'settle') settles++; last = pilot.leg }
+      if (pilot.leg === 'settle' || pilot.leg === 'down') gust = Math.max(gust, c.wind.length())
+      return k
+    })
+    return { c, t, settles, gust, seam: seam.s, off: pilot.distance(c) }
+  }
+  const storm = seamLeg(450), gale = seamLeg(150)
+  check('in the storm hour (27 m/s at the seam) the demo lands inside the seam, first try', storm.c.state === 'landed' && storm.c.seamHere() === storm.seam && storm.settles === 1, `${storm.t.toFixed(0)} s, ${storm.off.toFixed(0)} m off, wind ${storm.gust.toFixed(0)} m/s, ${storm.settles} settle(s), drift at touch ${storm.c.lastContact.vH.toFixed(1)} m/s`)
+  check('and so does the gale that crashed for Chris', gale.c.state === 'landed' && gale.c.seamHere() === gale.seam && gale.settles === 1 && gale.t < 300, `${gale.t.toFixed(0)} s, ${gale.off.toFixed(0)} m off, wind ${gale.gust.toFixed(0)} m/s`)
+  let worst = { t: 0, off: 0, t0: 0 }, all = true
+  for (let t0 = 0; t0 < 2400; t0 += 300) { const r = seamLeg(t0); if (r.c.state !== 'landed' || r.c.seamHere() !== r.seam) all = false; if (r.t > worst.t) worst = { t: r.t, off: r.off, t0 } }
+  check('every hour of the day lands the leg inside the seam', all && worst.t < 300, `slowest ${worst.t.toFixed(0)} s at t=${worst.t0}, ${worst.off.toFixed(0)} m off`)
+  // The player's half: hands off in the storm, the assist alone lands it under the drift limit.
+  const c = new Craft(HOME); c.windy = true; c.time = 450
+  c.placeAbove(body('home'), storm.seam ? new THREE.Vector3(storm.seam.dir.x, storm.seam.dir.y, storm.seam.dir.z) : pad, 80)
+  let gust = 0
+  const th = until(c, () => c.state !== 'flying', 240, () => { gust = Math.max(gust, c.wind.length()); return IDLE })
+  check('hands off in the storm, the assist leans into the wind and lands under the drift limit', c.state === 'landed' && c.lastContact.vH < LAND_MAX_HSPEED, `${th.toFixed(0)} s, wind ${gust.toFixed(0)} m/s, drift ${c.lastContact.vH.toFixed(1)} m/s, tilt ${c.lastContact.tilt.toFixed(0)}°`)
 }
 
 console.log(`\n${pass}/${pass + fail} checks`)

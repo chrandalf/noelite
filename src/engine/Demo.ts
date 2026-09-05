@@ -6,6 +6,7 @@
 import * as THREE from 'three'
 import type { Craft, Controls } from './Craft.ts'
 import { IDLE } from './Craft.ts'
+import { DRAG } from '../world/config.ts'
 
 export type Leg = 'lift' | 'climb' | 'cruise' | 'descend' | 'fly' | 'settle' | 'down'
 
@@ -36,6 +37,7 @@ export class Pilot {
   private readonly n = new THREE.Vector3()
   private readonly qInv = new THREE.Quaternion()
   private readonly tb = new THREE.Vector3()
+  private readonly windLean = new THREE.Vector3()
 
   goTo(p: THREE.Vector3): void { this.target.copy(p); this.leg = 'lift' }
   private readonly aimPoint = new THREE.Vector3()
@@ -104,6 +106,13 @@ export class Pilot {
     }
     if (this.leg === 'fly' && dist < DEMO_CLOSE && speed < DEMO_SLOW) this.leg = 'settle'
     if (this.leg === 'settle' && (dist > DEMO_CLOSE * 3)) this.leg = 'fly'
+    // The wind's share of the lean, up front: its drag over g is the tangent that holds
+    // station, and a spring alone settles downwind of the spot (Chris, 2026-09-05: the demo
+    // "took a few minutes to try and land ... then it just floated until it crashed": a
+    // 23 m/s wind at a timber seam, four tries, blown out of the seam, handed off drifting).
+    this.windLean.set(0, 0, 0)
+    const w = craft.wind.length()
+    if (w > 0.5) { this.windLean.copy(craft.wind).addScaledVector(this.up, -craft.wind.dot(this.up)); const wh = this.windLean.length(); if (wh > 0.5) this.windLean.multiplyScalar(-Math.min(0.4, (DRAG * craft.atmosphere() * wh * wh) / craft.terrain.g) / wh) }
     if (this.leg === 'lift') return { ...IDLE, thrust: 1, ...this.aim(craft, 0) }
     // Lean toward the target and against the drift: a spring on position, damped on speed.
     // Far out it saturates at DEMO_LEAN, which is where the speed comes from.
@@ -111,6 +120,9 @@ export class Pilot {
     const l = this.lean.length()
     const most = this.leg === 'fly' ? DEMO_LEAN : 0.25
     if (l > most) this.lean.multiplyScalar(most / l)
+    this.lean.add(this.windLean)
+    const lt = this.lean.length()
+    if (lt > DEMO_LEAN) this.lean.multiplyScalar(DEMO_LEAN / lt)
     if (this.leg === 'settle') {
       // Down over the spot; hands off for the last stretch so the assist does the landing.
       if (alt < 30 && speed < DEMO_SLOW && dist < DEMO_CLOSE) { this.leg = 'down'; return IDLE }
@@ -118,8 +130,12 @@ export class Pilot {
       return { ...IDLE, thrust: craft.vUp() < want ? 1 : 0, ...this.aim(craft, 1) }
     }
     if (this.leg === 'down') return IDLE
-    // Cruise height above the ground; slow the climb rate near it. Coming down from the hover floor, faster higher up: the assist's own floor is under us.
-    const want = Math.max(-(2 + 0.08 * alt), Math.min(8, 0.5 * (DEMO_HEIGHT - alt)))
+    // Cruise height above the ground, easing down over the last 400 m so a lost spot is not a
+    // climb back to 140 m; slow the climb rate near it. Coming down from the hover floor,
+    // faster higher up: the assist's own floor is under us.
+    // Never under 70 m in 'fly': the assist's landing latch takes the ship at 60 m if it is leaned, and a leaned ship at 40 m over a wooded hillside flew into it.
+    const height = 70 + (DEMO_HEIGHT - 70) * Math.min(1, Math.max(0, dist - 60) / 400)
+    const want = Math.max(-(2 + 0.08 * alt), Math.min(8, 0.5 * (height - alt)))
     return { ...IDLE, thrust: craft.vUp() < want ? 1 : 0, ...this.aim(craft, 1) }
   }
 
