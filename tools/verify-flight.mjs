@@ -11,6 +11,7 @@ import { Wreck } from '../src/engine/Wreck.ts'
 import { Pilot } from '../src/engine/Demo.ts'
 import { Boob, boobDir, boobPos, boobFound, loadBoob, BOOB_RADIUS, BOOB_ALT, BOOB_BOB, BOOB_SPEED, BOOB_SIGHT } from '../src/world/boob.ts'
 import { seamsOf } from '../src/world/seams.ts'
+import { landingFor, townsOn } from '../src/world/town.ts'
 import { outpostsOf, PAD_RADIUS } from '../src/world/height.ts'
 import { isDry } from '../src/world/terrain.ts'
 import { rng } from '../src/world/noise.ts'
@@ -769,6 +770,24 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol
   check('and a full ship climbs to 60 m in under twenty seconds', c.altitude() > 60 && t < 20, `${t.toFixed(1)} s`)
   c.spawnOn(pad, new THREE.Vector3(1, 0, 0), 'radial')
   check('a fresh hull carries nothing: the cargo went with the wreck', c.cargo.length === 0)
+}
+
+// 33. To the station (Chris, 2026-09-05: the demo "goes straight for the middle and just sinks under the
+// big white nobble"): a town on a station is landed on one of its four pads, never the dome.
+{
+  const c = fresh(); c.windy = false
+  const town = townsOn(HOME).find((t) => t.id.endsWith(':station'))
+  check('home has a station town', !!town)
+  if (town) {
+    const dome = landingFor({ ...town, id: 'x' })  // what it would have aimed at
+    const at = landingFor(town, c.pos.clone().normalize())
+    const gap = Math.acos(Math.min(1, at.dir.x * dome.dir.x + at.dir.y * dome.dir.y + at.dir.z * dome.dir.z)) * HOME.radius
+    check('the landing spot for the station town is a pad, not the dome', gap > PAD_RADIUS, `${gap.toFixed(0)} m from the centre`)
+    const pilot = new Pilot(); pilot.goTo(new THREE.Vector3(at.dir.x, at.dir.y, at.dir.z).multiplyScalar(HOME.radius + at.h))
+    const t = until(c, () => c.state !== 'flying' && pilot.leg === 'down' || c.state === 'crashed', 900, () => { const k = pilot.controls(c); c.arrive = pilot.leg === 'cruise' ? pilot.arrive(c) : Infinity; c.arriveFloor = true; return k })
+    const h = c.padHere()
+    check('and the demo pilot lands on it', c.state === 'landed' && h?.station !== null && h?.station !== undefined, `${t.toFixed(0)} s, ${h ? `pad ${h.pad}` : 'no pad under it'}, ${pilot.distance(c).toFixed(0)} m off`)
+  }
 }
 
 console.log(`\n${pass}/${pass + fail} checks`)

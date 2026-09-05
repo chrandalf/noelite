@@ -3,9 +3,9 @@
 // labour cost; a stock; a population that is the workforce, growing on water and salt
 // and shrinking without. You never place anything: you feed a town and it grows. Pure,
 // so the town harness can run a town for a day in a millisecond; the game draws it.
-import type { Terrain } from './height.ts'
+import type { Terrain, UnitVector } from './height.ts'
 import { outpostsOf, stationOf, terrainOf } from './height.ts'
-import { SYSTEM, SETTLED } from './system.ts'
+import { SYSTEM, SETTLED, body } from './system.ts'
 import { rng } from './noise.ts'
 import type { Good } from './seams.ts'
 import { GOOD_PRICE, UNWANTED_SHARE, CYCLE } from './config.ts'
@@ -164,3 +164,23 @@ export function loadTowns(saved: TownSave[] | undefined): void {
     for (const w of s.works) { const p = t.works.find((x) => x.id === w.id); if (p) { p.progress = w.progress; p.used = { ...w.used } } }
   }
 }
+
+/**
+ * Where to put down to trade with a town: a station's town sits on the dome in the middle of
+ * the disc, which is not a pad, so the ship lands on the nearest of its four pads instead
+ * (Chris, 2026-09-05: the demo "goes straight for the middle and just sinks under the big
+ * white nobble ... landed and taken off now 5 times"). `from` is a unit direction to pick
+ * the nearest pad; an outpost has one pad and it is the town.
+ */
+export function landingFor(town: Town, from?: UnitVector): { dir: UnitVector; h: number } {
+  if (town.id.endsWith(':station')) {
+    const st = stationOf(terrainOf(body(town.body)))
+    if (st) {
+      let best = st.pads[0], bestC = -2
+      if (from) for (const p of st.pads) { const c = from.x * p.dir.x + from.y * p.dir.y + from.z * p.dir.z; if (c > bestC) { bestC = c; best = p } }
+      return { dir: best.dir, h: st.site.h }
+    }
+  }
+  return { dir: town.dir, h: town.h }
+}
+

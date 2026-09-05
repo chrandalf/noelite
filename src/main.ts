@@ -57,7 +57,7 @@ import { Digger, GOOD_COLOUR, MODULE_GROUND } from './engine/Digger.ts'
 import { Bank } from './world/economy.ts'
 import { snapshot, restore, isSave } from './world/save.ts'
 import { seamsOf, type Seam } from './world/seams.ts'
-import { allTowns, townsOn, current, shortfall, priceAt, sell, tick as tickTown, type Town } from './world/town.ts'
+import { landingFor, allTowns, townsOn, current, shortfall, priceAt, sell, tick as tickTown, type Town } from './world/town.ts'
 import { slopeDeg } from './world/terrain.ts'
 import { atmosphereDensity, buildAtmosphereShell } from './world/atmosphere.ts'
 import { SYSTEM, SETTLED, body, bodyPosition, bodySpin, type Body } from './world/system.ts'
@@ -426,7 +426,8 @@ const demoGo = (step: 'seam' | 'town') => {
   } else {
     const tw = nearest(townsOn(t), (x) => x.dir)
     if (!tw) { demo = false; return }
-    pilot.goTo(new THREE.Vector3(tw.dir.x, tw.dir.y, tw.dir.z).multiplyScalar(t.radius + tw.h)); demoWhere = tw.name
+    const at = landingFor(tw, craft.pos.clone().normalize())   // a station's nearest pad, not its dome
+    pilot.goTo(new THREE.Vector3(at.dir.x, at.dir.y, at.dir.z).multiplyScalar(t.radius + at.h)); demoWhere = tw.name
   }
   demoStep = step
 }
