@@ -146,8 +146,10 @@ export const CRUISE_BRAKE = 0.8
  * brake, and below the stall speed the wings cannot hold you up and you sink. Everything
  * scales with the air, so thin air stalls faster and no air is no wings.
  */
-/** Streamlined drag per metre at sea level: top speed √(THRUST/JET_DRAG) ≈ 237 m/s, 380 with boost. */
-export const JET_DRAG = 0.0005
+/** Streamlined drag per metre at sea level: top speed √(THRUST/JET_DRAG) ≈ 357 m/s, 575 with boost (Chris, 2026-09-05: "it should be able to go a bit faster, 50% at least"; was 0.0005, 237 m/s). */
+export const JET_DRAG = 0.00022
+/** Boost in the jet: a smaller multiplier than hover's 2.6, so the top end is about 450 m/s and the hull only glows, not burns, low down. */
+export const JET_BOOST_MULT = 1.6
 /** Lift per (m/s)² per unit air, per unit mass: the wings hold a g at √(g/JET_LIFT) ≈ 60 m/s in sea-level air, the stall speed. */
 export const JET_LIFT = 0.0027
 /** The most the wings pull, in g, signed: inverted they push toward the belly, so inverted flight holds. */

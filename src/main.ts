@@ -924,6 +924,7 @@ renderer.setAnimationLoop((now) => {
     jetK += ((craft.jet ? 1 : 0) - jetK) * Math.min(1, dt / 0.5)
     morph.set(morphed)
     morph.jet(jetK)
+    if (craft.state === 'rolling') for (const w of morph.wheels) w.rotation.x += (craft.speed() / 0.32) * dt
     // The speed cue: the field of view opens a little with jet speed, more on boost.
     { const wantFov = craft.jet ? 62 + 10 * Math.min(1, craft.speed() / 237) + (c.boost > 0 ? 4 : 0) : 62; const f = camera.fov + (wantFov - camera.fov) * Math.min(1, dt / 0.5); if (Math.abs(f - camera.fov) > 0.01) { camera.fov = f; camera.updateProjectionMatrix() } }
     // The hover engine fires down; in cruise the boosters fire back. Hand over halfway through the morph.

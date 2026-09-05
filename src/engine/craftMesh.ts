@@ -120,7 +120,7 @@ export type Gear = THREE.Group[]
  * in cruise; two boosters slide out of the back and carry the cruise flame. main drives
  * `set(morph)` from the craft's cruise flag, 0 dart, 1 TIE.
  */
-export type Morph = { set: (m: number) => void; /** The jet form, 0 dart to 1 jet: the hull's morph target, wings, fins, canopy, intake, the nozzles at the tail. */ jet: (k: number) => void; cruiseFlames: THREE.Mesh[]; flashes: THREE.Mesh[] }
+export type Morph = { set: (m: number) => void; /** The jet's wheels, for main to spin on the runway. */ wheels: THREE.Mesh[]; /** The jet form, 0 dart to 1 jet: the hull's morph target, wings, fins, canopy, intake, the nozzles at the tail. */ jet: (k: number) => void; cruiseFlames: THREE.Mesh[]; flashes: THREE.Mesh[] }
 
 /** Ship plus an engine flame that shows while thrusting, and four small RCS puffs. */
 export function buildCraftMesh(material: THREE.Material): { root: THREE.Group; flame: THREE.Mesh; rcs: Rcs; gear: Gear; morph: Morph; strobe: THREE.Mesh; glowMats: THREE.MeshLambertMaterial[]; plasma: THREE.Mesh; haze: THREE.Mesh } {
@@ -164,6 +164,10 @@ export function buildCraftMesh(material: THREE.Material): { root: THREE.Group; f
   const legMat = new THREE.MeshLambertMaterial({ color: 0x3a3d44 })
   legMat.name = 'leg'
   const gear: Gear = []
+  // In the jet form the feet are wheels (Chris, 2026-09-05: "wheels for the gear on the jet please"): a tyre on an axle across the strut, a hub either side.
+  const tyreMat = new THREE.MeshLambertMaterial({ color: 0x1c1d20 })
+  tyreMat.name = 'tyre'
+  const feet: THREE.Mesh[] = [], wheels: THREE.Mesh[] = []
   const leg = (x: number, z: number, top: number) => {
     const h = top + 1.6
     const g = new THREE.Group()
@@ -172,9 +176,17 @@ export function buildCraftMesh(material: THREE.Material): { root: THREE.Group; f
     l.position.y = -h / 2
     const foot = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.34, 0.12, 6), legMat)
     foot.position.y = -h + 0.05
-    g.add(l, foot)
+    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.22, 12), tyreMat)
+    wheel.rotation.z = Math.PI / 2
+    wheel.position.y = -h + 0.3
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.26, 8), legMat)
+    hub.rotation.z = Math.PI / 2
+    wheel.add(hub)
+    wheel.visible = false
+    g.add(l, foot, wheel)
     root.add(g)
     gear.push(g)
+    feet.push(foot); wheels.push(wheel)
   }
   leg(0, -2.6, -0.35); leg(-2.2, 1.9, -0.25); leg(2.2, 1.9, -0.25)
   const lamp = (x: number, colour: number) => {
@@ -279,12 +291,14 @@ export function buildCraftMesh(material: THREE.Material): { root: THREE.Group; f
   const morph: Morph = {
     cruiseFlames,
     flashes,
+    wheels,
     jet: (k: number) => {
       const t = Math.min(1, Math.max(0, k))
       jetK = t
       if (hull.morphTargetInfluences) hull.morphTargetInfluences[0] = t
       const on = t > 0.05
       for (const p of jetParts) p.visible = on
+      for (let i = 0; i < wheels.length; i++) { wheels[i].visible = t > 0.5; feet[i].visible = t <= 0.5 }
       wings.scale.x = 0.04 + 0.96 * t
       lerx.scale.x = wings.scale.x
       fins.scale.y = 0.02 + 0.98 * t

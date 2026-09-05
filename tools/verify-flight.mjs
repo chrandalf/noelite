@@ -829,6 +829,16 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol
     check('a bank turns it, the way a wing does', banked > 15 && swung < -6, `banked ${banked.toFixed(0)}°, heading swung ${swung.toFixed(0)}° (negative is right)`)
     check('without losing the sky', c.altitude() > 60 && c.state === 'flying', `${c.altitude().toFixed(0)} m`)
   }
+
+  // Speed (Chris, 2026-09-05: "50% at least"): 330 m/s unboosted; and thirty seconds of full boost low down glows but does not burn through.
+  {
+    const { c } = jetAt(300, 40); c.toggleJet()
+    const level = () => { const up = c.pos.clone().normalize(); const a = c.aimControls(up, 3); return T(1, a.pitch, a.roll, a.yaw) }
+    const t = until(c, () => c.speed() > 330, 60, level)
+    check('a jet reaches 330 m/s, half again on the first night', c.speed() > 330 && t < 40, `${t.toFixed(1)} s, top ≈ √(T/JET_DRAG) = ${Math.sqrt(THRUST_ACCEL / JET_DRAG).toFixed(0)} m/s`)
+    until(c, () => false, 30, () => { const up = c.pos.clone().normalize(); const a = c.aimControls(up, 3); return T(1, a.pitch, a.roll, a.yaw, 1) })
+    check('thirty seconds of full boost low down glows but does not burn through', c.damage < 0.5 && !c.burned, `${c.speed().toFixed(0)} m/s, damage ${c.damage.toFixed(2)}`)
+  }
   // The stall: at 30 m/s in sea-level air the wings hold under a quarter of the weight, and it sinks.
   {
     const { c } = jetAt(400, 30); c.toggleJet()

@@ -29,7 +29,7 @@ import {
   CRUISE_ENTER, CRUISE_EXIT, CRUISE_FLOOR, CRUISE_ALIGN_TAU, CRUISE_MAX, CRUISE_FLOOR_SPEED, CRUISE_BRAKE, CRUISE_DECEL, CRUISE_SECONDS, CRUISE_SPOOL,
   FUEL_TANK, FUEL_HOVER_BURN, FUEL_CRUISE_BURN, FUEL_RCS_BURN, FUEL_PAD_REFILL, FUEL_SOLAR_TRICKLE, FUEL_RELIGHT, PAD_RADIUS,
   CRASH_DAMAGE_SCALE, CRASH_MIN_DAMAGE, FUEL_PRICE, REPAIR_PRICE, CARGO_PODS, POD_TONNES, SHIP_TONNES, POD_DRAG, DIVE_ACCEL,
-  JET_DRAG, JET_LIFT, JET_LIFT_MAX_G, JET_ALIGN_TAU, JET_MIN_AIR, JET_BANK_MAX_TAN, JET_PITCH_RATE, JET_ROLL_RATE, JET_YAW_RATE, JET_RESPONSE, JET_LEVEL_TAU, JET_LEVEL_DEAD, JET_INDUCED, ROLL_DECEL, ROLL_BRAKE, ROLL_STEER, RUNWAY_HEADING_DEG,
+  JET_DRAG, JET_LIFT, JET_LIFT_MAX_G, JET_ALIGN_TAU, JET_MIN_AIR, JET_BANK_MAX_TAN, JET_PITCH_RATE, JET_ROLL_RATE, JET_YAW_RATE, JET_RESPONSE, JET_LEVEL_TAU, JET_LEVEL_DEAD, JET_INDUCED, JET_BOOST_MULT, ROLL_DECEL, ROLL_BRAKE, ROLL_STEER, RUNWAY_HEADING_DEG,
   GUN_RANGE, GUN_COOLDOWN, ICE_REACH, BOLT_SPEED,
   GUN_MUZZLE, HEAT_K, HEAT_RAMP_LO, HEAT_RAMP_HI, HEAT_RAMP_MIN, HEAT_TAU, COOL_RATE, COOL_MIN, HULL_LIMIT, DAMAGE_TAU, HOVER_MAX_SPEED,
 } from '../world/config.ts'
@@ -557,12 +557,13 @@ export class Craft {
       if (Math.abs(turn) > 1e-6) { this.dq.setFromAxisAngle(this.up, turn * h); this.hquat.premultiply(this.dq).normalize() }
     }
 
-    const mainThrust = (THRUST_ACCEL * c.thrust * (1 + c.boost * (BOOST_MULT - 1))) / mass
+    const boostMult = this.jet ? JET_BOOST_MULT : BOOST_MULT
+    const mainThrust = (THRUST_ACCEL * c.thrust * (1 + c.boost * (boostMult - 1))) / mass
     const cap = this.cap()
     // What this substep costs. Boost multiplies burn the way it multiplies thrust; the
     // cruise brake burns like the cruise engine; the RCS sips.
     const noseDrive = this.cruise || this.jet
-    this.burn = c.thrust * (noseDrive ? FUEL_CRUISE_BURN : FUEL_HOVER_BURN) * (1 + c.boost * (BOOST_MULT - 1))
+    this.burn = c.thrust * (noseDrive ? FUEL_CRUISE_BURN : FUEL_HOVER_BURN) * (1 + c.boost * (boostMult - 1))
       + (noseDrive && c.vertical < 0 ? FUEL_CRUISE_BURN * CRUISE_BRAKE : 0)
       + FUEL_RCS_BURN * (Math.abs(c.lateral) + (noseDrive ? 0 : Math.abs(c.vertical)) + Math.abs(c.fore))
     this.fuel = Math.max(0, this.fuel - this.burn * h)
