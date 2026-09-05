@@ -1452,3 +1452,22 @@ exposes `liftRatio` for it.
 Not built from the report: the split-S height tick on the HUD, an Ace-Combat-style high-g
 blur. Both cheap, neither asked for.
 
+## 10o. The graphics pass (2026-09-05, late; Chris: "can you think of ways of improving the graphics? more slick")
+
+Tried and kept off: **ACES filmic tone mapping** (`?tone=aces&exposure=1.1` to see it). It
+washes the flat palette to pastel and takes the green out of the grass; the palette was
+tuned without it and reads better as it is. The switch stays for a second opinion.
+
+Kept: the **field of view** opening with jet speed (§10l), the **warp streaks** in vacuum
+(§10m), **wingtip vapour** under g (§10n), and two new: **contrails** from the nozzles, thirty
+seconds long, when the jet is high and fast in thin air (between 0.05 and 0.6 of an
+atmosphere, over 150 m/s, thrusting), and a **sonic boom**: a vapour cone flashes round the
+nose for half a second as the jet passes 340 m/s in air, with a thump and a crack, and the
+toast says MACH 1. `Trails.ts` takes points, rate, tips, fade and colour, so the two ribbons
+are the same class.
+
+Not done, and why: bloom and a vignette need a post-processing pass (a render target and a
+second draw), which the logarithmic depth buffer and the headless probes both make
+awkward; shadows from the sun on the ground would be the single biggest step up in the
+look and are a day's work with the LOD; an outline pass is the other one worth a day.
+

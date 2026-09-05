@@ -338,6 +338,22 @@ export class Sound {
   }
 
   /** A strike on a rock, and a bigger, lower crunch when it breaks. */
+  /** The sonic boom: a hard low thump with a crack on top. */
+  boom(): void {
+    if (!this.ctx || !this.master || this.muted) return
+    const t = this.ctx.currentTime
+    const s = this.ctx.createBufferSource(); s.buffer = brownNoise(this.ctx)
+    const f = this.ctx.createBiquadFilter(); f.type = 'lowpass'
+    const g = this.ctx.createGain()
+    f.frequency.setValueAtTime(3000, t); f.frequency.exponentialRampToValueAtTime(60, t + 0.5)
+    g.gain.setValueAtTime(0.7, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.6)
+    s.connect(f).connect(g).connect(this.master); s.start(t); s.stop(t + 0.7)
+    const o = this.ctx.createOscillator(), og = this.ctx.createGain()
+    o.type = 'sine'; o.frequency.setValueAtTime(70, t); o.frequency.exponentialRampToValueAtTime(30, t + 0.4)
+    og.gain.setValueAtTime(0.4, t); og.gain.exponentialRampToValueAtTime(0.001, t + 0.45)
+    o.connect(og).connect(this.master); o.start(t); o.stop(t + 0.5)
+  }
+
   hit(broke: boolean): void {
     if (!this.ctx || !this.master || this.muted) return
     const s = this.ctx.createBufferSource(); s.buffer = brownNoise(this.ctx)

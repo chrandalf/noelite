@@ -57,7 +57,7 @@ import { Boob, boobName, BOOB_BODY, BOOB_SCAN_RANGE } from './world/boob.ts'
 import { buildBoob, syncBoob } from './engine/Boob.ts'
 import { buildRunway, updateRunway, type RunwayView } from './engine/Runway.ts'
 import { Streaks } from './engine/Streaks.ts'
-import { Trails } from './engine/Trails.ts'
+import { Trails, NOZZLES } from './engine/Trails.ts'
 import { Stunts, STUNT_NAME } from './engine/Stunts.ts'
 import { runwaysOf, onRunway } from './world/height.ts'
 import { Digger, GOOD_COLOUR, MODULE_GROUND } from './engine/Digger.ts'
@@ -94,6 +94,8 @@ const intro = q.get('intro') === '1' || (q.get('intro') !== '0' && location.sear
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true })
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+// ?tone=aces|none: filmic tone mapping for the A/B (DESIGN §10o).
+if (q.get('tone') === 'aces') { renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = Number(q.get('exposure') ?? 1.1) }
 renderer.setSize(innerWidth, innerHeight)
 document.body.appendChild(renderer.domElement)
 
@@ -231,6 +233,8 @@ let morphed = 0
 let sunWarned = 0
 /** The jet form, eased over half a second. */
 let jetK = 0
+/** For the boom: last frame's speed, and when the cone flashed. */
+let lastSpeed = 0, boomAt = -10
 /** Muzzle flash timers, left and right, in ms of `now`. */
 const flashUntil = [0, 0]
 /** 1 down, 0 up. Goes up above GEAR_ALT over the ground, down below it, over about a second. */
@@ -246,9 +250,21 @@ world.add(ship)
 // The warp look: streaks past the ship in vacuum at speed (DESIGN §10m). Placed with the ship.
 const streaks = new Streaks()
 world.add(streaks.lines)
+// The sonic boom (DESIGN §10o): a vapour cone that flashes at the nose as the jet passes 340 m/s in air.
+const boomGeo = new THREE.ConeGeometry(4.5, 7, 16, 1, true)
+boomGeo.rotateX(-Math.PI / 2)   // apex forward (-z), opening back over the hull
+boomGeo.translate(0, 0, 3.5 - 5.4)
+const boomMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending })
+boomMat.name = 'boom'
+const boomCone = new THREE.Mesh(boomGeo, boomMat)
+boomCone.visible = false
+ship.add(boomCone)
 // Wingtip vapour and the canned stunts (DESIGN §10n).
 const trails = new Trails()
 world.add(trails.group)
+// Contrails: from the nozzles, high and fast in thin air, thirty seconds long (DESIGN §10o).
+const contrails = new Trails(240, 8, NOZZLES, 0.995, new THREE.Color(0.85, 0.9, 1.0), 0.35)
+world.add(contrails.group)
 const stunts = new Stunts()
 // Cargo modules (Chris, 2026-09-05: "the timber is being put under the thrust, which is wrong,
 // need the ship to have modules that load"): crates clamped to the top of the hull, one each
@@ -971,8 +987,15 @@ renderer.setAnimationLoop((now) => {
     ship.position.copy(craft.pos).sub(viewPos)
     streaks.update(dt, craft.vel, craft.speed(), craft.atmosphere() <= 0 && flying)
     streaks.lines.position.copy(ship.position)
+    // The boom: crossing 340 m/s upward in air.
+    { const spd = craft.speed(); if (craft.jet && flying && craft.atmosphere() > 0.2 && lastSpeed < 340 && spd >= 340) { boomAt = elapsed; sound.boom(); toast('MACH 1') } lastSpeed = spd
+      const a = (elapsed - boomAt) / 0.45
+      boomCone.visible = a >= 0 && a < 1
+      if (boomCone.visible) { boomMat.opacity = 0.55 * (1 - a); boomCone.scale.setScalar(0.6 + 1.2 * a) } }
     // Wingtip vapour: pulling hard, or fast in thick air.
-    { const pull = Math.abs(c.pitch); const rhoHere = craft.atmosphere(); const strength = craft.jet && flying ? Math.max(pull > 0.4 ? pull : 0, Math.min(1, (craft.speed() - 250) / 200)) * Math.min(1, rhoHere * 2) : 0; trails.update(dt, craft.pos, craft.quat, strength, jetK > 0.5); trails.group.position.copy(ship.position).sub(craft.pos) }
+    { const pull = Math.abs(c.pitch); const rhoHere = craft.atmosphere(); const strength = craft.jet && flying ? Math.max(pull > 0.4 ? pull : 0, Math.min(1, (craft.speed() - 250) / 200)) * Math.min(1, rhoHere * 2) : 0; trails.update(dt, craft.pos, craft.quat, strength, jetK > 0.5); trails.group.position.copy(ship.position).sub(craft.pos)
+      const con = craft.jet && flying && rhoHere > 0.05 && rhoHere < 0.6 && craft.speed() > 150 && craft.thrusting ? Math.min(1, (0.6 - rhoHere) / 0.3) : 0
+      contrails.update(dt, craft.pos, craft.quat, con, true); contrails.group.position.copy(trails.group.position) }
     // Into the water: the hull goes down.
     if (craft.state === 'crashed' && craft.sunk) { sink += 1.4 * dt; ship.position.addScaledVector(wtmp.copy(craft.pos).normalize(), -sink) }
     // The dig: the auger, the heap, the module filling on the ground and hopping to its slot, the ship shaking, dust and the sound.
