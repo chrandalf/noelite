@@ -570,7 +570,8 @@ export class Craft {
       const vFwd = Math.max(0, this.vRel.dot(this.nose))
       const g = gravityAt(r, this.terrain)
       const need = g * this.bodyUp.dot(this.up)
-      const can = Math.min(JET_LIFT * rhoNow * vFwd * vFwd, JET_LIFT_MAX_G * g)
+      // The wings carry the cargo too: lift per unit mass falls with the mass factor, so a full ship stalls 15% faster.
+      const can = Math.min((JET_LIFT * rhoNow * vFwd * vFwd) / mass, JET_LIFT_MAX_G * g)
       if (need > 0) this.acc.addScaledVector(this.bodyUp, Math.min(need, can))
       if (c.vertical < 0) {
         const vPar = this.vRel.dot(this.nose)
@@ -617,7 +618,7 @@ export class Craft {
       const vPar = this.vRel.dot(this.nose)
       // The grip is the wing's: full above the stall speed, fading with the square of the speed
       // under it, so a stalled ship falls instead of being steered by wings that have no air.
-      const grip = Math.min(1, (JET_LIFT * rhoNow * vPar * vPar) / gravityAt(r, this.terrain))
+      const grip = Math.min(1, (JET_LIFT * rhoNow * vPar * vPar) / (gravityAt(r, this.terrain) * this.massFactor()))
       const bleed = 1 - Math.exp((-h * grip) / JET_ALIGN_TAU)
       this.vRel.addScaledVector(this.nose, -vPar).multiplyScalar(1 - bleed).addScaledVector(this.nose, vPar)
       this.hvel.copy(this.frameVel).add(this.vRel)
@@ -663,6 +664,7 @@ export class Craft {
       // Contact damage (DESIGN §10): none inside the limits; over them it adds to the hull's.
       // Short of a whole hull it is a hard landing, gear bent; at a whole hull, or any hard
       // contact with water, it is a wreck.
+      this.jet = false   // wings fold on the ground, landed or wrecked
       const dmg = Craft.contactDamage(vUp, vH, tilt, slope)
       const dry = isDry(this.localDir, this.terrain)
       if (dmg > 0) this.damage = Math.min(1, this.damage + dmg)

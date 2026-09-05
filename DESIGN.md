@@ -1340,3 +1340,34 @@ its limit, so no re-entry glow low down. Harness §34.
 Not yet: the demo pilot does not use it (its legs still climb to cruise), and there is no
 stall buzz or wind-over-wings sound beyond the cruise drive. Both next.
 
+### 10l-2. One ship, two forms (Chris, 2026-09-05, night, while flying the jet)
+
+Chris: "jet needs to look like a jet, not like the ship in space, it's different, needs to
+be able to do stunts easily, get an agent to look this up ... the fighter can't carry
+stuff though, has to go back to the other ships. Also we need some runways to land on
+with the fighter if we want to ... no, we can turn into the lander, otherwise there is no
+goal for the fighter ship."
+
+So: **one ship, and J is a transformation.** The lander form (the dart, hover, the dig,
+the sale, the modules on the hull) and the jet form (a fighter silhouette, engine on the
+nose, stunts, the guns). The modules ride along in either form (they are clamped to the
+hull) but only the lander form digs or sells: U in the jet says TAKE THE LANDER FORM, and
+the jet's lift has to carry the cargo's mass, so a full ship stalls 15% faster and flies
+heavier, which is the reason to stunt empty. Hover is still how you land on a pad.
+**Runways:** a long flat strip at home and at each station, lit at the ends, and a landing
+in jet form that tolerates speed along the strip: touch inside it within 15° of its
+heading, sink under 4 m/s, wings level, and you roll out on the brake instead of crashing
+on the drift limit. Off the strip the old limits hold.
+
+Research for the look and the stunt feel: `research/jet-stunts-2026-09-05.md`. Built in
+the order: the look and the feel (the jet reads as a jet and loops on a stick), the
+no-dig-in-jet rule and cargo in the lift, the runway and the rollout.
+
+Chris, later the same minute: "it's just there to get places faster, later in the game we'll
+be able to pick up other ships to morph into, these are the basic ships." So the forms are
+a list that grows, J cycles what you have, and the jet carries the modules because getting
+places faster is its whole job.
+
+Assumption to flip if wrong: the jet carries the modules. The other reading of "can't
+carry stuff" is that J refuses with cargo aboard, which makes every loaded leg a hover
+leg; that is a one-line change in toggleJet.
