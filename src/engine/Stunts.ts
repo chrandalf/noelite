@@ -11,7 +11,7 @@ import { IDLE } from './Craft.ts'
 import { JET_PITCH_RATE } from '../world/config.ts'
 
 export type StuntKind = 'immelmann' | 'splits'
-export type StuntPhase = 'pull' | 'roll' | 'done'
+export type StuntPhase = 'pull' | 'roll' | 'level' | 'done'
 export const STUNT_MIN_SPEED = 80
 export const STUNT_NAME: Record<StuntKind, string> = { immelmann: 'IMMELMANN', splits: 'SPLIT-S' }
 
@@ -26,15 +26,17 @@ export class Stunts {
   private readonly up = new THREE.Vector3()
   private readonly nose = new THREE.Vector3()
   private readonly bodyUp = new THREE.Vector3()
+  private readonly bodyRight = new THREE.Vector3()
 
   /** The loop's radius at this speed: v over the pitch rate. */
   static radius(speed: number): number { return speed / JET_PITCH_RATE }
 
-  start(kind: StuntKind, craft: Craft): 'ok' | 'not-jet' | 'too-slow' | 'too-low' {
+  start(kind: StuntKind, craft: Craft): 'ok' | 'not-jet' | 'too-slow' | 'too-low' | 'not-yet' {
+    if (kind === 'splits') return 'not-yet'   // 2026-09-05: it pulls through but comes out 60° off heading with the lagged stick; not shipped until it lands straight
     if (!craft.jet || craft.state !== 'flying') return 'not-jet'
     const v = craft.speed()
     if (v < STUNT_MIN_SPEED) return 'too-slow'
-    if (kind === 'splits' && craft.altitude() < 2.2 * Stunts.radius(v)) return 'too-low'
+    if ((kind as string) === 'splits' && craft.altitude() < 2.2 * Stunts.radius(v)) return 'too-low'
     this.kind = kind
     this.age = 0
     this.up.copy(craft.pos).normalize()
@@ -54,28 +56,41 @@ export class Stunts {
     this.up.copy(craft.pos).normalize()
     this.nose.copy(FWD).applyQuaternion(craft.quat)
     this.bodyUp.copy(UP).applyQuaternion(craft.quat)
+    this.bodyRight.set(1, 0, 0).applyQuaternion(craft.quat)
     const heading = this.nose.clone().addScaledVector(this.up, -this.nose.dot(this.up))
-    const reversed = heading.lengthSq() > 0.05 && heading.normalize().dot(this.fwd0) < -0.95
+    const reversed = heading.lengthSq() > 0.05 && heading.normalize().dot(this.fwd0) < -0.85
     const upright = this.bodyUp.dot(this.up)
+    // Wings held level, upright or inverted, through a pull: the roll that takes bodyRight back onto the horizon.
+    const ru = this.bodyRight.dot(this.up)
+    const holdWings = Math.abs(ru) < 0.03 ? 0 : Math.max(-1, Math.min(1, 1.2 * ru))   // a gentle hold: a stiff one limit-cycled 17° either way with the stick's lag
     if (this.kind === 'immelmann') {
       if (this.phase === 'pull') {
         // Pull until over the top with the heading reversed: the nose is back on the horizon, upside down.
         if (reversed && Math.abs(this.nose.dot(this.up)) < 0.35) this.phase = 'roll'
-        else return { ...IDLE, thrust: 1, pitch: -1 }
+        else return { ...IDLE, thrust: 1, pitch: -1, roll: upright < 0 ? -holdWings : holdWings }
       }
       if (this.phase === 'roll') {
-        if (upright > 0.97) { this.phase = 'done'; return { ...IDLE, thrust: 1 } }
-        return { ...IDLE, thrust: 1, roll: 1 }
+        if (upright > 0.9) this.phase = 'level'
+        else return { ...IDLE, thrust: 1, roll: 1 }
+      }
+      if (this.phase === 'level') {
+        if (Math.abs(this.bodyRight.dot(this.up)) < 0.05) { this.phase = 'done'; return { ...IDLE, thrust: 1 } }
+        return { ...IDLE, thrust: 1, roll: holdWings }
       }
     } else {
       if (this.phase === 'roll') {
-        if (upright < -0.97) this.phase = 'pull'
+        // Roll to inverted; the stick lags, so hand over a little early and let the pull hold the wings.
+        if (upright < -0.9) this.phase = 'pull'
         else return { ...IDLE, thrust: 0.3, roll: 1 }
       }
       if (this.phase === 'pull') {
-        // Pull through the bottom until the heading has reversed and the ship is upright again.
-        if (reversed && upright > 0.8) { this.phase = 'done'; return { ...IDLE, thrust: 1 } }
-        return { ...IDLE, thrust: 0.6, pitch: -1 }
+        // Pull through the bottom, wings held level inverted then upright, until the heading has reversed and the ship is upright again.
+        if (reversed && upright > 0.8) this.phase = 'level'
+        else return { ...IDLE, thrust: 0.6, pitch: -1, roll: upright < 0 ? -holdWings : holdWings }
+      }
+      if (this.phase === 'level') {
+        if (Math.abs(ru) < 0.05) { this.phase = 'done'; return { ...IDLE, thrust: 1 } }
+        return { ...IDLE, thrust: 1, roll: holdWings }
       }
     }
     return null

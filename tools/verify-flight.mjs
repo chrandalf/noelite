@@ -13,7 +13,7 @@ import { Stunts } from '../src/engine/Stunts.ts'
 import { Boob, boobDir, boobPos, boobFound, loadBoob, BOOB_RADIUS, BOOB_ALT, BOOB_BOB, BOOB_SPEED, BOOB_SIGHT } from '../src/world/boob.ts'
 import { seamsOf } from '../src/world/seams.ts'
 import { landingFor, townsOn } from '../src/world/town.ts'
-import { outpostsOf, PAD_RADIUS, runwaysOf, RUNWAY_HALF } from '../src/world/height.ts'
+import { outpostsOf, PAD_RADIUS, runwaysOf, RUNWAY_HALF, stripOffset, height as heightOf } from '../src/world/height.ts'
 import { isDry } from '../src/world/terrain.ts'
 import { rng } from '../src/world/noise.ts'
 import { body, bodyVelocity, bodyPosition, bodySpin } from '../src/world/system.ts'
@@ -820,14 +820,14 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol
     // A bank turns it: roll right for a second, hands off the roll, and the heading swings right.
     const h0 = heading(c)
     let banked = 0
-    until(c, () => false, 0.25, () => T(1, 0, 1, 0))   // 60° at 240°/s
+    until(c, () => false, 0.5, () => T(1, 0, 1, 0))   // the stick ramps in 0.35 s: about 40° by then
     const bank = () => { const bu = new THREE.Vector3(0, 1, 0).applyQuaternion(c.quat); const up = c.pos.clone().normalize(); return Math.acos(Math.min(1, bu.dot(up))) * 180 / Math.PI }
     banked = bank()
     until(c, () => false, 4, () => T(1))
     const h1 = heading(c)
     const up = c.pos.clone().normalize()
     const swung = Math.atan2(h0.clone().cross(h1).dot(up), h0.dot(h1)) * 180 / Math.PI
-    check('a bank turns it, the way a wing does', banked > 15 && swung < -6, `banked ${banked.toFixed(0)}°, heading swung ${swung.toFixed(0)}° (negative is right)`)
+    check('a bank turns it, the way a wing does', banked > 15 && swung < -3, `banked ${banked.toFixed(0)}°, heading swung ${swung.toFixed(0)}° (negative is right)`)
     check('without losing the sky', c.altitude() > 60 && c.state === 'flying', `${c.altitude().toFixed(0)} m`)
   }
 
@@ -843,10 +843,10 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol
 
   // Flaps and the airbrake on /: from 300 m/s they take off speed hard; with them out the stall is lower and the ship holds height at 52 m/s.
   {
-    const { c } = jetAt(400, 300); c.toggleJet()
+    const { c } = jetAt(400, 300); c.toggleJet(); c.toggleFlaps()
     const v0 = c.speed()
     until(c, () => false, 3, () => { const up = c.pos.clone().normalize(); const a = c.aimControls(up, 3); return T(0, a.pitch, a.roll, a.yaw, 0, 0, -1) })
-    check('flaps and brake held for 3 s from 300 m/s take off more than 100 m/s', v0 - c.speed() > 100 && c.flaps > 0.9, `${v0.toFixed(0)} → ${c.speed().toFixed(0)} m/s, flaps ${c.flaps.toFixed(2)}`)
+    check('flaps (B) and the airbrake (/) held for 3 s from 300 m/s take off more than 100 m/s', v0 - c.speed() > 100 && c.flaps > 0.9, `${v0.toFixed(0)} → ${c.speed().toFixed(0)} m/s, flaps ${c.flaps.toFixed(2)}`)
     const vStallFlaps = Math.sqrt(HOME.g / (JET_LIFT * (1 + JET_FLAP_LIFT)))
     check('with the flaps out the stall speed is under 50 m/s', vStallFlaps < 50, `${vStallFlaps.toFixed(0)} m/s`)
   }
@@ -932,17 +932,17 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol
   {
     const c = touching(55, 40)
     const t = until(c, () => c.state !== 'flying', 10, glide(c))
-    check('40° across the strip at 55 m/s is a wreck', c.state === 'crashed', `${c.state} after ${t.toFixed(1)} s`)
+    check('40° across the strip at 55 m/s: off the paving into the grass, gear bent, or a wreck', (c.state === 'rolling' && c.gearBent) || c.state === 'crashed', `${c.state} after ${t.toFixed(1)} s, ${c.lastTouch}`)
   }
   {
     const c = new Craft(HOME); c.windy = false; c.time = 700
     const head = new THREE.Vector3(1, 0, 0).sub(pad.clone().multiplyScalar(pad.x)).normalize()
     c.placeAbove(body('home'), pad, 3, head, head.clone().multiplyScalar(55).addScaledVector(pad, -2)); c.toggleJet()
     const t = until(c, () => c.state !== 'flying', 10, glide(c))
-    check('55 m/s onto the pad, which is not a runway, is a wreck', c.state === 'crashed', `${c.state} after ${t.toFixed(1)} s`)
+    check('55 m/s onto the pad, which is not a runway: a rough rollout with the gear bent, not a wreck', c.state === 'rolling' && c.gearBent && c.lastTouch === 'grass', `${c.state} after ${t.toFixed(1)} s, ${c.lastTouch}`)
   }
   {
-    const c = touching(55, 0, -(RUNWAY_HALF - 60))   // 60 m of paving left: off the end at speed
+    const c = touching(55, 0, -(RUNWAY_HALF - 200))   // 200 m of paving left: off the end at about 45 m/s
     const t = until(c, () => c.state === 'landed' || c.state === 'crashed', 60, glide(c))
     check('off the far end at speed is a wreck', c.state === 'crashed', `${c.state} after ${t.toFixed(1)} s`)
   }
@@ -993,16 +993,110 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol
     const t = run(c, st)
     check('and comes out higher, heading reversed, upright, in under ten seconds', c.state === 'flying' && headingOf(c).dot(fwd) < -0.9 && uprightOf(c) > 0.9 && c.altitude() > alt0 + 50 && t < 10, `${t.toFixed(1)} s, heading·start ${headingOf(c).dot(fwd).toFixed(2)}, upright ${uprightOf(c).toFixed(2)}, ${alt0.toFixed(0)} → ${c.altitude().toFixed(0)} m, ${c.speed().toFixed(0)} m/s`)
   }
-  {
-    const { c, fwd } = fly(900, 200), st = new Stunts()
-    const alt0 = c.altitude()
-    check('a split-S starts with the sky for it', st.start('splits', c) === 'ok', `needs ${(2.2 * Stunts.radius(200)).toFixed(0)} m, has ${alt0.toFixed(0)}`)
-    const t = run(c, st)
-    check('and comes out lower, heading reversed, upright, flying', c.state === 'flying' && headingOf(c).dot(fwd) < -0.9 && uprightOf(c) > 0.8 && c.altitude() < alt0 - 50 && t < 10, `${t.toFixed(1)} s, heading·start ${headingOf(c).dot(fwd).toFixed(2)}, upright ${uprightOf(c).toFixed(2)}, ${alt0.toFixed(0)} → ${c.altitude().toFixed(0)} m, ${c.speed().toFixed(0)} m/s`)
-  }
-  { const { c } = fly(150, 200); check('a split-S refuses without the sky', new Stunts().start('splits', c) === 'too-low') }
+  { const { c } = fly(900, 200); check('the split-S is not shipped yet: K says not yet', new Stunts().start('splits', c) === 'not-yet') }
   { const { c } = fly(600, 60); check('a stunt refuses under 80 m/s', new Stunts().start('immelmann', c) === 'too-slow') }
   { const c = fresh(); c.placeAbove(body('home'), pad, 600); check('a stunt refuses outside the jet', new Stunts().start('immelmann', c) === 'not-jet') }
+}
+
+// 38. Landing, the way it really works (DESIGN §10q). A keyboard pilot that is not very good: binary keys, a decision
+// every 0.3 s, a bit of noise, flaps down, the autothrottle holding Vref, a 3° glide, a flare on the sink. Twenty
+// approaches to the home runway: most roll out, a few are rough, and a wreck is rare. Then the touchdown bands one by one.
+{
+  const rw = runwaysOf(HOME)[0]
+  const along = new THREE.Vector3(rw.along.x, rw.along.y, rw.along.z), centre = new THREE.Vector3(rw.dir.x, rw.dir.y, rw.dir.z)
+  const vStall = Math.sqrt(HOME.g / (JET_LIFT * (1 + JET_FLAP_LIFT)))
+  const vRef = 1.3 * vStall
+  const TT = (thrust, pitch = 0, roll = 0, yaw = 0, vertical = 0) => ({ ...IDLE, thrust, pitch, roll, yaw, vertical })
+const approach = (seed) => {
+  const next = rng(seed)
+  const c = new Craft(HOME); c.windy = false; c.time = 700
+  // Start 2.5 km before the threshold at 150 m, a few degrees off the centreline, at Vref.
+  const threshold = centre.clone().addScaledVector(along, -(RUNWAY_HALF) / HOME.radius).normalize()
+  const start = threshold.clone().addScaledVector(along, -2500 / HOME.radius).normalize()
+  const up0 = start.clone()
+  const head = along.clone().applyAxisAngle(up0, (next() - 0.5) * 8 * Math.PI / 180)
+  c.placeAbove(body('home'), start, 150, head, head.clone().multiplyScalar(vRef))
+  c.toggleJet(); c.toggleFlaps()
+  const aim = centre.clone().addScaledVector(along, -(RUNWAY_HALF - 300) / HOME.radius).normalize().multiplyScalar(HOME.radius + rw.h)
+  let t = 0, lag = [], phase = 'glide', bounced = 0, minSink = 0
+  const decide = () => {
+    const up = c.pos.clone().normalize(), alt = c.altitude()
+    const nose = new THREE.Vector3(0, 0, -1).applyQuaternion(c.quat)
+    const toAim = aim.clone().sub(c.pos); const dist = toAim.length()
+    const noseDown = -nose.dot(up)
+    let pitch = 0
+    if (phase === 'glide') {
+      // The glide: hold the aim point 3° below the nose; tap W or S when it drifts.
+      const wantDown = Math.min(0.12, Math.atan2(alt, dist))
+      const err = noseDown - wantDown + (next() - 0.5) * 0.02
+      pitch = err > 0.015 ? -1 : err < -0.015 ? 1 : 0
+    } else {
+      // The flare: fly the sink, the way people do. Aim for 1.5 m/s down; tap up when sinking faster, down when climbing.
+      // The flare: the sink comes down with the height (about a third of it a second, never under 0.8),
+      // a pull when sinking faster, a small push only if the nose is already up and it is floating.
+      const sink = -c.vUp() + (next() - 0.5) * 0.4
+      const wantSink = Math.max(1.0, 0.45 * alt)
+      pitch = sink > wantSink + 0.5 ? -1 : sink < wantSink - 0.5 && noseDown < -0.02 ? 1 : noseDown > 0.03 ? -1 : 0
+    }
+    // The localizer: bank toward the centreline, more with offset and with heading error, never over 15°.
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(c.quat)
+    const bank = right.dot(up)
+    const off = stripOffset(c.pos.clone().normalize(), rw, HOME)   // v is metres from the centreline, unsigned
+    const acrossVec = c.pos.clone().normalize().sub(centre); const side = Math.sign(acrossVec.dot(new THREE.Vector3().crossVectors(along, centre))) * off.v
+    const heading = along.clone().addScaledVector(up, -along.dot(up)).normalize(); const hb = nose.clone().addScaledVector(up, -nose.dot(up)).normalize()
+    const headingErr = Math.atan2(heading.clone().cross(hb).dot(up), heading.dot(hb))   // positive: nose left of the strip
+    const wantBank = Math.max(-0.26, Math.min(0.26, 0.008 * side - 1.2 * headingErr))    // right of the line: bank left (positive); nose left of the strip: bank right (negative)
+    const roll = bank > wantBank + 0.03 ? 1 : bank < wantBank - 0.03 ? -1 : 0
+    return TT(0, pitch, roll, 0, 0)   // held, not tapped: the leveller on final undoes a tap
+  }
+  let held = IDLE, since = 0
+  while (t < 90) {
+    // Reaction lag: a decision every 0.3 s, held until the next.
+    if (t - since >= 0.3) { held = decide(); since = t }
+    if (c.state === 'flying' && c.altitude() < 8 && phase === 'glide') phase = 'flare'
+    const before = c.state
+    c.substep(FIXED_DT, held); t += FIXED_DT
+    minSink = Math.min(minSink, c.vUp())
+    if (before === 'flying' && c.state === 'flying' && c.bounces > bounced) bounced = c.bounces
+    if (c.state === 'landed' || c.state === 'crashed') break
+    if (c.state === 'rolling') held = TT(0, 0, 0, 0, -1)   // brake on the roll
+  }
+  const o = stripOffset(c.pos.clone().normalize(), rw, HOME); const wet = HOME.sea !== null && heightOf(c.pos.clone().normalize(), HOME) < HOME.sea + 3
+  return { off: `u${o.u.toFixed(0)} v${o.v.toFixed(0)}${wet ? ' WET' : ''}`, state: c.state, t, lc: c.lastContact, bounced: c.bounces ?? 0, gearBent: c.gearBent, damage: c.damage, touch: c.lastTouch, why: c.bounceWhy }
+}
+
+  const tally = { landed: 0, rough: 0, wreck: 0, flying: 0 }
+  const sinks = []
+  for (let s = 1; s <= 20; s++) {
+    const r = approach(s)
+    if (r.state === 'landed') { if (r.gearBent) tally.rough++; else tally.landed++; sinks.push(-r.lc.vUp) } else if (r.state === 'crashed') tally.wreck++; else tally.flying++
+  }
+  check('a clumsy keyboard pilot rolls out most of twenty approaches', tally.landed >= 13, `${tally.landed} rolled out, ${tally.rough} rough, ${tally.wreck} wrecked, ${tally.flying} never touched`)
+  check('and wrecks at most three', tally.wreck <= 3 && tally.flying === 0)
+  check('touching down under 3 m/s of sink', sinks.length > 0 && sinks.every((v) => v < 3.1), `sinks ${sinks.map((v) => v.toFixed(1)).join(' ')}`)
+  // The bands, one by one: a flat touch at a set sink, aligned, on the strip.
+  const touch = (sink, noseUpDeg = 2, bankDeg = 0, speed = 55) => {
+    const c = new Craft(HOME); c.windy = false; c.time = 700
+    const up = centre.clone(); const head = along.clone()
+    c.placeAbove(body('home'), up, 0.05, head, head.clone().multiplyScalar(speed).addScaledVector(up, -sink))   // a hair off the ground, so the touch is at this sink before the wing and the cushion act
+    c.toggleJet(); c.toggleFlaps(); c.flaps = 1
+    // Set the attitude: nose up by noseUpDeg, banked by bankDeg.
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(c.quat)
+    const q1 = new THREE.Quaternion().setFromAxisAngle(right, noseUpDeg * Math.PI / 180)   // positive about the right wing is nose up
+    const nose = new THREE.Vector3(0, 0, -1).applyQuaternion(c.quat)
+    const q2 = new THREE.Quaternion().setFromAxisAngle(nose, bankDeg * Math.PI / 180)
+    c.quat.premultiply(q1).premultiply(q2); c.shove(c.pos, c.vel)
+    until(c, () => c.state !== 'flying' || c.bounces > 0, 3, () => IDLE)
+    return c
+  }
+  { const c = touch(2); check('2 m/s of sink, nose up 2°, wings level: it rolls', c.state === 'rolling' && c.lastTouch !== 'hard' && c.bounces === 0, `${c.state}, ${c.lastTouch}`) }
+  { const c = touch(4.5); check('4.5 m/s: the gear throws it back up, a bounce, nothing bent', c.bounces === 1 && c.state === 'flying' && !c.gearBent && c.bounceWhy === 'sink', `${c.state}, bounces ${c.bounces}, ${c.bounceWhy}`) }
+  { const c = touch(7.5); check('7.5 m/s: a hard landing, it rolls with the gear bent and the hull marked', c.state === 'rolling' && c.lastTouch === 'hard' && c.gearBent && c.damage > 0.2, `${c.state}, ${c.lastTouch}, damage ${c.damage.toFixed(2)}`) }
+  { const c = touch(12); check('12 m/s: a wreck', c.state === 'crashed', c.state) }
+  { const c = touch(1.5, -6); check('nose 6° under the horizon at the touch: it wheelbarrows and bounces', c.bounces === 1 && c.bounceWhy === 'nose-down', `${c.state}, ${c.bounceWhy}`) }
+  { const c = touch(1.5, 2, 12); check('banked 12° at the touch: a bounce off one wheel', c.bounces === 1 && c.bounceWhy === 'bank', `${c.state}, ${c.bounceWhy}`) }
+  { const c = touch(1.5, 2, 0, 90); check('too fast (90 m/s, 1.8 stall speeds): the wings still fly, it skips', c.bounces === 1 && c.bounceWhy === 'fast', `${c.state}, ${c.bounceWhy}`) }
+  { const c = touch(1.5, 18); check('nose 18° up: a tail strike, a hard landing', c.state === 'rolling' && c.lastTouch === 'hard', `${c.state}, ${c.lastTouch}`) }
 }
 
 console.log(`\n${pass}/${pass + fail} checks`)

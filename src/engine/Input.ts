@@ -35,7 +35,7 @@ export class KeyInput {
       thrust: on('Space'),
       boost: on('ShiftLeft', 'ShiftRight'),
       lateral: on('Period') - on('Comma'),
-      vertical: -on('Slash', 'KeyB'),   // B: the brake, and the flaps in the jet (Chris, 2026-09-05: "no flaps button")
+      vertical: -on('Slash'),   // the top thruster, the brake, the jet's airbrake; B toggles the flaps (main)
       fore: on('Quote'),
     }
   }

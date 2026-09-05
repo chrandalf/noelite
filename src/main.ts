@@ -78,7 +78,7 @@ import { Clouds } from './engine/Clouds.ts'
 import { CloudPuffs } from './engine/CloudPuffs.ts'
 import { front, rainOf, cloudOf, moonDirection, TIDE_AMPLITUDE } from './world/weather.ts'
 import { setGroundClock } from './world/terrain.ts'
-import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE , FUEL_TANK, HULL_CLEARANCE, HULL_LIMIT, HULL_WARN, HULL_GLOW, CLOUD_BASE_FRAC, WRECK_HOLD, FUEL_PRICE, REPAIR_PRICE, LOAN_STEP, INSURANCE, DIG_SECONDS, POD_TONNES, JET_LIFT, JET_FLAP_LIFT, shownDistance } from './world/config.ts'
+import { LAND_MAX_VSPEED, LAND_MAX_HSPEED, LAND_MAX_TILT, LAND_MAX_SLOPE , FUEL_TANK, HULL_CLEARANCE, HULL_LIMIT, HULL_WARN, HULL_GLOW, CLOUD_BASE_FRAC, WRECK_HOLD, FUEL_PRICE, REPAIR_PRICE, LOAN_STEP, INSURANCE, DIG_SECONDS, POD_TONNES, shownDistance } from './world/config.ts'
 
 const q = new URLSearchParams(location.search)
 /** The save on disk, read once. ?reset=1 forgets it. A placement parameter starts you where it says, books kept. */
@@ -235,6 +235,8 @@ let sunWarned = 0
 let jetK = 0
 /** For the boom: last frame's speed, and when the cone flashed. */
 let lastSpeed = 0, boomAt = -10
+let bouncesSeen = 0
+let grassSaid = -1
 /** Muzzle flash timers, left and right, in ms of `now`. */
 const flashUntil = [0, 0]
 /** 1 down, 0 up. Goes up above GEAR_ALT over the ground, down below it, over about a second. */
@@ -497,6 +499,33 @@ const renderTown = () => {
   const buys = craft.cargo.length ? '\n\nBUYS   ' + craft.cargo.map((c) => `${c.good} at ${priceAt(town, c.good as never).toFixed(0)} cr/t`).join('   ') + '   ·   U sells' : ''
   townPre.textContent = `${town.name.toUpperCase()}   ${town.population} people\nSTOCK  ${stock}\nBUILDING  ${job}\nBUILT  ${town.built.join(', ') || 'nothing yet'}${buys}`
 }
+// Final approach (DESIGN §10q): with the flaps down the nearest runway's threshold, its heading, the 3° glide and the sink, on the HUD and on the compass.
+const rwTmp = new THREE.Vector3(), rwTmp2 = new THREE.Vector3()
+type Final = { rel: THREE.Vector3; dist: number; headingOff: number; glide: 'HIGH' | 'ON GLIDE' | 'LOW'; along: THREE.Vector3 }
+const nearestFinal = (): Final | null => {
+  if (!craft.jet || craft.flaps < 0.5) return null
+  const t = craft.terrain, up = rwTmp2.copy(craft.pos).normalize()
+  let best: Final | null = null
+  for (const r of runwaysOf(t)) {
+    const along = new THREE.Vector3(r.along!.x, r.along!.y, r.along!.z)
+    // The threshold to land over: whichever end is nearer, landing toward the far one.
+    for (const end of [-1, 1]) {
+      const thr = new THREE.Vector3(r.dir.x, r.dir.y, r.dir.z).addScaledVector(along, (end * r.half!) / t.radius).normalize().multiplyScalar(t.radius + r.h)
+      const rel = thr.sub(craft.pos); const dist = rel.length()
+      if (best && dist >= best.dist) continue
+      const landDir = along.clone().multiplyScalar(-end)   // from this threshold toward the far end
+      const nose = rwTmp.set(0, 0, -1).applyQuaternion(craft.quat); nose.addScaledVector(up, -nose.dot(up)).normalize()
+      const ld = landDir.clone().addScaledVector(up, -landDir.dot(up)).normalize()
+      const headingOff = (Math.atan2(ld.clone().cross(nose).dot(up), ld.dot(nose)) * 180) / Math.PI
+      const down = -rel.dot(up), across = Math.sqrt(Math.max(0, dist * dist - down * down))
+      const slope = (Math.atan2(down, Math.max(1, across)) * 180) / Math.PI
+      best = { rel: rel.clone(), dist, headingOff, glide: slope > 3.8 ? 'HIGH' : slope < 2.2 ? 'LOW' : 'ON GLIDE', along: landDir }
+    }
+  }
+  return best
+}
+let finalNow: Final | null = null
+const finalLine = (): string => finalNow ? `   FINAL  RWY ${fmtDist(finalNow.dist)} ${finalNow.headingOff > 3 ? '◂' : finalNow.headingOff < -3 ? '▸' : '▲'} ${Math.abs(finalNow.headingOff).toFixed(0)}°   ${finalNow.glide}   SINK ${(-craft.vUp()).toFixed(1)}` : ''
 // The scanner (DESIGN §10g): G pings; for a while the nearest seam in range sits on the
 // compass as a blip with its good and distance, and the beeper quickens as you close.
 const SCAN_RANGE = 25_000
@@ -743,8 +772,9 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyM') sound.muted = !sound.muted
   if (e.code === 'KeyC') chase.reset()
   if (e.code === 'KeyG' && mode === 'fly') scan()
-  if ((e.code === 'KeyI' || e.code === 'KeyK') && mode === 'fly') { const kind = e.code === 'KeyI' ? 'immelmann' : 'splits'; const r = stunts.start(kind, craft); toast(r === 'ok' ? STUNT_NAME[kind] : r === 'not-jet' ? 'STUNTS ARE FOR THE JET' : r === 'too-slow' ? 'TOO SLOW: 80 m/s FOR A STUNT' : `TOO LOW FOR A SPLIT-S: ${Math.ceil(2.2 * Stunts.radius(craft.speed()))} m OF SKY NEEDED`) }
-  if (e.code === 'KeyJ' && mode === 'fly') { const r = craft.toggleJet(); toast(r === 'jet' ? 'JET   ·   nose steers, bank to turn, B flaps and brake, J back to hover' : r === 'hover' ? 'HOVER' : r === 'no-air' ? 'NO AIR FOR WINGS' : craft.cruise ? 'IN CRUISE: WINGS ARE OUT ALREADY' : 'NOT ON THE GROUND') }
+  if ((e.code === 'KeyI' || e.code === 'KeyK') && mode === 'fly') { const kind = e.code === 'KeyI' ? 'immelmann' : 'splits'; const r = stunts.start(kind, craft); toast(r === 'ok' ? STUNT_NAME[kind] : r === 'not-yet' ? 'SPLIT-S: NOT YET' : r === 'not-jet' ? 'STUNTS ARE FOR THE JET' : r === 'too-slow' ? 'TOO SLOW: 80 m/s FOR A STUNT' : `TOO LOW FOR A SPLIT-S: ${Math.ceil(2.2 * Stunts.radius(craft.speed()))} m OF SKY NEEDED`) }
+  if (e.code === 'KeyB' && mode === 'fly') { const f = craft.toggleFlaps(); if (f !== 'no') toast(f === 'down' ? `FLAPS DOWN   ·   Vref ${craft.vRef().toFixed(0)} m/s, the engine holds it; / is the airbrake` : 'FLAPS UP') }
+  if (e.code === 'KeyJ' && mode === 'fly') { const r = craft.toggleJet(); toast(r === 'jet' ? 'JET   ·   nose steers, bank to turn, B flaps for landing, / airbrake, J back to hover' : r === 'hover' ? 'HOVER' : r === 'no-air' ? 'NO AIR FOR WINGS' : craft.cruise ? 'IN CRUISE: WINGS ARE OUT ALREADY' : 'NOT ON THE GROUND') }
   if (e.code === 'KeyU' && mode === 'fly') use()
   if (e.code === 'KeyO') orbitAP.engaged = !orbitAP.engaged && craft.state === 'flying'
   if (e.code === 'Tab') { e.preventDefault(); if (bodyTargets.includes(target)) targetIndex = (targetIndex + (e.shiftKey ? bodyTargets.length - 1 : 1)) % bodyTargets.length; target = bodyTargets[targetIndex]; fieldIndex = -1 }
@@ -987,6 +1017,10 @@ renderer.setAnimationLoop((now) => {
     ship.position.copy(craft.pos).sub(viewPos)
     streaks.update(dt, craft.vel, craft.speed(), craft.atmosphere() <= 0 && flying)
     streaks.lines.position.copy(ship.position)
+    if (craft.bounces > bouncesSeen) { bouncesSeen = craft.bounces; sound.hit(false); toast(craft.lastContact.vUp < -4.5 ? 'BOUNCED HARD   ·   ease the sink: under 3 m/s, nose a touch up' : craft.lastContact.tilt > 8 ? 'BOUNCED   ·   wings level at the touch' : 'BOUNCED   ·   too fast or nose down: flaps, Vref, nose up a touch') }
+    if (craft.bounces < bouncesSeen) bouncesSeen = craft.bounces
+    if (craft.lastTouch === 'grass' && craft.state === 'rolling' && grassSaid !== craft.landings) { grassSaid = craft.landings; toast('OFF THE PAVING   ·   the grass has it, gear bent') }
+    finalNow = nearestFinal()
     // The boom: crossing 340 m/s upward in air.
     { const spd = craft.speed(); if (craft.jet && flying && craft.atmosphere() > 0.2 && lastSpeed < 340 && spd >= 340) { boomAt = elapsed; sound.boom(); toast('MACH 1') } lastSpeed = spd
       const a = (elapsed - boomAt) / 0.45
@@ -1041,7 +1075,7 @@ renderer.setAnimationLoop((now) => {
         }
         sound.hit(true)
       }
-      if (craft.state === 'rolling') toast('ON THE RUNWAY   ·   B brakes   Q E steer   SPACE goes again')
+      if (craft.state === 'rolling') toast(craft.lastTouch === 'hard' ? 'HARD LANDING   ·   gear bent, hull damaged   ·   / brakes' : craft.lastTouch === 'firm' ? 'FIRM   ·   / brakes   Q E steer' : 'ON THE RUNWAY   ·   / brakes   Q E steer   SPACE goes again')
       lastState = craft.state
     }
     for (const w of wrecks) if (!w.wreck.settled()) { w.wreck.step(dt); syncWreckMeshes(w.wreck, w.meshes) }
@@ -1170,6 +1204,7 @@ renderer.setAnimationLoop((now) => {
     const nearHere = outpostViews.filter((ov) => ov.view.body === craft.ref).map((ov) => ({ ov, d: ov.rel.distanceTo(craft.pos) })).sort((a, b) => a.d - b.d).slice(0, 3)
     for (const { ov, d } of nearHere) if (d > 300) compassItems.push({ key: ov.o.name, name: ov.o.name, dist: fmtDist(d), d, dir: wtmp.copy(ov.rel).sub(craft.pos).divideScalar(d).clone(), kind: 'outpost', selected: false })
     if (tgt.field) compassItems.push({ key: tgt.name, name: tgt.name, dist: fmtDist(tSurf), d: tSurf, dir: tDir.clone(), kind: 'field', selected: true })
+    if (finalNow) { const d = finalNow.dist; compassItems.push({ key: 'runway', name: `RUNWAY ${finalNow.glide}`, dist: fmtDist(d), d, dir: wtmp.copy(finalNow.rel).divideScalar(d).clone(), kind: 'runway', selected: false }) }
     if (elapsed < scanUntil) {
       if (scanHit) {
         const d = wtmp.copy(scanHit.rel).sub(craft.pos); const len = d.length()
@@ -1188,7 +1223,7 @@ renderer.setAnimationLoop((now) => {
     const apLine = orbitAP.engaged ? `   AUTOPILOT ${orbitAP.phase.toUpperCase()} ${craft.ref.name}  park ${((orbitAP.parkRadius(craft) - craft.terrain.radius) / 1000).toFixed(0)} km at ${orbitAP.parkSpeed(craft).toFixed(0)} m/s` : ''
     const rn = craft.rockNear
     const rockLine = rn.rock && rn.dist < 30000 ? `   ROCK ${fmtDist(rn.dist)}${rn.dist < 2000 ? (rn.rock.ice ? '  ICE' : '  STONE') : ''}${craft.cruise ? '  (F fires)' : '  (cannons stowed in hover)'}` : ''
-    const spaceLine = rho < 1 || craft.jet ? `${craft.cruise ? `CRUISE  cap ${fmtSpeed(craft.cap())}` : craft.jet ? `JET${craft.flaps > 0.3 ? '  FLAPS' : ''}  stall ${Math.sqrt((craft.terrain.g * craft.massFactor()) / (JET_LIFT * (1 + JET_FLAP_LIFT * craft.flaps) * Math.max(0.05, rho))).toFixed(0)} m/s  J hover` : 'HOVER'}${apLine}   SOI ${craft.ref.name}   orbit ${vOrb.toFixed(0)}   escape ${vEsc.toFixed(0)}   ${craft.cruise ? '' : vIn > vEsc ? '!! ESCAPING !!' : vIn > vOrb ? 'above orbital' : ''}   target ${tgt.name}${tgt.field ? ` (${fieldIndex + 1} of ${nearFields.length} nearest, V)` : ' (Tab)'}${rockLine}\n` : ''
+    const spaceLine = rho < 1 || craft.jet ? `${craft.cruise ? `CRUISE  cap ${fmtSpeed(craft.cap())}` : craft.jet ? `JET${craft.flaps > 0.3 ? `  FLAPS  Vref ${craft.vRef().toFixed(0)}` : ''}  stall ${craft.stallSpeed().toFixed(0)} m/s${craft.throttle > 0 && craft.flaps > 0.5 && !c.thrust ? '  AUTO-THR' : ''}${finalLine()}  J hover` : 'HOVER'}${apLine}   SOI ${craft.ref.name}   orbit ${vOrb.toFixed(0)}   escape ${vEsc.toFixed(0)}   ${craft.cruise ? '' : vIn > vEsc ? '!! ESCAPING !!' : vIn > vOrb ? 'above orbital' : ''}   target ${tgt.name}${tgt.field ? ` (${fieldIndex + 1} of ${nearFields.length} nearest, V)` : ' (Tab)'}${rockLine}\n` : ''
     line = `alt ${(altitude < 500 ? altitude.toFixed(1) : shownDistance(altitude).toFixed(0)).padStart(6)} m   v↑ ${vUp.toFixed(1).padStart(5)} m/s   spd ${fmtSpeed(spd).padStart(9)}   tilt ${tilt.toFixed(0).padStart(2)}°   ${craft.state.toUpperCase()}   landings ${craft.landings}  crashes ${craft.crashes}\n` + spaceLine +
       (craft.state === 'crashed' ? `contact: ${craft.burned ? 'HULL BURNED THROUGH  ' : craft.hitRock ? 'ROCK  ' : ''}v↑ ${lc.vUp.toFixed(1)}  drift ${lc.vH.toFixed(1)}  tilt ${lc.tilt.toFixed(0)}°  slope ${lc.slope.toFixed(0)}°   R to respawn\n` : '') +
       `Esc  menu and controls   ${fps} fps   chunks ${refView.lod?.liveCount ?? 0}`

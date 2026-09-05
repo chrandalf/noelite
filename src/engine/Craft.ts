@@ -29,7 +29,7 @@ import {
   CRUISE_ENTER, CRUISE_EXIT, CRUISE_FLOOR, CRUISE_ALIGN_TAU, CRUISE_MAX, CRUISE_FLOOR_SPEED, CRUISE_BRAKE, CRUISE_DECEL, CRUISE_SECONDS, CRUISE_SPOOL,
   FUEL_TANK, FUEL_HOVER_BURN, FUEL_CRUISE_BURN, FUEL_RCS_BURN, FUEL_PAD_REFILL, FUEL_SOLAR_TRICKLE, FUEL_RELIGHT, PAD_RADIUS,
   CRASH_DAMAGE_SCALE, CRASH_MIN_DAMAGE, FUEL_PRICE, REPAIR_PRICE, CARGO_PODS, POD_TONNES, SHIP_TONNES, POD_DRAG, DIVE_ACCEL,
-  JET_DRAG, JET_LIFT, JET_LIFT_MAX_G, JET_ALIGN_TAU, JET_MIN_AIR, JET_BANK_MAX_TAN, JET_PITCH_RATE, JET_ROLL_RATE, JET_YAW_RATE, JET_RESPONSE, JET_LEVEL_TAU, JET_LEVEL_DEAD, JET_INDUCED, JET_BOOST_MULT, JET_FLAP_DRAG, JET_FLAP_LIFT, JET_FLAP_TIME, JET_HEAT, JET_AIR_FLOOR, JET_FLOOR_FADE, SUN_HEAT_HOME, ROLL_DECEL, ROLL_BRAKE, ROLL_STEER, RUNWAY_HEADING_DEG,
+  JET_DRAG, JET_LIFT, JET_LIFT_MAX_G, JET_ALIGN_TAU, JET_MIN_AIR, JET_BANK_MAX_TAN, JET_PITCH_RATE, JET_ROLL_RATE, JET_YAW_RATE, JET_RESPONSE, JET_LEVEL_TAU, JET_LEVEL_DEAD, JET_FINAL_LEVEL_TAU, JET_FINAL_HEIGHT, JET_INDUCED, JET_BOOST_MULT, JET_FLAP_DRAG, JET_FLAP_LIFT, JET_FLAP_TIME, JET_HEAT, JET_AIR_FLOOR, JET_FLOOR_FADE, SUN_HEAT_HOME, TOUCH_FIRM, TOUCH_BOUNCE, TOUCH_HARD, TOUCH_BANK_DEG, TOUCH_NOSE_DOWN_DEG, TOUCH_NOSE_UP_DEG, TOUCH_FAST, BOUNCE_RESTITUTION, BOUNCE_MIN_UP, BOUNCE_DAMAGE_SINK, EXCURSION_WRECK, JET_STICK_RAMP, JET_STICK_CENTRE, JET_AUTHORITY_SPEED, JET_AUTHORITY_EXP, JET_AUTHORITY_MIN, JET_VREF, JET_AUTOTHROTTLE_BAND, JET_RETARD_HEIGHT, JET_GE_HEIGHT, JET_GE_LIFT, JET_GE_DAMP, ROLL_DECEL, ROLL_BRAKE, ROLL_STEER, RUNWAY_HEADING_DEG,
   GUN_RANGE, GUN_COOLDOWN, ICE_REACH, BOLT_SPEED,
   GUN_MUZZLE, HEAT_K, HEAT_RAMP_LO, HEAT_RAMP_HI, HEAT_RAMP_MIN, HEAT_TAU, COOL_RATE, COOL_MIN, HULL_LIMIT, DAMAGE_TAU, HOVER_MAX_SPEED,
 } from '../world/config.ts'
@@ -90,8 +90,24 @@ export class Craft {
   cruise = false
   /** Jet mode: wings and lift in air, flicked with J. Never together with cruise. */
   jet = false
-  /** Flaps, 0 up to 1 down: / held in the jet. Eased, so the mesh and the physics agree. */
+  /** Flaps: the setting (B toggles) and the position, 0 up to 1 down, eased so the mesh and the physics agree. */
+  flapsDown = false
   flaps = 0
+  /** The virtual stick in the jet: the keys ramp it, it centres itself. */
+  private readonly stick = new THREE.Vector3()
+  /** Landings: how many bounces this flight, and what the last touchdown was, for the toast. */
+  bounces = 0
+  lastTouch: 'roll' | 'firm' | 'bounce' | 'hard' | 'grass' | null = null
+  /** Why the last bounce bounced, for the toast and the harness. */
+  bounceWhy: 'sink' | 'nose-down' | 'bank' | 'fast' | null = null
+  /** True while a rollout that began on the grass runs, so it is not called an excursion. */
+  private onGrass = false
+  /** What the engine is doing after the autothrottle has had its say, 0 to 1. */
+  throttle = 0
+  /** The stick's bite at this speed, 0 to 1 (jet). */
+  authority = 1
+  /** The autothrottle has retarded for the flare; cleared by climbing away, flaps up, or the throttle. */
+  private retarded = false
   /** Metres to the sun's centre, from the last substep. */
   sunDist = Infinity
   /** In the jet: the wings' lift over the weight, 1 and above is flying, under it the stall. For the buzz and the HUD. */
@@ -342,9 +358,12 @@ export class Craft {
     this.cruise = false
     this.jet = false
     this.flaps = 0
+    this.flapsDown = false
     this.fuel = FUEL_TANK
     this.burn = 0
     this.cargo.length = 0   // a fresh hull carries nothing; the save puts its cargo back after this
+    this.bounces = 0
+    this.lastTouch = null
     this.hitRock = null
     this.hull = 0
     this.damage = 0
@@ -355,6 +374,18 @@ export class Craft {
     this.frameAt(this.time)
     this.syncHelio()
   }
+
+  /** B in the jet: flaps down or up. */
+  toggleFlaps(): 'down' | 'up' | 'no' {
+    if (!this.jet) return 'no'
+    this.flapsDown = !this.flapsDown
+    return this.flapsDown ? 'down' : 'up'
+  }
+
+  /** The stall speed here, flaps as set, cargo aboard: √(g·mass / (lift·air)). Infinity in vacuum. */
+  stallSpeed(rho = this.atmosphere()): number { return rho > 0 ? Math.sqrt((this.terrain.g * this.massFactor()) / (JET_LIFT * (1 + JET_FLAP_LIFT * this.flaps) * rho)) : Infinity }
+  /** Approach speed: JET_VREF stall speeds with the flaps down. */
+  vRef(rho = this.atmosphere()): number { return rho > 0 ? JET_VREF * Math.sqrt((this.terrain.g * this.massFactor()) / (JET_LIFT * (1 + JET_FLAP_LIFT) * rho)) : Infinity }
 
   /** J: wings out in air, or back to hover. Says what happened, for the toast. */
   toggleJet(): 'jet' | 'hover' | 'no-air' | 'no' {
@@ -387,6 +418,7 @@ export class Craft {
     this.cruise = false
     this.jet = false
     this.flaps = 0
+    this.flapsDown = false
     this.accumulator = 0
     this.frameAt(this.time)
     this.syncHelio()
@@ -410,6 +442,7 @@ export class Craft {
     this.cruise = true
     this.jet = false
     this.flaps = 0
+    this.flapsDown = false
     this.hitRock = null
     this.accumulator = 0
     this.fieldWeight = 1
@@ -529,21 +562,31 @@ export class Craft {
     // Loaded, the ship turns as it climbs: slower by its mass.
     const mass = this.massFactor()
     if (this.jet) {
-      // The jet's stick: each axis chases stick × cap (see config); with the roll stick centred
-      // and the ship upright, the wings level themselves slowly, so inverted flight still holds.
+      // The keys drive a virtual stick that ramps and centres, and the surfaces bite less in slow
+      // air (authority scales with speed to a floor), so the keys are landable at Vref. Then each
+      // axis chases stick × cap (see config); with the roll stick centred and the ship upright,
+      // the wings level themselves slowly, so inverted flight still holds.
+      const ease = (now: number, want: number) => now + (want - now) * Math.min(1, h / (want !== 0 ? JET_STICK_RAMP : JET_STICK_CENTRE))
+      this.stick.set(ease(this.stick.x, c.pitch), ease(this.stick.y, c.yaw), ease(this.stick.z, c.roll))
+      this.nose.copy(BODY_FWD).applyQuaternion(this.hquat)
+      const vAir = Math.max(0, this.vRel.dot(this.nose))
+      const authority = Math.max(JET_AUTHORITY_MIN, Math.min(1, Math.pow(Math.max(0, vAir) / JET_AUTHORITY_SPEED, JET_AUTHORITY_EXP)))
+      this.authority = authority
       const k = 1 - Math.exp(-JET_RESPONSE * h)
-      let rollWant = -c.roll * JET_ROLL_RATE
-      if (Math.abs(c.roll) < 0.05) {
+      let rollWant = -this.stick.z * JET_ROLL_RATE * authority
+      if (Math.abs(this.stick.z) < 0.05) {
         this.bodyUp.copy(BODY_UP).applyQuaternion(this.hquat)
         this.bodyRight.set(1, 0, 0).applyQuaternion(this.hquat)
         if (this.bodyUp.dot(this.up) > 0) {
           const bank = Math.asin(Math.max(-1, Math.min(1, this.bodyRight.dot(this.up))))
-          if (Math.abs(bank) > JET_LEVEL_DEAD) rollWant = -bank / JET_LEVEL_TAU
+          const onFinal = this.flaps > 0.5 && alt - HULL_CLEARANCE < JET_FINAL_HEIGHT
+          if (onFinal) rollWant = -bank / JET_FINAL_LEVEL_TAU
+          else if (Math.abs(bank) > JET_LEVEL_DEAD) rollWant = -bank / JET_LEVEL_TAU
         }
       }
-      this.angVel.x += (-c.pitch * JET_PITCH_RATE - this.angVel.x) * k
+      this.angVel.x += (-this.stick.x * JET_PITCH_RATE * authority - this.angVel.x) * k
       this.angVel.z += (rollWant - this.angVel.z) * k
-      this.angVel.y += (-c.yaw * JET_YAW_RATE - this.angVel.y) * k
+      this.angVel.y += (-this.stick.y * JET_YAW_RATE * authority - this.angVel.y) * k
     } else {
       this.angVel.x -= (c.pitch * ANG_ACCEL * h) / mass
       this.angVel.z -= (c.roll * ANG_ACCEL * h) / mass
@@ -562,20 +605,33 @@ export class Craft {
       // a real wing's tilted lift would give, so you roll and it turns; roll level and it stops.
       this.bodyUp.copy(BODY_UP).applyQuaternion(this.hquat)
       this.bodyRight.set(1, 0, 0).applyQuaternion(this.hquat)
-      const cosBank = Math.max(0.2, this.bodyUp.dot(this.up))
-      const tanBank = Math.max(-JET_BANK_MAX_TAN, Math.min(JET_BANK_MAX_TAN, this.bodyRight.dot(this.up) / cosBank))
+      const cosBank = this.bodyUp.dot(this.up)
+      // Upright only: inverted, a clamp here span the ship flat out and the split-S never pulled through.
+      const tanBank = cosBank > 0.2 ? Math.max(-JET_BANK_MAX_TAN, Math.min(JET_BANK_MAX_TAN, this.bodyRight.dot(this.up) / cosBank)) : 0
       const vFwd = Math.max(30, this.vRel.dot(this.nose.copy(BODY_FWD).applyQuaternion(this.hquat)))
       const turn = (gravityAt(r, this.terrain) * tanBank) / vFwd
       if (Math.abs(turn) > 1e-6) { this.dq.setFromAxisAngle(this.up, turn * h); this.hquat.premultiply(this.dq).normalize() }
     }
 
     const boostMult = this.jet ? JET_BOOST_MULT : BOOST_MULT
-    const mainThrust = (THRUST_ACCEL * c.thrust * (1 + c.boost * (boostMult - 1))) / mass
+    // The approach autothrottle: flaps down, no throttle or brake held, and the engine holds Vref on its own.
+    let throttle = c.thrust
+    const feetNow = alt - HULL_CLEARANCE
+    if (!this.jet || this.flaps <= 0.5 || c.thrust > 0 || feetNow > 2 * JET_RETARD_HEIGHT) this.retarded = false
+    else if (feetNow < JET_RETARD_HEIGHT) this.retarded = true
+    if (this.jet && this.flaps > 0.5 && c.thrust === 0 && c.vertical >= 0 && rhoNow > 0 && !this.retarded) {
+      this.nose.copy(BODY_FWD).applyQuaternion(this.hquat)
+      const vAir = this.vRel.dot(this.nose)
+      throttle = Math.max(0, Math.min(1, (this.vRef(rhoNow) - vAir) / JET_AUTOTHROTTLE_BAND))
+    }
+    this.throttle = throttle
+    this.thrusting = throttle > 0
+    const mainThrust = (THRUST_ACCEL * throttle * (1 + c.boost * (boostMult - 1))) / mass
     const cap = this.cap()
     // What this substep costs. Boost multiplies burn the way it multiplies thrust; the
     // cruise brake burns like the cruise engine; the RCS sips.
     const noseDrive = this.cruise || this.jet
-    this.burn = c.thrust * (noseDrive ? FUEL_CRUISE_BURN : FUEL_HOVER_BURN) * (1 + c.boost * (boostMult - 1))
+    this.burn = throttle * (noseDrive ? FUEL_CRUISE_BURN : FUEL_HOVER_BURN) * (1 + c.boost * (boostMult - 1))
       + (noseDrive && c.vertical < 0 ? FUEL_CRUISE_BURN * CRUISE_BRAKE : 0)
       + FUEL_RCS_BURN * (Math.abs(c.lateral) + (noseDrive ? 0 : Math.abs(c.vertical)) + Math.abs(c.fore))
     this.fuel = Math.max(0, this.fuel - this.burn * h)
@@ -598,7 +654,7 @@ export class Craft {
       // the nose. Under the stall speed the lift falls short and the ship sinks.
       this.nose.copy(BODY_FWD).applyQuaternion(this.hquat)
       this.bodyUp.copy(BODY_UP).applyQuaternion(this.hquat)
-      if (c.thrust > 0) this.acc.addScaledVector(this.nose, mainThrust)
+      if (throttle > 0) this.acc.addScaledVector(this.nose, mainThrust)
       const vFwd = Math.max(0, this.vRel.dot(this.nose))
       const g = gravityAt(r, this.terrain)
       // Signed: upright the wing pushes toward the canopy, inverted toward the belly (a wing
@@ -608,10 +664,18 @@ export class Craft {
       const can = Math.min((JET_LIFT * (1 + JET_FLAP_LIFT * this.flaps) * rhoNow * vFwd * vFwd) / mass, JET_LIFT_MAX_G * g)
       this.acc.addScaledVector(this.bodyUp, Math.max(-can, Math.min(can, need)))
       this.liftRatio = g > 0 ? can / g : 1
+      // Wing ground effect: within JET_GE_HEIGHT of the ground the wing lifts more and the sink is cushioned, fading with height.
+      const feetJ = alt - HULL_CLEARANCE
+      if (feetJ < JET_GE_HEIGHT && feetJ > 0.5 && rhoNow > 0) {   // and none in the last half metre, or the cushion holds the wheels off the ground for ever
+        const kGe = 1 - Math.max(0, feetJ) / JET_GE_HEIGHT
+        this.acc.addScaledVector(this.up, JET_GE_LIFT * kGe * g * Math.min(1, this.liftRatio))
+        const vUpJ = this.vRel.dot(this.up)
+        if (vUpJ < 0) this.acc.addScaledVector(this.up, -vUpJ * JET_GE_DAMP * kGe)
+      }
       // Pulling costs speed: induced drag along the flight path with the pitch stick.
-      if (c.pitch !== 0 && vFwd > 1) this.acc.addScaledVector(this.nose, -JET_INDUCED * Math.abs(c.pitch))
-      // Flaps and the airbrake: / runs the flaps out (drag and lift below), and brakes along the nose.
-      this.flaps += ((c.vertical < 0 ? 1 : 0) - this.flaps) * Math.min(1, h / JET_FLAP_TIME)
+      if (vFwd > 1) this.acc.addScaledVector(this.nose, -JET_INDUCED * Math.abs(this.stick.x) * this.authority)   // by the stick's bite, so a tap on final costs a little and a pull at speed costs a lot
+      // Flaps run to their setting (drag and lift above); / is the airbrake along the nose.
+      this.flaps += ((this.flapsDown ? 1 : 0) - this.flaps) * Math.min(1, h / JET_FLAP_TIME)
       if (c.vertical < 0) {
         const vPar = this.vRel.dot(this.nose)
         if (vPar > 0) this.acc.addScaledVector(this.nose, -Math.min(THRUST_ACCEL * CRUISE_BRAKE, vPar / h))
@@ -661,7 +725,7 @@ export class Craft {
       // the ship mushes and well under it, it drops instead of being steered by wings with no air.
       const ratio = Math.min(1, (JET_LIFT * (1 + JET_FLAP_LIFT * this.flaps) * rhoNow * vPar * vPar) / (gravityAt(r, this.terrain) * this.massFactor()))
       const grip = ratio * ratio
-      const bleed = 1 - Math.exp((-h * grip) / JET_ALIGN_TAU)
+      const bleed = 1 - Math.exp((-h * grip * this.authority) / JET_ALIGN_TAU)   // slow air: the path lags the nose, about a second at Vref
       this.vRel.addScaledVector(this.nose, -vPar).multiplyScalar(1 - bleed).addScaledVector(this.nose, vPar)
       this.hvel.copy(this.frameVel).add(this.vRel)
     }
@@ -706,16 +770,71 @@ export class Craft {
       // Contact damage (DESIGN §10): none inside the limits; over them it adds to the hull's.
       // Short of a whole hull it is a hard landing, gear bent; at a whole hull, or any hard
       // contact with water, it is a wreck.
-      // A jet landing on a runway (DESIGN §10l-2): inside the strip, within RUNWAY_HEADING_DEG of
-      // its heading, sinking under the limit and near level, the speed along the strip is kept
-      // and the ship rolls out on its wheels instead of failing the drift limit.
+      // Touchdown in the jet on a runway (config: the TOUCH_ bands). Sink, bank, nose and speed
+      // decide between a rollout, a bounce, a hard landing and a wreck, the way gear behaves.
       const rw = this.jet ? onRunway(this.localDir, this.terrain) : null
-      if (rw && vUp > -LAND_MAX_VSPEED && tilt < LAND_MAX_TILT) {
-        this.nose.copy(BODY_FWD).applyQuaternion(this.hquat).applyQuaternion(this.spinInv)
-        const alongCos = Math.abs(this.nose.x * rw.site.along!.x + this.nose.y * rw.site.along!.y + this.nose.z * rw.site.along!.z)
-        if (alongCos > Math.cos((RUNWAY_HEADING_DEG * Math.PI) / 180)) {
+      this.bodyRight.set(1, 0, 0).applyQuaternion(this.hquat)
+      const bankAtTouch = (Math.asin(Math.max(-1, Math.min(1, Math.abs(this.bodyRight.dot(this.up))))) * 180) / Math.PI
+      if (this.jet && !rw && vUp > -TOUCH_BOUNCE && bankAtTouch < 2 * TOUCH_BANK_DEG && isDry(this.localDir, this.terrain)) {   // bank, not tilt: a nose-up flare is not a wing in the ground
+        // Onto the grass beside the paving, short of a hard hit: a rough rollout, gear bent, hull damaged, not a wreck.
+        this.lastTouch = 'grass'
+        this.onGrass = true
+        this.gearBent = true
+        this.damage = Math.min(1, this.damage + 0.3)
+        this.jet = false
+        this.flaps = 0
+        this.flapsDown = false
+        this.lastContact = { vUp, vH, tilt, slope }
+        this.contactVel.copy(this.vRel).applyQuaternion(this.spinInv)
+        this.syncLocal()
+        this.up.copy(this.pos).normalize()
+        this.pos.copy(this.up).multiplyScalar(ground + HULL_CLEARANCE)
+        this.vel.copy(this.contactVel).addScaledVector(this.up, -this.contactVel.dot(this.up))
+        this.angVel.set(0, 0, 0)
+        this.state = 'rolling'
+        this.alignTo(surfaceNormal(this.up, this.terrain, this.n), this.vel)
+        this.rest()
+        this.syncHelio()
+        return
+      }
+      if (rw) {
+        this.nose.copy(BODY_FWD).applyQuaternion(this.hquat)
+        const noseUpDeg = (Math.asin(Math.max(-1, Math.min(1, this.nose.dot(this.up)))) * 180) / Math.PI
+        this.bodyRight.set(1, 0, 0).applyQuaternion(this.hquat)
+        const bankDeg = (Math.asin(Math.max(-1, Math.min(1, Math.abs(this.bodyRight.dot(this.up))))) * 180) / Math.PI
+        const sink = -vUp
+        const vAir = this.vRel.dot(this.nose)
+        const fast = vAir > TOUCH_FAST * this.stallSpeed(rhoNow)
+        // Aligned means the wheels are going down the strip: the ground track within RUNWAY_HEADING_DEG,
+        // and the nose crabbed no more than 25° off it (a crosswind landing).
+        this.nose.applyQuaternion(this.spinInv)
+        const noseCos = Math.abs(this.nose.x * rw.site.along!.x + this.nose.y * rw.site.along!.y + this.nose.z * rw.site.along!.z)
+        this.tmp.copy(this.vRel).addScaledVector(this.up, -vUp).applyQuaternion(this.spinInv)
+        const trackLen = this.tmp.length()
+        const trackCos = trackLen > 1 ? Math.abs(this.tmp.x * rw.site.along!.x + this.tmp.y * rw.site.along!.y + this.tmp.z * rw.site.along!.z) / trackLen : 1
+        const aligned = trackCos > Math.cos((RUNWAY_HEADING_DEG * Math.PI) / 180) && noseCos > Math.cos((25 * Math.PI) / 180)
+        const wingIn = bankDeg > 2 * TOUCH_BANK_DEG
+        if (aligned && !wingIn && sink < TOUCH_HARD) {
+          const bounce = sink > TOUCH_BOUNCE ? false : sink > TOUCH_FIRM || noseUpDeg < -TOUCH_NOSE_DOWN_DEG || bankDeg > TOUCH_BANK_DEG || fast
+          if (bounce) {
+            // The gear throws it back up: the sink comes back as climb, less the strut's give; it keeps flying.
+            this.bounces++
+            this.bounceWhy = sink > TOUCH_FIRM ? 'sink' : noseUpDeg < -TOUCH_NOSE_DOWN_DEG ? 'nose-down' : bankDeg > TOUCH_BANK_DEG ? 'bank' : 'fast'
+            this.lastTouch = 'bounce'
+            if (sink > BOUNCE_DAMAGE_SINK) { this.damage = Math.min(1, this.damage + 0.05); this.gearBent = true }
+            this.lastContact = { vUp, vH, tilt, slope }
+            this.vRel.addScaledVector(this.up, -vUp + Math.max(BOUNCE_MIN_UP, sink * BOUNCE_RESTITUTION))
+            this.hvel.copy(this.frameVel).add(this.vRel)
+            this.hpos.addScaledVector(this.up, (ground + HULL_CLEARANCE + 0.05) - r2)
+            this.syncLocal()
+            return
+          }
+          const hard = sink > TOUCH_BOUNCE || noseUpDeg > TOUCH_NOSE_UP_DEG
+          this.lastTouch = hard ? 'hard' : sink > 2 ? 'firm' : 'roll'
+          if (hard) { this.gearBent = true; this.damage = Math.min(1, this.damage + 0.3) }
           this.jet = false
-    this.flaps = 0
+          this.flaps = 0
+          this.flapsDown = false
           this.lastContact = { vUp, vH, tilt, slope }
           this.contactVel.copy(this.vRel).applyQuaternion(this.spinInv)
           this.syncLocal()
@@ -966,10 +1085,12 @@ export class Craft {
    */
   private rollStep(h: number, c: Controls): void {
     this.burn = 0
+    this.throttle = 0
     this.stepBolts(h)
     this.heat(0, 0, h)
     if (c.thrust > 0 || c.vertical > 0) {
       this.state = 'flying'
+      this.onGrass = false
       this.frameAt(this.time)
       this.syncHelio()
       return
@@ -985,8 +1106,9 @@ export class Craft {
     this.vel.addScaledVector(this.up, -this.vel.dot(this.up))
     if (this.vel.lengthSq() > 0.01) this.alignTo(surfaceNormal(this.up, this.terrain, this.n), this.vel)
     const left = speed - dv
-    if (!onRunway(this.up, this.terrain) && left > LAND_MAX_HSPEED) {
-      // Off the paving at speed: a wreck, on the same terms as any hard contact.
+    const offPaving = !onRunway(this.up, this.terrain)
+    if (offPaving && left > EXCURSION_WRECK && !this.onGrass) {
+      // Off the paving fast: a wreck, on the same terms as any hard contact.
       this.lastContact = { vUp: 0, vH: left, tilt: 0, slope: 0 }
       this.contactVel.copy(this.vel)
       this.vel.set(0, 0, 0)
@@ -994,10 +1116,15 @@ export class Craft {
       this.damage = 1
       this.crashes++
       this.rest()
+    } else if (offPaving && left > 0.5) {
+      // Off the paving slower: the grass drags it to a rough stop, gear bent.
+      if (!this.gearBent) { this.gearBent = true; this.damage = Math.min(1, this.damage + 0.15); this.lastTouch = 'grass' }
+      this.vel.multiplyScalar(Math.max(0, 1 - (2 * ROLL_DECEL * h) / Math.max(left, 1e-6)))
     } else if (left < 0.5) {
       this.vel.set(0, 0, 0)
       this.state = 'landed'
       this.landings++
+      this.onGrass = false
       this.rest()
     }
     this.time += h

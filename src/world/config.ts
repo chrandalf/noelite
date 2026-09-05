@@ -197,6 +197,9 @@ export const JET_RESPONSE = 6
 /** Wings level themselves with the roll stick centred and the ship upright: seconds, and the dead band in radians. Slow, so a held bank still turns you. */
 export const JET_LEVEL_TAU = 2.5
 export const JET_LEVEL_DEAD = 0.14
+/** On final (flaps down, under JET_FINAL_HEIGHT) the wings level themselves in this many seconds with no dead band: the wing leveller every arcade sim has on landing. */
+export const JET_FINAL_LEVEL_TAU = 0.6
+export const JET_FINAL_HEIGHT = 40
 /** m/s² of speed lost along the flight path per unit of pitch stick: pulling costs speed, so the throttle matters in a loop. */
 export const JET_INDUCED = 4.5
 /** The steepest bank the coordinated turn honours, as tan(bank). */
@@ -206,6 +209,61 @@ export const ROLL_DECEL = 3
 export const ROLL_BRAKE = 9
 export const ROLL_STEER = 0.35
 export const RUNWAY_HEADING_DEG = 15
+
+/**
+ * Landing, done the way the real thing works (Chris, 2026-09-05: "too easy to crash on the
+ * runway, the keys are too sensitive when trying to land, plus if you hit the floor too hard
+ * with your wheels you usually bounce"; research/landing-2026-09-05.md, written from the
+ * gear certification rules and the sims). Sink rates are metres a second at touchdown.
+ * FAR 25 certifies transport gear to 10 ft/s (3 m/s) and fighters to about 13; carrier jets
+ * to 22 to 25 ft/s (7 m/s). Airline touchdowns run 60 to 180 ft/min; over 600 ft/min (3 m/s)
+ * is a hard landing that grounds the aircraft for inspection.
+ */
+/** Up to this sink it rolls out; a touch over 2 m/s is called firm. */
+export const TOUCH_FIRM = 3.0
+/** Between TOUCH_FIRM and this the gear throws you back up: a bounce, and a little damage past 4.5. */
+export const TOUCH_BOUNCE = 6.0
+/** Between TOUCH_BOUNCE and this it is a hard landing: rolls out, gear bent, hull damage. Past it, a wreck. */
+export const TOUCH_HARD = 9.0
+/** Degrees of bank at touchdown before a wingtip goes in: a bounce up to twice this, a wreck past that. */
+export const TOUCH_BANK_DEG = 8
+/** Nose under the horizon by more than this at touchdown is wheelbarrowing: it bounces. */
+export const TOUCH_NOSE_DOWN_DEG = 3
+/** Nose over this is a tail strike: a hard landing. */
+export const TOUCH_NOSE_UP_DEG = 16
+/** Faster than this many stall speeds (flaps) and the wings still fly: it skips back off, a bounce. */
+export const TOUCH_FAST = 1.6
+/** A bounce over this sink bends the gear and marks the hull; under it, it is just a bounce. */
+export const BOUNCE_DAMAGE_SINK = 5.5
+/** How much of the sink a bounce gives back, and the least it throws you up. */
+export const BOUNCE_RESTITUTION = 0.3
+export const BOUNCE_MIN_UP = 1.0
+/** Running off the paving faster than this is a wreck; slower is a rough stop in the grass with the gear bent. */
+export const EXCURSION_WRECK = 30
+
+/**
+ * The keys on approach. A keyboard is a switch, so the jet flies a virtual stick: it ramps to
+ * full in JET_STICK_RAMP seconds and centres in JET_STICK_CENTRE (DCS and MSFS keyboard
+ * ramps run 0.3 to 0.5 s), and the control surfaces have less bite in slow air: authority
+ * falls with speed under JET_AUTHORITY_SPEED to a floor, so at Vref the stick is about a third
+ * of what it is at cruise (dynamic pressure scaling, every sim does it).
+ */
+export const JET_STICK_RAMP = 0.35
+export const JET_STICK_CENTRE = 0.2
+export const JET_AUTHORITY_SPEED = 180
+/** Authority is (v / JET_AUTHORITY_SPEED) to this power, never under the floor: at Vref (64 m/s) about a fifth, so pitch 14°/s and roll 46°/s, which is what a jet feels like on final. The flight path lags the nose by JET_ALIGN_TAU over the same authority, about a second at Vref. */
+export const JET_AUTHORITY_EXP = 1.5
+export const JET_AUTHORITY_MIN = 0.15
+/** Flaps are a setting (B toggles); the airbrake is a hold (/). Vref is this many stall speeds with the flaps down (FAR: 1.3 Vs0). */
+export const JET_VREF = 1.3
+/** With the flaps down and no throttle held, the engine holds Vref on its own (an approach autothrottle), full within this many m/s under it. */
+export const JET_AUTOTHROTTLE_BAND = 8
+/** The autothrottle retards to idle under this height over the ground (feet), the way RETARD is called at 20 to 30 ft, so the speed bleeds and the aircraft settles in the flare. */
+export const JET_RETARD_HEIGHT = 10
+/** Wing ground effect inside this many metres of the ground: extra lift and a cushion against sink, both fading with height. Within a wingspan, the real thing. */
+export const JET_GE_HEIGHT = 10
+export const JET_GE_LIFT = 0.15
+export const JET_GE_DAMP = 0.3   // 0.8 held a stalled ship up at a lift ratio of 0.4 and floated it 400 m down the strip
 
 // ---- Fuel (2026-09-03). The first number that gates reach. ----
 

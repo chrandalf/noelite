@@ -1505,3 +1505,63 @@ game is the same system.
 Order: craters and the moon's landmark first (the moon is the first place anyone goes), then
 the seed, then the rest. Built on a branch beside play, like the jet.
 
+## 10q. Landing, done properly (Chris, 2026-09-05, late: "too easy to crash on the runway, the keys are too sensitive when trying to land, plus if you hit the floor too hard with your wheels you usually bounce. have a look at how flight sim landing really work, get this right, don't just build and assume everything is alright")
+
+The research agents hit the session's usage wall and wrote nothing, so the numbers below come
+from the certification rules and the sims as I know them, written up in
+`research/landing-2026-09-05.md` with that caveat on top. The instrument is the thing: flight
+harness §38 flies twenty approaches with a keyboard pilot that is deliberately not very good
+(binary keys, a decision every 0.3 s, noise), and then touches down at set sinks, attitudes
+and speeds to check every band. Before any of this, that pilot wrecked twenty of twenty. After,
+sixteen roll out, three are rough, one wrecks.
+
+**The keys on approach.** A keyboard is a switch, so the jet flies a virtual stick: the keys
+ramp it to full in 0.35 s and it centres in 0.2 s (the keyboard ramps in DCS and MSFS run 0.3 to
+0.5 s). The surfaces bite less in slow air: authority is (v/180)^1.5, never under 0.15, so at
+Vref it is a fifth: pitch 14°/s, roll 46°/s, and the flight path lags the nose by about a
+second (0.2 s over the authority). Pulling costs speed by the stick's bite, not the key.
+
+**Flaps are a setting.** B toggles them (0.8 s to run out); / is the airbrake. With the flaps
+down and no throttle held, the engine holds Vref (1.3 stall speeds, 64 m/s empty) on its own,
+and retards to idle under 10 m so the speed bleeds and the aircraft settles (RETARD at 20 to 30
+ft). Wing ground effect inside 10 m: 15% more lift and a cushion against sink, both fading with
+height and off entirely in the last half metre (a cushion there held the wheels off the ground
+for ever). Under 40 m with the flaps down the wings level themselves in 0.6 s with the roll key
+up: the leveller every arcade sim has on final.
+
+**Touchdown bands** (sink in m/s; FAR 25 certifies transport gear to 3, fighters to about 4,
+carrier jets to 7; over 3 grounds an airliner for inspection). Aligned means the ground track
+is within 15° of the strip and the nose crabbed no more than 25° off it.
+
+| Touch | Outcome |
+|---|---|
+| sink < 3, nose between −3° and +16°, bank < 8°, under 1.6 stall speeds, aligned, on the strip | rolls out (called firm over 2) |
+| sink 3 to 6, or nose under −3° (wheelbarrow), or bank 8° to 16°, or too fast | a bounce: the sink comes back as climb at 0.3, it keeps flying; over 5.5 the gear bends |
+| sink 6 to 9, or nose over 16° (tail strike) | a hard landing: rolls out, gear bent, hull marked |
+| sink over 9, or bank over 16°, or wet, or across the strip | a wreck |
+| gently onto the grass beside the paving (sink < 6, bank < 16°) | a rough rollout in the grass, gear bent, hull marked |
+| off the paving during the rollout over 30 m/s | a wreck; slower, the grass drags it to a stop |
+
+**On final** the HUD carries the nearest runway's distance, the heading to it, HIGH / ON GLIDE
+/ LOW against a 3° slope, the sink and Vref, and the compass carries the threshold.
+
+**What the pilot taught me, in order:** flaps and airbrake on one key made every approach a
+stall (the first twenty wrecks); an autothrottle that does not retard floats for ever; a
+cushion proportional to sink never touches; a pull-costs-speed term on the key rather than the
+stick bleeds 30 m/s in a flare; and a heading gate on the nose fails every crosswind landing
+that the wheels would have taken. Each of those was a wrong assumption of mine, found by the
+instrument, not by flying it.
+
+**Not shipped:** the split-S (K says NOT YET): with the lagged stick it pulls through but comes
+out 60° off heading; the Immelmann works. The bounce toast says why you bounced.
+
+### The physics rule (Chris, 2026-09-05: "physics is so important in this game, I need you to be proactive and look at everything, if a golf ball was hit would it have the momentum it should etc")
+
+Standing order from tonight: every mechanic that moves something gets its numbers from the
+real thing first (gear limits, stall speeds, drag, restitution, momentum), then a harness
+check that the model gives those numbers back, then the arcade fudge on top if it needs one,
+named as a fudge. A thing that looks right and measures wrong is wrong. Next audit targets:
+the hover ship's contact and bounce (it stops dead on touch; a real skid slides), the boob's
+shove (momentum should carry the boob too), cargo mass in turns, the wreck facets' energy, and
+the asteroid hits.
+

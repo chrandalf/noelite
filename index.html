@@ -136,6 +136,7 @@
       #compass .tick.field { color: #c8b8a0; }
       #compass .tick.seam { color: #8ff0e0; }
       #compass .tick.contact { color: #ffb6c1; }
+      #compass .tick.runway { color: #9ff09f; }
       .nav.edge::after {
         content: ''; position: absolute; left: 50%; top: -14px; width: 0; height: 0;
         border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 10px solid currentColor;
@@ -174,10 +175,11 @@
           <tr><td>A / D  ← / →</td><td>roll</td></tr>
           <tr><td>Q / E</td><td>yaw</td></tr>
           <tr><td>,  .</td><td>side thrusters</td></tr>
-          <tr><td>B  or  /</td><td>the brake: top thruster in hover (pushes down), brake in cruise, flaps and airbrake in the jet (the jet has no side or top thrusters)</td></tr>
+          <tr><td>B</td><td>in the jet: flaps down or up. Flaps down, the engine holds Vref on its own and the HUD and compass show the nearest runway, the glide and the sink</td></tr>
+          <tr><td>/</td><td>top thruster in hover (pushes down), brake in cruise, airbrake in the jet (the jet has no side or top thrusters)</td></tr>
           <tr><td>'</td><td>rear thruster, pushes forward</td></tr>
           <tr><td>F</td><td>the cannons: hold to fire; they only come out in cruise</td></tr>
-          <tr><td>I  K</td><td>in the jet: I is an Immelmann (up and over, back the way you came, higher), K a split-S (roll and pull through, lower and faster); your own stick cancels</td></tr>
+          <tr><td>I</td><td>in the jet: an Immelmann (up and over, back the way you came, higher); your own stick cancels. K, the split-S, is not shipped yet</td></tr>
           <tr><td>J</td><td>jet mode, in air: wings out, engine along the nose, bank to turn, sink under the stall speed; J again for hover, which is how you land</td></tr>
           <tr><td>G</td><td>the scanner: pings the nearest seam on this body onto the compass</td></tr>
           <tr><td>U</td><td>landed on a seam: dig a pod; landed at a town: sell what you carry</td></tr>
